@@ -2879,6 +2879,12 @@ add_executable(aether_gate_applet_test
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
 )
 target_include_directories(aether_gate_applet_test PRIVATE src tests)
 target_link_libraries(aether_gate_applet_test PRIVATE
@@ -2887,6 +2893,35 @@ target_link_libraries(aether_gate_applet_test PRIVATE
 set_target_properties(aether_gate_applet_test PROPERTIES AUTOMOC ON)
 add_test(NAME aether_gate_applet_test COMMAND aether_gate_applet_test)
 set_tests_properties(aether_gate_applet_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The pop-out Diversity window built from that same applet. Separate binary
+# rather than more cases in aether_gate_applet_test: the window's own
+# DiversityWindowVisible/DiversityWindowGeometry state is process-wide
+# AppSettings, and a case that opens the window would otherwise leak that
+# state into every applet case that follows it. Socket-free the same way --
+# the applet under it takes the injected QNetworkAccessManager.
+add_executable(diversity_window_test
+    tests/diversity_window_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_window_test PRIVATE src tests)
+target_link_libraries(diversity_window_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_window_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_window_test COMMAND diversity_window_test)
+set_tests_properties(diversity_window_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(meter_applet_capability_test

@@ -5,6 +5,8 @@
 #include "gui/AetherGateDiversityFormat.h"
 #include "gui/DiversityMapStrip.h"
 #include "gui/DiversityScope.h"
+#include "gui/DiversityWindow.h"
+#include "gui/DiversityWindowPanels.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -50,6 +52,18 @@ static const char* kRowLabelStyle =
 // RadioSetupDialog::addSectionHeader already uses for its own section
 // captions, adapted to a QToolButton selector so the arrow/checked state
 // still reads as a caption rather than an ordinary button.
+// Persisted open/shut state of the pop-out window, in the "True"/"False"
+// AppSettings shape the collapsible headers use. Geometry is PersistentDialog's
+// own job, under DiversityWindowGeometry.
+static const char* kWindowVisibleKey = "DiversityWindowVisible";
+
+// The "Open window" accessory on the Combine header row: styled off the
+// caption's own token rather than as a button competing with it.
+static const char* kOpenWindowStyle =
+    "QToolButton { color: {{color.accent}}; font-size: 10px; font-weight: bold; "
+    "padding: 4px 4px 1px 4px; border: none; }"
+    "QToolButton:hover { color: {{color.accent.bright}}; }";
+
 static const char* kDiversityHeaderStyle =
     "QToolButton { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold; "
     "padding: 4px 0 1px 0; border: none; text-align: left; }";
@@ -138,8 +152,23 @@ AetherGateDiversityPanel::AetherGateDiversityPanel(QWidget* parent)
     m_scope = new DiversityScope(combineContent);
     combineForm->addRow(m_scope);
 
+    // The window's only entry point -- on the Combine HEADER row, so it stays
+    // reachable with every section collapsed.
+    m_openWindowButton = new QToolButton(this);
+    m_openWindowButton->setObjectName(QStringLiteral("gateDiversityOpenWindowButton"));
+    m_openWindowButton->setText(tr("Open window"));
+    m_openWindowButton->setAccessibleName(tr("Open the diversity window"));
+    m_openWindowButton->setAutoRaise(true);
+    m_openWindowButton->setToolTip(tr("Open the full Diversity window — the same "
+                                       "controls, with a large scope, per-antenna "
+                                       "meters and the remembered-station list."));
+    ThemeManager::instance().applyStyleSheet(m_openWindowButton,
+                                             QString::fromLatin1(kOpenWindowStyle));
+    connect(m_openWindowButton, &QToolButton::clicked, this,
+            &AetherGateDiversityPanel::toggleWindow);
+
     addCollapsibleSection(root, tr("Combine"), QStringLiteral("Combine"), QStringLiteral("Combine"),
-                           /*defaultExpanded=*/true, combineContent);
+                           /*defaultExpanded=*/true, combineContent, m_openWindowButton);
 
     // === Listen ===============================================================
     auto* listenContent = new QWidget(this);
@@ -208,10 +237,8 @@ AetherGateDiversityPanel::AetherGateDiversityPanel(QWidget* parent)
     m_statusLine = new QLabel(QStringLiteral("—"), listenContent);
     m_statusLine->setObjectName(QStringLiteral("gateDiversityStatusLabel"));
     // Fixed width, not word-wrap -- DiversityFormat::status() returns one of
-    // three short, fixed phrases rather than a line that grows with live
-    // numbers, but even that small a set of widths still shifted the box
-    // next to it by a few px between them -- a minimum width sized to the
-    // longest of the three absorbs that instead of the layout doing it.
+    // three short fixed phrases, but even those three widths shifted the box
+    // beside it; a minimum sized to the longest absorbs that.
     styleRowLabel(m_statusLine);
     {
         const QFontMetrics fm = m_statusLine->fontMetrics();
@@ -282,8 +309,7 @@ AetherGateDiversityPanel::AetherGateDiversityPanel(QWidget* parent)
 
     // --- the noise map -------------------------------------------------------
     // Full-width: DiversityMapStrip paints its bars against its OWN width(),
-    // so confining it to the field column would compress every bar into a
-    // narrower strip than the coherence data actually spans.
+    // so the field column would compress the whole coherence span.
     m_mapStrip = new DiversityMapStrip(noiseContent);
     m_mapStrip->setObjectName(QStringLiteral("gateDiversityMapStrip"));
     noiseForm->addRow(m_mapStrip);
@@ -415,7 +441,8 @@ QToolButton* AetherGateDiversityPanel::addCollapsibleSection(QVBoxLayout* root,
                                                                const QString& objectNameSuffix,
                                                                const QString& settingsKey,
                                                                bool defaultExpanded,
-                                                               QWidget* content)
+                                                               QWidget* content,
+                                                               QWidget* headerAccessory)
 {
     auto* header = new QToolButton(this);
     header->setObjectName(QStringLiteral("gateDiversity%1Header").arg(objectNameSuffix));
@@ -427,10 +454,9 @@ QToolButton* AetherGateDiversityPanel::addCollapsibleSection(QVBoxLayout* root,
     header->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     ThemeManager::instance().applyStyleSheet(header, QString::fromLatin1(kDiversityHeaderStyle));
 
-    // Persisted the way WaveApplet persists its own settings-drawer open
-    // state ("WaveApplet_DrawerExpanded", src/gui/WaveApplet.cpp) — a plain
-    // AppSettings string key, "True"/"False", read back with the caller's
-    // default when the key has never been written.
+    // Persisted the way WaveApplet persists its settings-drawer open state
+    // ("WaveApplet_DrawerExpanded") — a plain "True"/"False" AppSettings key,
+    // read back with the caller's default when never written.
     const QString key = QStringLiteral("AetherGateDiversityPanel_%1Expanded").arg(settingsKey);
     const bool expanded = AppSettings::instance()
         .value(key, defaultExpanded ? QStringLiteral("True") : QStringLiteral("False"))
@@ -451,13 +477,53 @@ QToolButton* AetherGateDiversityPanel::addCollapsibleSection(QVBoxLayout* root,
                                                   : QStringLiteral("False"));
     });
 
-    root->addWidget(header);
+    if (headerAccessory) {
+        auto* headerRow = new QWidget(this);
+        auto* headerLayout = new QHBoxLayout(headerRow);
+        headerLayout->setContentsMargins(0, 0, 0, 0);
+        headerLayout->setSpacing(4);
+        headerLayout->addWidget(header, 1);
+        headerLayout->addWidget(headerAccessory);
+        root->addWidget(headerRow);
+    } else {
+        root->addWidget(header);
+    }
     root->addWidget(content);
     return header;
 }
 
+// Built once and then kept -- re-creating it on every open would throw away
+// the scope's weight trail. Every write it makes is re-emitted as one of THIS
+// panel's own request signals by DiversityWindow::createFor(), so the applet's
+// transport wiring never has to know the window exists.
+DiversityWindow* AetherGateDiversityPanel::window() const
+{
+    return m_window.data();
+}
+
+void AetherGateDiversityPanel::toggleWindow()
+{
+    if (!m_window) {
+        m_window = DiversityWindow::createFor(this);
+        m_window->setPresent(m_present);
+    }
+    const bool wantVisible = !m_window->isVisible();
+    AppSettings::instance().setValue(QLatin1String(kWindowVisibleKey),
+                                      wantVisible ? QStringLiteral("True")
+                                                  : QStringLiteral("False"));
+    if (!wantVisible) {
+        m_window->hide();
+        return;
+    }
+    m_window->show();
+    m_window->raise();
+    m_window->activateWindow();
+}
+
 bool AetherGateDiversityPanel::wantsMapPoll() const
 {
+    if (m_window && m_window->isVisible())
+        return true;
     return !isHidden() && m_noiseHeader && m_noiseHeader->isChecked();
 }
 
@@ -479,6 +545,9 @@ bool AetherGateDiversityPanel::eventFilter(QObject* obj, QEvent* event)
 void AetherGateDiversityPanel::setPresent(bool present)
 {
     m_present = present;
+    // Stays OPEN across a gate drop, but every readout in it clears.
+    if (m_window)
+        m_window->setPresent(present);
     if (present)
         return;
 
@@ -489,9 +558,8 @@ void AetherGateDiversityPanel::setPresent(bool present)
     m_mapStrip->setMap({});
     m_scope->clear();
     // Covers the way the hold can end OTHER than a radio-address change
-    // (AetherGateApplet::setRadioAddress() calls restoreCompareHold()
-    // itself, before this): repeated poll failures with the address
-    // unchanged.
+    // (setRadioAddress() calls restoreCompareHold() itself, before this):
+    // repeated poll failures with the address unchanged.
     restoreCompareHold();
     // Every v2 widget that shows a PREVIOUS gate's data rather than just a
     // setpoint the operator can freely re-enter: without this, a reconnect
@@ -523,6 +591,21 @@ void AetherGateDiversityPanel::restoreCompareHold()
 
 void AetherGateDiversityPanel::applyDiversity(const QJsonObject& d, bool isJson)
 {
+    // The earliest moment reopening the window makes sense -- m_windowRestored.
+    if (!m_windowRestored && isJson && d.value(QStringLiteral("available")).toBool()) {
+        m_windowRestored = true;
+        if (!m_window
+            && AppSettings::instance()
+                   .value(QLatin1String(kWindowVisibleKey), QStringLiteral("False"))
+                   .toString() == QStringLiteral("True")) {
+            toggleWindow();
+        }
+    }
+    // Fed unconditionally: the not-JSON and not-available cases are how the
+    // window clears itself.
+    if (m_window)
+        m_window->applyDiversity(d, isJson);
+
     if (!isJson) {
         setVisible(false);
         return;
@@ -659,72 +742,26 @@ void AetherGateDiversityPanel::applyDiversity(const QJsonObject& d, bool isJson)
     m_scope->setState(d);
 }
 
-// Rebuilds gateDiversitySourcesList only when the built row strings actually
-// differ from what is already there, so scroll position and an untouched
-// selection survive a poll that reports back the identical sources array.
-//
-// When a rebuild IS needed, the previously selected item is re-found in the
-// new list by its own (lo_hz, hi_hz), not by its old row: "sources" is
-// gate-ordered and can shrink or reorder between polls, and restoring by raw
-// row number would silently point the Null button at a DIFFERENT source than
-// the one the operator selected.
+// The rebuild-only-on-change / restore-selection-by-(lo_hz, hi_hz) rules are
+// shared verbatim with DiversityWindow's own sources list, so they live in
+// DiversityWidgets::applySources() -- see its header comment.
 void AetherGateDiversityPanel::applySources(const QJsonArray& sources)
 {
-    QStringList rows;
-    QStringList tips;
-    rows.reserve(sources.size());
-    tips.reserve(sources.size());
-    for (const QJsonValue& v : sources) {
-        const QJsonObject so = v.toObject();
-        rows << DiversityFormat::sourceListText(so);
-        tips << DiversityFormat::sourceTooltip(so);
-    }
-
-    QStringList have;
-    QStringList haveTips;
-    have.reserve(m_sourcesList->count());
-    haveTips.reserve(m_sourcesList->count());
-    for (int i = 0; i < m_sourcesList->count(); ++i) {
-        have << m_sourcesList->item(i)->text();
-        haveTips << m_sourcesList->item(i)->toolTip();
-    }
-
-    // Compared on text AND tooltip: the short row text alone (freq + coh)
-    // can stay identical between two polls while phase/ratio -- visible only
-    // in the tooltip now -- moved, and that must still trigger a rebuild.
-    if (have != rows || haveTips != tips) {
-        const QVariant prevKey = m_sourcesList->currentItem()
-            ? m_sourcesList->currentItem()->data(Qt::UserRole)
-            : QVariant();
-        const QSignalBlocker block(m_sourcesList);
-        m_sourcesList->clear();
-        for (int i = 0; i < sources.size(); ++i) {
-            const QJsonObject so = sources[i].toObject();
-            auto* item = new QListWidgetItem(rows[i], m_sourcesList);
-            item->setToolTip(tips[i]);
-            item->setData(Qt::UserRole,
-                          QVariantList{so.value(QStringLiteral("lo_hz")).toDouble(),
-                                       so.value(QStringLiteral("hi_hz")).toDouble()});
-        }
-        if (prevKey.isValid()) {
-            for (int i = 0; i < m_sourcesList->count(); ++i) {
-                if (m_sourcesList->item(i)->data(Qt::UserRole) == prevKey) {
-                    m_sourcesList->setCurrentRow(i);
-                    break;
-                }
-            }
-        }
-    }
+    DiversityWidgets::applySources(m_sourcesList, sources);
     m_nullSourceButton->setEnabled(m_sourcesList->currentRow() >= 0);
 }
 
 void AetherGateDiversityPanel::applyMap(const QJsonObject& map)
 {
     m_mapStrip->setMap(map);
+    if (m_window)
+        m_window->applyMap(map);
 }
 
 void AetherGateDiversityPanel::applyCaptureResult(bool ok, const QString& pathOrError)
 {
+    if (m_window)
+        m_window->applyCaptureResult(ok, pathOrError);
     m_captureButton->setEnabled(true);
     if (!ok) {
         // An error this request itself reported must survive the very next

@@ -41,6 +41,11 @@ DiversityMapStrip::DiversityMapStrip(QWidget* parent) : QWidget(parent)
     connect(&tm, &ThemeManager::themeChanged, this, qOverload<>(&QWidget::update));
 }
 
+void DiversityMapStrip::setStripHeight(int px)
+{
+    setFixedHeight(std::max(8, px));
+}
+
 void DiversityMapStrip::setMap(const QJsonObject& map)
 {
     m_coherence.clear();

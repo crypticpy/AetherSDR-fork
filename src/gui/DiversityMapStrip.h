@@ -38,6 +38,12 @@ public:
     // blank row in the form layout.
     void setMap(const QJsonObject& map);
 
+    // Bar height, in px. 24 (the constructor default) is the sidebar's row;
+    // DiversityWindow gives it a much taller one, where the same coherence
+    // array is the panel's main noise readout rather than a glance strip.
+    // Height only -- setMap() and the paint are identical at either size.
+    void setStripHeight(int px);
+
 protected:
     void paintEvent(QPaintEvent*) override;
 

@@ -36,6 +36,16 @@
 //     this widget: the mode combo, the status label and the capture label
 //     elsewhere in the applet already show them, so repeating them here was
 //     redundant width this widget cannot spare.
+//
+// setLarge(true) is the SAME widget laid out for DiversityWindow's top row,
+// where the constraint that shaped everything above (250px, a fixed 176px
+// row) does not apply: the polar plot grows to whatever square the row can
+// hold, the SNR bars grow with it, and a THIRD text line -- steady-QRM lamp
+// and passband readout -- appears. That third line is window-only on
+// purpose: it does not fit beside the other two at 250px without eliding
+// (tests/aether_gate_applet_test.cpp's bottomLinesElided() check is the
+// standing proof), and an elided readout is worse than one the operator
+// knows to open the window for.
 
 #include <QWidget>
 #include <QString>
@@ -69,6 +79,15 @@ public:
     // available.
     void clear();
 
+    // Compact (sidebar, the default) vs. large (DiversityWindow's stretch
+    // row). Large drops the fixed 176px height for an expanding one, scales
+    // the polar plot and the SNR bars off the widget's own size, and paints
+    // the third text line described in this file's header comment. Purely a
+    // layout switch -- setState()/clear() and every field they read are
+    // identical in both.
+    void setLarge(bool large);
+    bool isLarge() const { return m_large; }
+
     // out - max(a, b) in dB from the last setState() with all three SNR legs
     // present; NaN when any leg was null/missing. Exposed because the scope
     // is otherwise a black box from outside (raw QPainter, no child widgets)
@@ -97,6 +116,11 @@ private:
     void paintTextLines(QPainter& p, const QRectF& rectArea);
     QString buildTopLine() const;
     QString buildBottomLine() const;
+    // The large-only third line, split in two because the QRM half is drawn
+    // in the warning token when a steady carrier is actually being nulled
+    // and the passband half never is.
+    QString buildQrmPhrase() const;
+    QString buildPassbandPhrase() const;
 
     QVector<WeightSample> m_trail;      // ring buffer, oldest first, capped
     QVector<WeightSample> m_memory;
@@ -122,6 +146,20 @@ private:
     bool    m_haveNb{false};
     double  m_nbBlankedPct{0.0};
     int     m_memoryCount{0};
+
+    // v3 readouts -- "steady_qrm" (a carrier parked in the passband is being
+    // treated as noise and nulled) and "passband" (flatness/phase-slope/
+    // coherence of the combined passband). Both independently optional on the
+    // wire, same contract as every other field here, and both painted only in
+    // large mode.
+    bool   m_haveSteadyQrm{false};
+    bool   m_steadyQrm{false};
+    bool   m_havePassband{false};
+    double m_pbFlatness{0.0};
+    double m_pbSlopeDegPerKhz{0.0};
+    double m_pbCoherence{0.0};
+
+    bool m_large{false};
 
     // Set by the most recent paintTextLines() -- see bottomLinesElided().
     bool m_line1Elided{false};

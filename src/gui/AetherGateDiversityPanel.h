@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QPointer>
 #include <QUrlQuery>
 #include <QWidget>
 
@@ -24,6 +25,9 @@ namespace AetherSDR {
 // these two: nothing outside the .cpp that builds one needs the full type.
 class DiversityMapStrip;
 class DiversityScope;
+// The pop-out Diversity window this panel's "Open window" button toggles.
+// Built on first use and then kept; see toggleWindow().
+class DiversityWindow;
 
 // AetherGateDiversityPanel — the RSPduo dual-tuner-combining section of
 // AetherGateApplet, split into its own widget because AetherGateApplet.cpp
@@ -89,11 +93,20 @@ public:
     // mode to resume when there is one to send.
     void restoreCompareHold();
 
-    // True when the panel itself is visible AND the Noise section (which
-    // holds the map strip) is expanded. AetherGateApplet gates its
-    // /diversity/map poll on this so a collapsed Noise block, same as a
-    // hidden panel, costs no polling.
+    // True when the map is on screen SOMEWHERE: either this panel is visible
+    // with its Noise section (which holds the map strip) expanded, or the
+    // pop-out window -- whose own noise panel shows the same strip much
+    // larger -- is open. AetherGateApplet gates its /diversity/map poll on
+    // this, so a collapsed Noise block with the window shut costs no polling
+    // and an open window keeps the map live even then.
     bool wantsMapPoll() const;
+
+    // Test/introspection accessor for the pop-out window -- null until the
+    // "Open window" button has been pressed once. The window is a top-level
+    // of its own, so findChild() from the applet cannot reach it.
+    // Out of line: QPointer<T>'s conversion to T* needs the complete type,
+    // and this header is included by files that only forward-declare it.
+    DiversityWindow* window() const;
 
 signals:
     // -> GET /diversity/set, guarded by the applet's own presence check —
@@ -120,10 +133,17 @@ private:
     // and persist its own open state in AppSettings, then adds both to
     // `root`. Returns the header so callers that need to read it back
     // (Noise, for wantsMapPoll()) can keep a pointer.
+    // `headerAccessory`, when given, is placed to the RIGHT of the header
+    // button on the header's own row -- for the one control ("Open window")
+    // that has to stay reachable with the section collapsed.
     QToolButton* addCollapsibleSection(QVBoxLayout* root, const QString& caption,
                                         const QString& objectNameSuffix,
                                         const QString& settingsKey, bool defaultExpanded,
-                                        QWidget* content);
+                                        QWidget* content,
+                                        QWidget* headerAccessory = nullptr);
+    // Shows the pop-out window (building it on first use) or hides it, and
+    // persists which of the two under DiversityWindowVisible.
+    void toggleWindow();
     void applySources(const QJsonArray& sources);
     void setCaptureResultLabel(const QString& path);
 
@@ -135,6 +155,7 @@ private:
     QTimer*          m_phaseDebounce{nullptr};   // ~150ms so a drag sends once
     QTimer*          m_ratioDebounce{nullptr};
     DiversityScope*  m_scope{nullptr};
+    QToolButton*     m_openWindowButton{nullptr};
 
     // --- Listen -------------------------------------------------------------
     QComboBox*   m_source{nullptr};
@@ -165,6 +186,17 @@ private:
     QSpinBox*    m_captureSpin{nullptr};
     QPushButton* m_captureButton{nullptr};
     QLabel*      m_captureLabel{nullptr};
+
+    // The pop-out window, or null until it has been opened once. QPointer
+    // rather than a raw pointer: it is a top-level widget the operator can
+    // close, and although closing only hides it, nothing in this panel should
+    // depend on that staying true.
+    QPointer<DiversityWindow> m_window;
+    // DiversityWindowVisible is restored ONCE, on the first poll that reports
+    // diversity available -- reopening at construction would pop a window for
+    // a gate that may not even be there, and reopening on every poll would
+    // fight the operator closing it.
+    bool m_windowRestored{false};
 
     QString m_lastMode;             // clears m_captureLocalResult on a mode change
     // Set by applyCaptureResult(false, ...); while set, applyDiversity()'s
