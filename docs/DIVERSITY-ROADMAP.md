@@ -371,14 +371,20 @@ the gate has no `set_filter_width_hz` and the SSB passband is a fixed
    from the voice print (held across overs, refit when the other side
    talks), per-frame occupied-bandwidth fallback for unprinted stations;
    EQ from the print's tilt and centroid.
-3. **FILTER page** in the Diversity window: passband graphic with
+3. **Done** (`86c75f88`: fourth tab, response curve with draggable
+   edges, WIDTH / NOTCH / TONE / AGC&NB columns, AUTO and AUTO EQ with
+   their readouts; gate `422b1d0` adds the pre-filter `spectrum` so the
+   layout round can draw the filter over what is arriving).
+   **FILTER page** in the Diversity window: passband graphic with
    draggable edges over the live passband spectrum, shape, roofing, AGC,
    notch list, NB, contour/APF, AUTO and AUTO EQ.
 4. **Gate done** (`137e396`: `noise_profile.kinds[]`, one row per finding
    with `window_s` and the one control-port `action` — NULL only when the
    noise is directional enough, BLANK with a recommended threshold, NOTCH
    for an ANF tone — or `why` nothing applies; one blanker on the pair
-   instead of two). SITE page rows: pending.
+   instead of two). **SITE page done** (`64c2cf61`: one row per kind with
+   its window, dB and the one button, dashed with the reason when nothing
+   applies).
    **Noise profile, acted on**: each finding (mains comb, impulses,
    discrete lines) is a row with what it is, the window it was measured
    over, and a button — blank it, notch it, feed it to the per-bin
@@ -387,7 +393,11 @@ the gate has no `set_filter_width_hz` and the SSB passband is a fixed
    the station — blank until the user gives it — bearing/distance per
    result, results persisted in `~/.aether-gate/beacons.json` with a
    running record per beacon and band, `propagation[]` per band,
-   `pattern[]` B−A by bearing). Beacon Check and the SITE page: pending.
+   `pattern[]` B−A by bearing). **SITE page done** (`64c2cf61`: station
+   grid SET/FORGET, Brg/km/Heard columns, propagation line per band,
+   BEACON CHECK per band that tunes away for 190 s and comes home, the
+   polar PATTERN dial). Still owed: the site's grid square itself — the
+   user has not said where the station is.
    **Beacons, acted on**: Beacon Check (park one cycle on the band's
    beacon, return), a per-beacon sample store with bearing and distance
    from the site (grid square is a gate setting), per-band propagation
