@@ -348,3 +348,37 @@ night's pace; nothing is pushed.
    `0b0dd4c`: `core/voiceprint.py`, `voice` on each memory entry; app
    `5c53d708`: the TALKERS **TX** column is the rig's upper audio edge and
    the row's hover is the whole print).
+
+## 11. Third round (2026-09-02, daytime): filtering, and acting on what is measured
+
+Approved in full. The finding that started it: on the gate path the RX
+panel's filter width/shift, NB, ANF, APF and manual notch do nothing —
+the gate has no `set_filter_width_hz` and the SSB passband is a fixed
+63-tap 2700 Hz FIR. Everything below starts from a real filter.
+
+1. **Gate filter core** (`core/filter.py`, `/filter` + `/filter/set`): a
+   per-slice passband that obeys the app's low/high cut (twin PBT),
+   SHARP/SOFT shape (tap count + window), a gate-side roofing bandpass
+   around the slice ahead of AGC and NB plus the RSP's 200 kHz analogue IF
+   filter, passband-scoped AGC with attack/decay/hang, manual notches,
+   auto notch from carrier detection, NB on the single-loop path, CONTOUR
+   and APF. What the FTDX101MP / IC-7300 MK2 do, done in DSP where the
+   hardware's equivalent is analogue bandwidth and gain.
+2. **Auto filter / auto EQ**: passband fitted to the station's rig edges
+   from the voice print (held across overs, refit when the other side
+   talks), per-frame occupied-bandwidth fallback for unprinted stations;
+   EQ from the print's tilt and centroid.
+3. **FILTER page** in the Diversity window: passband graphic with
+   draggable edges over the live passband spectrum, shape, roofing, AGC,
+   notch list, NB, contour/APF, AUTO and AUTO EQ.
+4. **Noise profile, acted on**: each finding (mains comb, impulses,
+   discrete lines) is a row with what it is, the window it was measured
+   over, and a button — blank it, notch it, feed it to the per-bin
+   combiner.
+5. **Beacons, acted on**: Beacon Check (park one cycle on the band's
+   beacon, return), a per-beacon sample store with bearing and distance
+   from the site (grid square is a gate setting), per-band propagation
+   gauge, A-versus-B by bearing as the two loops' pattern map.
+6. Layout rounds on SLICE / SITE / FILTER once the information exists.
+   Kept inside the Diversity window for now; the filter core is written
+   so it can become a DSP add-on for every backend later.
