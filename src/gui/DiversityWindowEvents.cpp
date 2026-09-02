@@ -52,11 +52,11 @@ const char* kEventListStyle =
     " border-radius: 3px; }"
     "QListWidget::item { padding: 1px 3px; }";
 
-// # / Name / Phase / Level / Hits / Heard / First. Fixed widths so a poll
-// that adds or drops a remembered talker scrolls the table, never resizes the
-// panel around it. Height comes from the layout (the table shares the scope's
-// stretch row), never from the row count.
-constexpr int kTalkerColumnWidths[] = {40, 86, 50, 56, 38, 48, 48};
+// # / Name / Phase / Level / Hits / Heard / First / TX. Fixed widths so a
+// poll that adds or drops a remembered talker scrolls the table, never
+// resizes the panel around it. Height comes from the layout (the table shares
+// the scope's stretch row), never from the row count.
+constexpr int kTalkerColumnWidths[] = {40, 70, 44, 56, 34, 42, 40, 40};
 constexpr int kTalkerColumnCount =
     int(sizeof(kTalkerColumnWidths) / sizeof(kTalkerColumnWidths[0]));
 constexpr int kTalkerRowHeight = 22;
@@ -268,7 +268,7 @@ QWidget* DiversityWindow::buildTalkersPanel()
     m_talkers->setObjectName(QStringLiteral("diversityWindowTalkersTable"));
     m_talkers->setAccessibleName(tr("Remembered talkers"));
     m_talkers->setHorizontalHeaderLabels({tr("#"), tr("Name"), tr("Phase"), tr("Level"),
-                                          tr("Hits"), tr("Heard"), tr("First")});
+                                          tr("Hits"), tr("Heard"), tr("First"), tr("TX")});
     ThemeManager::instance().applyStyleSheet(m_talkers,
                                              QString::fromLatin1(kTalkerTableStyle));
 
@@ -296,6 +296,12 @@ QWidget* DiversityWindow::buildTalkersPanel()
                        "weight. A high count means the weight is well settled.")},
         {5, QT_TR_NOOP("How long ago this station was last heard.")},
         {6, QT_TR_NOOP("How long ago the gate first heard this station.")},
+        {7, QT_TR_NOOP("The upper edge of this station's transmitted audio, in "
+                       "kHz: their rig's TX filter, which stays the same when "
+                       "the antennas move and the spatial signature does not. "
+                       "Hover a row for the whole print -- both edges, the "
+                       "voice's centroid and tilt, syllables per second, and how "
+                       "long their overs run.")},
     };
     for (const auto& entry : kHeaderTips) {
         if (QTableWidgetItem* header = m_talkers->horizontalHeaderItem(entry.column))
@@ -516,6 +522,28 @@ QWidget* DiversityWindow::buildEventsPanel()
 
 
 // --------------------------------------------------------------------------
+// The whole voice/rig print as one hover, or nothing for a talker the gate
+// has not heard enough of (an over under 1.5 s teaches it nothing).
+static QString talkerPrintTip(const QJsonObject& voice)
+{
+    double low = 0.0, high = 0.0, centroid = 0.0, tilt = 0.0, syl = 0.0, over = 0.0;
+    if (!memberNumber(voice, "high_hz", &high) || !memberNumber(voice, "low_hz", &low))
+        return QString();
+    QStringList parts;
+    parts << DiversityWindow::tr("TX audio %1–%2 Hz").arg(QString::number(low), QString::number(high));
+    if (memberNumber(voice, "centroid_hz", &centroid))
+        parts << DiversityWindow::tr("voice centred %1 Hz").arg(QString::number(centroid));
+    if (memberNumber(voice, "tilt_db", &tilt))
+        parts << DiversityWindow::tr("tilt %1 dB (1.5–2.5 k over 300–800)").arg(QString::asprintf("%+.1f", tilt));
+    if (memberNumber(voice, "syllabic_hz", &syl))
+        parts << DiversityWindow::tr("%1 syllables/s").arg(QString::asprintf("%.1f", syl));
+    if (memberNumber(voice, "over_s", &over))
+        parts << DiversityWindow::tr("overs run %1, %2 heard")
+                     .arg(DiversityEventLog::shortDuration(over),
+                          QString::number(voice.value(QStringLiteral("overs")).toInt()));
+    return parts.join(QStringLiteral(" · "));
+}
+
 // The TALKERS table's own bookkeeping.
 // --------------------------------------------------------------------------
 
@@ -579,12 +607,20 @@ void DiversityWindow::applyTalkers(const QJsonArray& memory, bool haveTalker, in
         cells << cellOr(memberNumber(entry, "phase_deg", &phase),
                         QString::asprintf("%.0f°", phase));
         cells << cellOr(memberNumber(entry, "ratio_db", &ratio),
-                        QString::asprintf("%+.1f dB", ratio));
+                        QString::asprintf("%+.1f", ratio));
         cells << QString::number(entry.value(QStringLiteral("hits")).toInt());
         cells << cellOr(memberNumber(entry, "age_s", &age),
                         DiversityEventLog::shortDuration(age));
         cells << cellOr(memberNumber(entry, "first_seen_s", &first),
                         DiversityEventLog::shortDuration(first));
+        // The gate's voice/rig print: the TX edge in the cell, the rest as the
+        // row's tooltip. It rides after the columns in the row string so a
+        // print that changes without moving the edge still rebuilds the row.
+        const QJsonObject voice = entry.value(QStringLiteral("voice")).toObject();
+        double high = 0.0;
+        cells << cellOr(memberNumber(voice, "high_hz", &high),
+                        QString::asprintf("%.1fk", high / 1000.0));
+        cells << talkerPrintTip(voice);
         rows << cells.join(kRowSep);
         ids << idValue;
     }
@@ -602,8 +638,11 @@ void DiversityWindow::applyTalkers(const QJsonArray& memory, bool haveTalker, in
     m_talkers->setRowCount(rows.size());
     for (int r = 0; r < rows.size(); ++r) {
         const QStringList cells = rows[r].split(kRowSep);
+        const QString tip = cells.size() > kTalkerColumnCount ? cells[kTalkerColumnCount]
+                                                              : QString();
         for (int c = 0; c < cells.size() && c < kTalkerColumnCount; ++c) {
             auto* item = new QTableWidgetItem(cells[c]);
+            item->setToolTip(tip);
             if (c == kTalkerNameColumn) {
                 item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
                 item->setData(Qt::UserRole, ids[r]);

@@ -109,8 +109,14 @@ zero; that is the physics, not a fault.
 
 **TALKERS.** The gate's memory: id, an editable name (double-click; stored
 on the gate and persisted across restarts by the talker's spatial
-signature), phase, level, hits, last heard, first heard. The row that is
-lit is whoever is talking. Buttons:
+signature), phase, level, hits, last heard, first heard, and **TX** — the
+upper edge of the station's transmitted audio in kHz, which is their rig's
+filter and stays put when the antennas move and the spatial signature does
+not. Hover a row for the whole print: both audio edges, where the voice is
+centred and how it tilts, syllables per second, how long their overs run.
+The gate learns it from the combined audio over their overs (a print needs
+an over of 1.5 s or more), so a talker heard once briefly shows `—`. The
+row that is lit is whoever is talking. Buttons:
 
 - **Lock on #N** — select a row first. Pins the combiner on that station.
   Their overs get the remembered beam (the weight is pre-steered there
@@ -245,7 +251,8 @@ Missing numbers render as `—` rather than as zeros.
 The gate's HTTP control port (default 8731) serves:
 
 - `GET /diversity` — the status object (mode, weight, SNRs, talker,
-  memory, focus, passband, noise coherence, blanker, sources, loops,
+  memory (each entry with `voice` {centroid_hz, low_hz, high_hz, tilt_db,
+  syllabic_hz, over_s, overs} or null), focus, passband, noise coherence, blanker, sources, loops,
   capture, `subband` {enabled, bins, extra_db}: the per-bin refinement of
   the tracked weight, `noise_profile` {mains_hz, hum_db, harmonics,
   impulses_per_s, impulse_db, periodic[], seconds}: what kind of noise

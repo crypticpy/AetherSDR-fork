@@ -329,6 +329,24 @@ inline const QByteArray kDiversityStatusSiteNull = R"({"available": true, "chann
     "noise_profile": null,
     "capture": {"active": false, "path": null}})";
 
+// Two remembered talkers, one with a voice/rig print and one the gate has
+// not heard enough of yet (voice null is "not enough overs", not "silent").
+inline const QByteArray kDiversityStatusWithPrint = R"({"available": true, "channels": 2,
+    "mode": "track", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
+    "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
+    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 42,
+    "subband": {"enabled": true, "bins": 33, "extra_db": 0.0},
+    "noise_profile": null,
+    "memory": [
+        {"id": 3, "name": "Kay", "phase_deg": 120.0, "ratio_db": 2.0, "age_s": 4.0,
+         "first_seen_s": 900.0, "hits": 12,
+         "voice": {"centroid_hz": 1350, "low_hz": 300, "high_hz": 2700, "tilt_db": -4.2,
+                   "syllabic_hz": 4.1, "over_s": 18.5, "overs": 7}},
+        {"id": 5, "name": null, "phase_deg": 30.0, "ratio_db": 0.0, "age_s": 60.0,
+         "first_seen_s": 120.0, "hits": 1, "voice": null}],
+    "talker": {"id": 3, "since_s": 4.0},
+    "capture": {"active": false, "path": null}})";
+
 // Every result the beacon watch reports carries a wall-clock stamp, and the
 // age column is the only cell in the window whose text depends on the local
 // clock -- so the payload is built at run time rather than frozen into a

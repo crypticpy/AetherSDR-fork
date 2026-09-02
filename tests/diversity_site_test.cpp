@@ -608,6 +608,47 @@ void testHearRowOffersStereoAndWritesIt()
     closedToStart();
 }
 
+// The TALKERS table's TX column is the upper edge of the station's audio --
+// their rig -- and the row's hover is the whole print. A talker the gate has
+// not heard enough of shows a dash and no hover.
+void testTalkersTableCarriesTheVoicePrint()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityStatusWithPrint);
+    openButton(a)->click();
+    settle();
+    tick(a);
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* table = w->findChild<QTableWidget*>(QStringLiteral("diversityWindowTalkersTable"));
+    CHECK(table != nullptr);
+    if (!table)
+        return;
+    const int tx = table->columnCount() - 1;
+    CHECK(table->horizontalHeaderItem(tx)->text() == QStringLiteral("TX"));
+    CHECK(table->rowCount() == 2);
+    CHECK(table->item(0, tx) && table->item(0, tx)->text() == QStringLiteral("2.7k"));
+    CHECK(table->item(0, 1) && table->item(0, 1)->toolTip().contains(QStringLiteral("4.1 syllables/s")));
+    CHECK(table->item(0, 1)->toolTip().contains(QStringLiteral("300–2700 Hz")));
+    CHECK(table->item(1, tx) && table->item(1, tx)->text() == QStringLiteral("—"));
+    CHECK(table->item(1, 1) && table->item(1, 1)->toolTip().isEmpty());
+
+    // MUTATION: a narrower rig, a slower talker. The cell and the hover follow.
+    QByteArray st = kDiversityStatusWithPrint;
+    st.replace("\"high_hz\": 2700", "\"high_hz\": 2400");
+    st.replace("\"syllabic_hz\": 4.1", "\"syllabic_hz\": 2.9");
+    CHECK(st != kDiversityStatusWithPrint);
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, st};
+    tick(a);
+    CHECK(table->item(0, tx)->text() == QStringLiteral("2.4k"));
+    CHECK(table->item(0, 1)->toolTip().contains(QStringLiteral("2.9 syllables/s")));
+    closedToStart();
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -622,6 +663,7 @@ int main(int argc, char** argv)
     testPerBinCheckboxReflectsStatusAndWrites();
     testNothingScrollsOnTheSitePageAtTheInitialSize();
     testHearRowOffersStereoAndWritesIt();
+    testTalkersTableCarriesTheVoicePrint();
 
     std::printf("\n%d diversity site test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;
