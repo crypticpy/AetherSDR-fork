@@ -76,12 +76,13 @@ sidebar with the setting `AetherGateDiversityPanel_ShowScope`.
 Open it from the sidebar button. Its geometry and visibility persist; it
 reopens on the next run if it was open at exit.
 
-**SLICE / BAND / SITE.** The three buttons at the left of the chain row
-switch pages. SLICE, described below, is about the frequency you are tuned
-to. BAND is about the whole span the gate can see, and is where you go to
-decide where to be tuned. SITE is about neither: it is about your station —
-what kind of noise this address makes, and what the world's beacon network
-measures your antennas to be worth.
+**SLICE / BAND / SITE / FILTER.** The four buttons at the left of the chain
+row switch pages. SLICE, described below, is about the frequency you are
+tuned to. BAND is about the whole span the gate can see, and is where you go
+to decide where to be tuned. SITE is about neither: it is about your station
+— what kind of noise this address makes, and what the world's beacon network
+measures your antennas to be worth. FILTER is about what happens to the
+audio *after* the combiner: the slice filter, drawn and driven.
 
 **Chain row.** MODE (off / manual / null / track), HEAR (OUT — the combined
 output, A, B, STEREO — what goes to the audio; the combiner keeps learning
@@ -230,6 +231,73 @@ The whole page is polled only while it is on screen, and a gate too old to
 serve the beacon route says `beacon watch: not available from this gate`.
 Missing numbers render as `—` rather than as zeros.
 
+## The FILTER page
+
+The question an operator asks more often than any other is "why does this
+sound like that?", and the answer is almost never the combiner. It is a
+passband 300 Hz narrower than you thought, a sharp filter ringing on a
+49 Hz skirt, an automatic notch chewing at a vowel, an AGC decay short
+enough to breathe between syllables, or a blanker removing four percent of
+the audio to kill a fence that stopped an hour ago. Every one of those is
+visible on this page and invisible on the other three.
+
+**The curve.** The gate's own measured response, 0 dB at the top and −60 dB
+at the bottom, with the passband shaded over it. The caption above it reads
+the whole filter in one line — `LSB · 100–2900 Hz · SHARP 1023 taps ·
+61 Hz transition`. On a lower sideband the numbers are positive audio hertz
+and the sideband is in the caption, because a filter drawn in negative
+frequencies is a picture nobody reads.
+
+Both edges are draggable and snap to 10 Hz; only the edge you moved is sent,
+so dragging the low edge leaves an AUTO-chosen high edge alone. The keyboard
+reaches them too: Up and Down pick an edge, Left and Right move it by 10 Hz,
+Shift by 50. Double-click anywhere on the curve to put a notch there at the
+width beside the ADD button. Vertical marks are notches, labelled with the
+depth the gate measured; dashed lines are tones the automatic notcher has
+found on its own; short ticks off the bottom axis are the contour and audio
+peak centres. The hertz under the pointer is in the corner.
+
+**WIDTH.** SOFT and SHARP are the two ends of one trade: SHARP spends taps
+on a near-vertical skirt and rings a little on transients, SOFT rolls off
+over a few hundred hertz and lets more of the neighbour in. The four preset
+buttons are widths, not passbands — they keep the low edge where it is and
+put the high edge 1.8, 2.4, 2.7 or 3.0 kHz above it, because the low edge is
+what decides how much rumble and hum you hear. AUTO hands both edges to the
+gate: `AUTO · print 300–2700` means it is fitting them to the voice print of
+the station you are listening to, `AUTO · spectrum 210–2840` that it is
+fitting them to the occupied spectrum instead, and `AUTO · warming up` that
+it has not decided yet. While AUTO is on, the spin boxes still show what
+*you* asked for and the caption shows what is in force. The roofing line
+(`Roof 200 kHz RF · 25 kHz digital`) is the two filters upstream of all of
+this, which nothing on this page can move.
+
+**NOTCH.** ANF is the automatic notcher; beside it are the tones it has
+found and how deep it is cutting them (`1240 Hz −34 dB, 2010 Hz −31 dB`, or
+`none`). The table below is your own notches, each with its measured depth
+and its own CLEAR; CLEAR ALL empties the table and leaves the automatic
+notcher alone.
+
+**TONE.** CONTOUR is a broad tilt at a frequency you choose — a few dB down
+at 700 Hz takes the boxiness out of a close-miked voice without touching
+the consonants. APF is a narrow peak, which is a CW tool. AUTO EQ matches
+the station's audio to yours and reports what it is doing as a tilt in dB.
+
+**AGC & NB.** The five AGC modes, and the three times behind them in
+milliseconds: attack, decay and hang. `gain −1.9 dB` is what the AGC is
+actually taking off right now, which is the number that tells you whether a
+short decay is pumping. NB is the noise blanker, with its threshold and —
+the readout that matters — `blanked 0.4 %`, the share of the audio it is
+throwing away. Anything above a percent or two on a quiet band means it is
+eating signal, not noise.
+
+Every control writes immediately; there is no Apply button. The gate's reply
+to a write is the same status object a poll returns, so what you see a
+moment later is the radio's answer rather than the page's optimism. A value
+the gate refuses appears on the status line under the curve for a few
+seconds and nothing moves. The page is polled twice a second while it is on
+screen and not at all otherwise, and a mode with no slice filter behind it
+says `Filter is not available for this mode` and greys the lot.
+
 ## A working session
 
 1. Start the gate, connect, open the window. Wait for `aligned` in the
@@ -276,6 +344,25 @@ The gate's HTTP control port (default 8731) serves:
 - `python -m aether_gate.replay CAPTURE.npz` (in the gate) — the replay
   lab: a capture through the live combiner path as A / B / wideband /
   per-bin WAVs at one gain, plus `summary.json`.
+- `GET /filter` — the slice filter's status (the FILTER page): `available`,
+  `mode`, `sideband`, `low_hz`/`high_hz` (in force) and
+  `set_low_hz`/`set_high_hz` (asked for — they differ while AUTO is on),
+  `width_hz`, `shape`, `taps`, `transition_hz`, `notches[]`
+  {hz, width_hz, depth_db}, `anf` {enabled, found_hz[], depth_db[]},
+  `contour` {enabled, hz, db, width_hz}, `apf` {enabled, hz, width_hz},
+  `auto` {enabled, source: "print" | "spectrum" | null, low_hz, high_hz},
+  `auto_eq` {enabled, tilt_db}, `nb` {enabled, threshold_db, blanked_pct},
+  `agc` {mode, attack_ms, decay_ms, hang_ms, gain_db}, `roofing`
+  {analogue_hz, digital_hz} and `response` {hz[], db[]} — the measured
+  curve. Numbers may be ints or floats.
+- `GET /filter/set?low=&high=&shape=&anf=&contour=&contour_hz=&contour_db=&contour_width=&apf=&apf_hz=&apf_width=&auto=&auto_eq=&nb=&nb_db=&agc=&attack_ms=&decay_ms=&hang_ms=`
+  — any subset; `shape=soft|sharp`, `agc=fast|med|slow|long|off`,
+  0 ≤ low < high ≤ 20000. Replies with the status object above, or with
+  `{"error": "..."}` if a value is refused.
+- `GET /filter/notch?add=<hz>&width=<hz>` places a notch;
+  `GET /filter/notch?clear=<hz>` removes one; `GET /filter/notch?clear=1`
+  removes them all. The automatic notcher's own tones are not in this list
+  and are not touched.
 - `GET /diversity/memory/name?id=&name=` — label a talker (empty clears).
 - `GET /diversity/memory/clear`, `GET /diversity/align`,
   `GET /diversity/capture?seconds=`.

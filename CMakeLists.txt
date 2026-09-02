@@ -981,6 +981,8 @@ set(GUI_SOURCES
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
     src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
@@ -989,6 +991,7 @@ set(GUI_SOURCES
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowFilter.cpp
     src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
     src/gui/DiversityWindowPanels.cpp

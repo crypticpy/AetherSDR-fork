@@ -29,6 +29,7 @@
 #include <QUrl>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace DiversityGateFixture {
@@ -388,6 +389,110 @@ inline const QByteArray kDiversityBeaconsNoBand = R"({"available": true,
     "band_hz": null, "slot": 12, "now": null, "results": [], "last": null})";
 
 inline const QByteArray kDiversityBeaconsUnavailable = R"({"available": false})";
+
+// --- /filter ---------------------------------------------------------------
+// The FILTER page's payloads. The response curve is GENERATED rather than
+// written out because a hand-typed one would either be short enough to type
+// (and so not the 128 points the panel actually draws) or a row of zeros (and
+// so not a shape any assertion about the curve could mean anything against).
+// What comes out is a fourth-order 100-2900 Hz bandpass across 0-4000 Hz:
+// flat in the passband, -3 dB at each edge, real skirts, floored at the -60 dB
+// the panel's bottom gridline sits on.
+inline QByteArray makeFilterResponse()
+{
+    QByteArray hz;
+    QByteArray db;
+    for (int i = 0; i < 128; ++i) {
+        const double f = 4000.0 * double(i) / 127.0;
+        const double lo = 100.0;
+        const double hi = 2900.0;
+        const double order = 4.0;
+        const double highpass =
+            -10.0 * std::log10(1.0 + std::pow(lo / std::max(f, 1.0), 2.0 * order));
+        const double lowpass =
+            -10.0 * std::log10(1.0 + std::pow(f / hi, 2.0 * order));
+        const double value = std::max(highpass + lowpass, -60.0);
+        if (i > 0) {
+            hz += ", ";
+            db += ", ";
+        }
+        hz += QByteArray::number(f, 'f', 1);
+        db += QByteArray::number(value, 'f', 2);
+    }
+    QByteArray body = R"("response": {"hz": [)";
+    body += hz;
+    body += R"(], "db": [)";
+    body += db;
+    body += R"(]})";
+    return body;
+}
+
+// A working LSB filter with something switched on in every column, so one
+// payload can carry every readout the page has: two manual notches, an ANF
+// that has found two tones, contour and APF placed, AUTO on with the print
+// tracker driving it, an AGC in MED with real numbers, and a blanker biting.
+inline QByteArray makeDiversityFilterStatus()
+{
+    QByteArray body = R"({"available": true, "mode": "lsb", "sideband": "lsb",
+    "low_hz": 100, "high_hz": 2900, "width_hz": 2800,
+    "set_low_hz": 100, "set_high_hz": 2900,
+    "shape": "sharp", "taps": 1023, "transition_hz": 61,
+    "notches": [{"hz": 1000.0, "width_hz": 120.0, "depth_db": -48.0},
+                {"hz": 1780.0, "width_hz": 80.0, "depth_db": -35.5}],
+    "anf": {"enabled": true, "found_hz": [1240.0, 2010.0],
+            "depth_db": [-34.0, -31.0]},
+    "contour": {"enabled": true, "hz": 700.0, "db": -4.0, "width_hz": 400.0},
+    "apf": {"enabled": false, "hz": 600.0, "width_hz": 80.0},
+    "auto": {"enabled": true, "source": "print", "low_hz": 300.0,
+             "high_hz": 2700.0},
+    "auto_eq": {"enabled": true, "tilt_db": 3.5},
+    "nb": {"enabled": true, "threshold_db": 8.0, "blanked_pct": 0.4},
+    "agc": {"mode": "med", "attack_ms": 10, "decay_ms": 500, "hang_ms": 250,
+            "gain_db": -1.9},
+    "roofing": {"analogue_hz": 200000.0, "digital_hz": 25000.0}, )";
+    body += makeFilterResponse();
+    body += "}";
+    return body;
+}
+
+inline const QByteArray kDiversityFilterStatus = makeDiversityFilterStatus();
+
+// The same filter with the auto-width tracker driving from the spectrum rather
+// than from a voice print, and the edges it has chosen in force -- so low_hz /
+// high_hz and set_low_hz / set_high_hz disagree, which is the whole point of
+// there being two pairs.
+inline QByteArray makeDiversityFilterAutoSpectrum()
+{
+    QByteArray body = R"({"available": true, "mode": "lsb", "sideband": "lsb",
+    "low_hz": 210, "high_hz": 2840, "width_hz": 2630,
+    "set_low_hz": 100, "set_high_hz": 2900,
+    "shape": "soft", "taps": 511, "transition_hz": 122,
+    "notches": [],
+    "anf": {"enabled": false, "found_hz": [], "depth_db": []},
+    "contour": {"enabled": false, "hz": 700.0, "db": 0.0, "width_hz": 400.0},
+    "apf": {"enabled": false, "hz": 600.0, "width_hz": 80.0},
+    "auto": {"enabled": true, "source": "spectrum", "low_hz": 210.0,
+             "high_hz": 2840.0},
+    "auto_eq": {"enabled": false, "tilt_db": 0.0},
+    "nb": {"enabled": false, "threshold_db": 8.0, "blanked_pct": 0.0},
+    "agc": {"mode": "slow", "attack_ms": 10, "decay_ms": 1200, "hang_ms": 500,
+            "gain_db": -4.5},
+    "roofing": {"analogue_hz": 200000.0, "digital_hz": 25000.0}, )";
+    body += makeFilterResponse();
+    body += "}";
+    return body;
+}
+
+inline const QByteArray kDiversityFilterAutoSpectrum = makeDiversityFilterAutoSpectrum();
+
+// A mode with no slice filter behind it -- FM, or a gate built without the
+// filter core. Not an error and not an empty page: a sentence.
+inline const QByteArray kDiversityFilterUnavailable = R"({"available": false})";
+
+// What a refused write replies with. The shape is the same as a status object,
+// which is why the page checks for "error" before it checks for "available".
+inline const QByteArray kDiversityFilterBadValue =
+    R"({"error": "bad value: low"})";
 
 QJsonObject asObject(const QByteArray& body)
 {

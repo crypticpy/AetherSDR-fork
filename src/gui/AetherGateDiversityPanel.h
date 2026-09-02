@@ -86,6 +86,14 @@ public:
     // wantsSitePoll() holds.
     void applyBeacons(const QJsonObject& beacons);
 
+    // The FILTER page's payload: one /filter answer, or the identical status
+    // object a /filter/set or /filter/notch write replies with, or
+    // {"error": "..."} when the gate refused a value. Forwarded to the window
+    // like every other page's; fed by the same DiversityBandPoller, which
+    // polls /filter only while wantsFilterPoll() holds but answers a write at
+    // any time.
+    void applyFilter(const QJsonObject& filter);
+
     // present/absent — mirrors AetherGateApplet::setPresent(): false hides
     // the panel and resets every readout that must not outlive a reconnect
     // to a different (or older) gate at the same address.
@@ -119,6 +127,11 @@ public:
     // signal, which is about the visible PAGE rather than about one route.
     bool wantsSitePoll() const;
 
+    // True only while the pop-out window is on screen AND showing its FILTER
+    // page. /filter carries a 128-point response curve on every answer and is
+    // gated exactly the way the three routes above are.
+    bool wantsFilterPoll() const;
+
     // Test/introspection accessor for the pop-out window -- null until the
     // "Open Diversity window" button has been pressed once (or the persisted
     // DiversityWindowVisible reopened it). The window is a top-level of its
@@ -151,6 +164,14 @@ signals:
     // here, and is turned into a real slice tune by AetherGateApplet -- the
     // one place in this section that can reach the RadioModel. Absolute Hz.
     void requestTune(double hz);
+    // -> GET <path>?<query> on the gate, where <path> is "/filter/set" or
+    // "/filter/notch" (or "/filter" itself, which is the "read it back now"
+    // the page fires after a refusal). A sibling of requestSet() rather than a
+    // widening of it: requestSet means "/diversity/set" and nothing else, and
+    // a signal that sometimes meant a different route would make every
+    // existing connection to it harder to read. Served by
+    // DiversityBandPoller::sendFilter(), which owns this page's transport.
+    void requestFilter(QString path, QUrlQuery query);
     // wantsBandPoll() may have changed: the window opened or closed, or its
     // page switched. Polling it once a second off the status timer would leave
     // the BAND page blank for up to a second after it is opened, which is the

@@ -190,6 +190,7 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     m_pages->addWidget(scroll);
     m_pages->addWidget(buildBandPage());
     m_pages->addWidget(buildSitePage());
+    m_pages->addWidget(buildFilterPage());
     root->addWidget(m_pages, 1);
 
     m_statusStrip = new QLabel(tr("gate not answering"), this);
@@ -226,6 +227,8 @@ DiversityWindow* DiversityWindow::createFor(AetherGateDiversityPanel* panel)
             panel, &AetherGateDiversityPanel::requestMemoryName);
     connect(window, &DiversityWindow::requestTune,
             panel, &AetherGateDiversityPanel::requestTune);
+    connect(window, &DiversityWindow::requestFilter,
+            panel, &AetherGateDiversityPanel::requestFilter);
     return window;
 }
 
@@ -752,6 +755,7 @@ void DiversityWindow::clearReadouts()
 {
     clearBandReadouts();
     clearSiteReadouts();
+    clearFilterReadouts();
     m_scope->clear();
     m_timeline->clear();
     m_mapStrip->setMap({});

@@ -272,6 +272,7 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
             &AetherGateDiversityPanel::applyFinder);
     connect(m_bandPoller, &DiversityBandPoller::beaconsReceived, m_diversityPanel,
             &AetherGateDiversityPanel::applyBeacons);
+    m_bandPoller->attachFilter(m_diversityPanel);
     connect(m_diversityPanel, &AetherGateDiversityPanel::bandPollChanged, this,
             &AetherGateApplet::updateBandPoll);
     connect(m_diversityPanel, &AetherGateDiversityPanel::requestTune, this,
@@ -799,7 +800,8 @@ void AetherGateApplet::updateBandPoll()
 {
     m_bandPoller->setBaseUrl(baseUrl());
     m_bandPoller->setPages(m_present && m_diversityPanel->wantsBandPoll(),
-                           m_present && m_diversityPanel->wantsSitePoll());
+                           m_present && m_diversityPanel->wantsSitePoll(),
+                           m_present && m_diversityPanel->wantsFilterPoll());
 }
 
 // The one request in this section that never reaches the gate. The gate has no

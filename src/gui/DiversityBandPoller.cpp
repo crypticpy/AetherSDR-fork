@@ -1,5 +1,7 @@
 #include "gui/DiversityBandPoller.h"
 
+#include "gui/AetherGateDiversityPanel.h"
+
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -17,6 +19,13 @@ constexpr int kTickMs = 250;
 // The SITE page has no 4 Hz route on it. Ticking four times a second to make
 // one request would be a wakeup budget spent on nothing.
 constexpr int kSiteTickMs = 1000;
+
+// 2 Hz on the FILTER page. The response curve, the AGC gain and the noise
+// blanker's blanked-percentage all move while the operator listens, and a
+// second between frames is slow enough to read as a stalled instrument; four
+// times a second would be spending requests on a 1023-tap response that only
+// changes when somebody moves a control.
+constexpr int kFilterTickMs = 500;
 
 // /diversity/finder summarises ten minutes and is answered from a ring the
 // gate updates slowly -- 1 Hz is already faster than it can change, and so is
@@ -62,32 +71,50 @@ void DiversityBandPoller::setBaseUrl(const QString& base)
     restart();
 }
 
-void DiversityBandPoller::setPages(bool bandVisible, bool siteVisible)
+void DiversityBandPoller::setPages(bool bandVisible, bool siteVisible, bool filterVisible)
 {
-    if (m_bandEnabled == bandVisible && m_siteEnabled == siteVisible)
+    if (m_bandEnabled == bandVisible && m_siteEnabled == siteVisible
+        && m_filterEnabled == filterVisible) {
         return;
+    }
     m_bandEnabled = bandVisible;
     m_siteEnabled = siteVisible;
+    m_filterEnabled = filterVisible;
     restart();
+}
+
+void DiversityBandPoller::attachFilter(AetherGateDiversityPanel* panel)
+{
+    if (!panel)
+        return;
+    connect(this, &DiversityBandPoller::filterReceived, panel,
+            &AetherGateDiversityPanel::applyFilter);
+    connect(panel, &AetherGateDiversityPanel::requestFilter, this,
+            &DiversityBandPoller::sendFilter);
 }
 
 void DiversityBandPoller::restart()
 {
-    if ((!m_bandEnabled && !m_siteEnabled) || m_base.isEmpty() || !m_net) {
+    if ((!m_bandEnabled && !m_siteEnabled && !m_filterEnabled) || m_base.isEmpty()
+        || !m_net) {
         m_timer->stop();
         return;
     }
     // Start from tick zero so the first poll fetches EVERY route the visible
-    // page needs: it has just become visible and has nothing on it.
+    // page needs: it has just become visible and has nothing on it. Only one
+    // page of a window is ever on screen, so this picks an interval rather
+    // than compromising between two.
     m_tick = 0;
-    m_timer->start(m_bandEnabled ? kTickMs : kSiteTickMs);
+    m_timer->start(m_bandEnabled ? kTickMs : (m_filterEnabled ? kFilterTickMs : kSiteTickMs));
     poll();
 }
 
 void DiversityBandPoller::poll()
 {
-    if ((!m_bandEnabled && !m_siteEnabled) || m_base.isEmpty() || !m_net)
+    if ((!m_bandEnabled && !m_siteEnabled && !m_filterEnabled) || m_base.isEmpty()
+        || !m_net) {
         return;
+    }
     // While only SITE is up the timer is already at 1 Hz, so every tick is a
     // slow tick; while BAND is up it runs at 4 Hz and one in four is.
     const bool slowTick = !m_bandEnabled || (m_tick % kSlowEveryTicks) == 0;
@@ -99,6 +126,8 @@ void DiversityBandPoller::poll()
     }
     if (m_siteEnabled && slowTick)
         fetchBeacons();
+    if (m_filterEnabled)
+        fetchFilter();
 }
 
 void DiversityBandPoller::fetchSpatial()
@@ -158,6 +187,51 @@ void DiversityBandPoller::fetchBeacons()
         if (reply->error() == QNetworkReply::NoError)
             parseObject(reply->readAll(), &obj);
         emit beaconsReceived(obj);
+    });
+}
+
+void DiversityBandPoller::fetchFilter()
+{
+    if (m_filterInFlight)
+        return;
+    m_filterInFlight = true;
+    QNetworkRequest req{QUrl(m_base + QStringLiteral("/filter"))};
+    req.setTransferTimeout(kTransferTimeoutMs);
+    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                     QNetworkRequest::AlwaysNetwork);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        m_filterInFlight = false;
+        QJsonObject obj;
+        if (reply->error() == QNetworkReply::NoError)
+            parseObject(reply->readAll(), &obj);
+        emit filterReceived(obj);
+    });
+}
+
+// Deliberately NOT guarded by m_filterInFlight: that guard exists so a slow
+// gate cannot have four polls queued against it, and a write the operator just
+// made is not a poll. Dropping one would leave a control showing a value the
+// gate was never told about.
+void DiversityBandPoller::sendFilter(const QString& path, const QUrlQuery& query)
+{
+    if (m_base.isEmpty() || !m_net)
+        return;
+    QUrl url(m_base + path);
+    if (!query.isEmpty())
+        url.setQuery(query);
+    QNetworkRequest req{url};
+    req.setTransferTimeout(kTransferTimeoutMs);
+    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                     QNetworkRequest::AlwaysNetwork);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        QJsonObject obj;
+        if (reply->error() == QNetworkReply::NoError)
+            parseObject(reply->readAll(), &obj);
+        emit filterReceived(obj);
     });
 }
 

@@ -26,6 +26,14 @@
 // closed window, or an open one showing SLICE, costs no requests at all -- the
 // same rule AetherGateDiversityPanel::wantsMapPoll() applies to /diversity/map.
 //
+// The FILTER page's /filter is served from here for the same reasons, and it
+// is the one page whose transport also WRITES: /filter/set and /filter/notch
+// are GETs on the same manager, with the same timeout, and their reply IS the
+// status object the page redraws from -- so a write and the read-back after it
+// are one request rather than two. sendFilter() is that door; passing it
+// "/filter" with an empty query is also the "read it again now" the page fires
+// after anything the gate might have refused.
+//
 // The SITE page's /diversity/beacons is served from here too rather than from a
 // fourth file, because it is the same story: a non-critical route, gated on one
 // page being visible, on the applet's own manager. It does NOT share the BAND
@@ -38,11 +46,14 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
+#include <QUrlQuery>
 
 class QNetworkAccessManager;
 class QTimer;
 
 namespace AetherSDR {
+
+class AetherGateDiversityPanel;
 
 class DiversityBandPoller : public QObject {
     Q_OBJECT
@@ -60,7 +71,15 @@ public:
     // between the two calls, have both pages visible and fetch a route for
     // the page being left. Turning a page on fetches immediately rather than
     // waiting out a tick, so a switch paints at once.
-    void setPages(bool bandVisible, bool siteVisible);
+    void setPages(bool bandVisible, bool siteVisible, bool filterVisible);
+
+    // Wires the two filter-page signals to `panel` from here rather than from
+    // AetherGateApplet's constructor, which is where every other diversity
+    // connect lives. AetherGateApplet.cpp is past the file-size budget
+    // AGENTS.md asks for, and adding a route to a poller that already owns
+    // three should not have to grow it -- so the poller does its own half of
+    // the wiring and the applet keeps one line.
+    void attachFilter(AetherGateDiversityPanel* panel);
 
     bool isPolling() const;
 
@@ -74,6 +93,11 @@ signals:
     // that has no such route, not a band with no beacons on it -- the panel
     // tells those two apart from the payload's own "available" flag.
     void beaconsReceived(QJsonObject beacons);
+    // One /filter, /filter/set or /filter/notch answer: the same status object
+    // in all three cases, or {"error": "..."} when the gate refused a value.
+    // An empty object is a failed request or a gate with no such route, and
+    // means "leave the page alone" rather than "the filter went away".
+    void filterReceived(QJsonObject filter);
 
 public slots:
     // One tick: while BAND is up, always /diversity/spatial and
@@ -83,17 +107,25 @@ public slots:
     // directly instead of waiting out real milliseconds.
     void poll();
 
+    // One GET on `path` (e.g. "/filter/set") with `query`, answered by
+    // filterReceived(). Never dropped for an in-flight poll: a control the
+    // operator just moved must reach the gate, and the reply is what the page
+    // redraws from.
+    void sendFilter(const QString& path, const QUrlQuery& query);
+
 private:
     void restart();
     void fetchSpatial();
     void fetchFinder();
     void fetchBeacons();
+    void fetchFilter();
 
     QNetworkAccessManager* m_net{nullptr};
     QTimer*                m_timer{nullptr};
     QString                m_base;
     bool                   m_bandEnabled{false};
     bool                   m_siteEnabled{false};
+    bool                   m_filterEnabled{false};
     int                    m_tick{0};
     // A reply still on the wire when the next tick comes round is not a reason
     // to start a second one: at 4 Hz a slow gate would otherwise queue
@@ -101,6 +133,7 @@ private:
     bool                   m_spatialInFlight{false};
     bool                   m_finderInFlight{false};
     bool                   m_beaconsInFlight{false};
+    bool                   m_filterInFlight{false};
 };
 
 } // namespace AetherSDR
