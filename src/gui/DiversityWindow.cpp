@@ -6,14 +6,17 @@
 #include "gui/ClientCompKnob.h"
 #include "gui/DiversityMapStrip.h"
 #include "gui/DiversityScope.h"
+#include "gui/DiversityTimeline.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
 
+#include <QAbstractButton>
 #include <QApplication>
+#include <QCoreApplication>
 #include <QButtonGroup>
 #include <QCloseEvent>
+#include <QDateTime>
 #include <QFileInfo>
-#include <QAbstractButton>
 #include <QFontMetrics>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -37,19 +40,21 @@ namespace AetherSDR {
 
 namespace {
 
-// Same ~150ms coalescing the sidebar panel uses: a knob drag fires
-// valueChanged many times a second and each one becomes a real HTTP round
-// trip once the applet turns it into a request.
-constexpr int kDebounceMs = 150;
+// v2's frame. The minimum is what the three-column bottom row needs before
+// anything inside it starts eliding; the initial size is chosen so that
+// NOTHING scrolls when the window first opens -- the operator should not have
+// to discover a scrollbar to find the noise panel.
+constexpr int kMinWidth = 980;
+constexpr int kMinHeight = 720;
+constexpr int kInitialWidth = 1120;
+constexpr int kInitialHeight = 860;
 
-constexpr int kMinWidth = 900;
-constexpr int kMinHeight = 620;
-constexpr int kInitialWidth = 1040;
-constexpr int kInitialHeight = 700;
-
-// The map strip is the noise panel's main readout here rather than the
-// sidebar's 24px glance strip.
-constexpr int kMapStripHeight = 64;
+// Below this the two loops are seeing different noise: there is no single
+// source to cancel, and the second antenna can only add gain.
+constexpr double kCoherentNoiseThreshold = 0.3;
+// Below this the combined passband is tilted enough that one weight cannot
+// null the whole channel at once.
+constexpr double kPassbandFlatEnough = 0.7;
 
 const char* kStatusStripStyle =
     "QLabel { color: {{color.text.secondary}}; font-size: 10px; "
@@ -71,6 +76,22 @@ bool jsonNumber(const QJsonObject& obj, const char* key, double* out)
     return true;
 }
 
+// "guard" / "inband" are the two values the gate documents; anything else is
+// a newer or older gate's own wording and is shown verbatim rather than
+// swallowed. Spelled out in words, not the wire token: "guard" alone means
+// nothing to somebody meeting a diversity combiner for the first time.
+QString noiseReferenceWord(const QJsonValue& rn)
+{
+    if (rn.isNull() || rn.isUndefined())
+        return QStringLiteral("—");
+    const QString wire = rn.toString();
+    if (wire == QLatin1String("guard"))
+        return QCoreApplication::translate("DiversityWindow", "guard band");
+    if (wire == QLatin1String("inband"))
+        return QCoreApplication::translate("DiversityWindow", "in-band");
+    return wire;
+}
+
 } // namespace
 
 DiversityWindow::DiversityWindow(QWidget* parent)
@@ -86,56 +107,8 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     resize(kInitialWidth, kInitialHeight);
     ThemeManager::instance().applyStyleSheet(this, QString::fromLatin1(kWindowStyle));
 
-    auto* root = new QVBoxLayout(bodyWidget());
-    root->setContentsMargins(8, 4, 8, 8);
-    root->setSpacing(8);
-    root->addWidget(buildChainRow());
-
-    // Everything below the (sticky) chain row scrolls, so the window can be
-    // dragged smaller than its natural content height without any control
-    // becoming unreachable -- the channel strip's own arrangement.
-    auto* grid = new QGridLayout;
-    grid->setContentsMargins(0, 0, 0, 0);
-    grid->setHorizontalSpacing(8);
-    grid->setVerticalSpacing(8);
-    // Two rows, three columns. The scope takes two thirds of the top row with
-    // the STATIONS table beside it (the table is the one other thing that
-    // benefits from height); ANTENNAS, NOISE and ALIGNMENT & CAPTURE share
-    // the second row at content height. At the initial size nothing scrolls.
-    m_scope = new DiversityScope(this);
-    m_scope->setObjectName(QStringLiteral("diversityWindowScope"));
-    m_scope->setLarge(true);
-    grid->addWidget(m_scope, 0, 0, 1, 2);
-    grid->addWidget(buildStationsPanel(), 0, 2);
-    grid->addWidget(buildAntennasPanel(), 1, 0);
-    grid->addWidget(buildNoisePanel(), 1, 1);
-    grid->addWidget(buildAlignmentPanel(), 1, 2);
-
-    grid->setColumnStretch(0, 4);
-    grid->setColumnStretch(1, 4);
-    grid->setColumnStretch(2, 3);
-    // Only the top row absorbs surplus height, so a tall window does not open
-    // dead space inside the lower panels' borders.
-    grid->setRowStretch(0, 1);
-    grid->setRowStretch(1, 0);
-
-    auto* gridHost = new QWidget;
-    gridHost->setLayout(grid);
-    auto* scroll = new QScrollArea;
-    scroll->setWidget(gridHost);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    root->addWidget(scroll, 1);
-
-    m_statusStrip = new QLabel(tr("gate not answering"), this);
-    m_statusStrip->setObjectName(QStringLiteral("diversityWindowStatusLabel"));
-    m_statusStrip->setAccessibleName(tr("Gate status"));
-    ThemeManager::instance().applyStyleSheet(m_statusStrip,
-                                             QString::fromLatin1(kStatusStripStyle));
-    DiversityWidgets::setLive(m_statusStrip, false);
-    root->addWidget(m_statusStrip);
-
+    // The debounce timers are built before the panels because the knob
+    // handlers those panels install start them.
     m_phaseDebounce = new QTimer(this);
     m_phaseDebounce->setSingleShot(true);
     connect(m_phaseDebounce, &QTimer::timeout, this, [this] {
@@ -158,6 +131,69 @@ DiversityWindow::DiversityWindow(QWidget* parent)
         q.addQueryItem(QStringLiteral("nb_db"), QString::number(m_nbKnob->value(), 'f', 1));
         emit requestSet(q);
     });
+
+    auto* root = new QVBoxLayout(bodyWidget());
+    root->setContentsMargins(8, 4, 8, 8);
+    root->setSpacing(8);
+    root->addWidget(buildChainRow());
+
+    // Everything below the (sticky) chain row scrolls, so the window can be
+    // dragged smaller than its natural content height without any control
+    // becoming unreachable -- the channel strip's own arrangement. At the
+    // initial size nothing scrolls.
+    auto* grid = new QGridLayout;
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setHorizontalSpacing(8);
+    grid->setVerticalSpacing(8);
+
+    m_scope = new DiversityScope(this);
+    m_scope->setObjectName(QStringLiteral("diversityWindowScope"));
+    m_scope->setLarge(true);
+    m_timeline = new DiversityTimeline(this);
+
+    grid->addWidget(m_scope, 0, 0, 1, 2);
+    grid->addWidget(buildTalkersPanel(), 0, 2);
+    grid->addWidget(m_timeline, 1, 0, 1, 3);
+    grid->addWidget(buildAntennasPanel(), 2, 0);
+    grid->addWidget(buildNoisePanel(), 2, 1);
+    grid->addWidget(buildEventsPanel(), 2, 2);
+
+    grid->setColumnStretch(0, 4);
+    grid->setColumnStretch(1, 4);
+    grid->setColumnStretch(2, 5);
+    // The scope row and the bottom row both absorb surplus height -- the
+    // scope gets a bigger dial, the events list gets more lines. The timeline
+    // is a fixed 120px strip and never stretches.
+    grid->setRowStretch(0, 1);
+    grid->setRowStretch(1, 0);
+    grid->setRowStretch(2, 1);
+
+    auto* gridHost = new QWidget;
+    gridHost->setLayout(grid);
+    auto* scroll = new QScrollArea;
+    scroll->setWidget(gridHost);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    // Both bars are as-needed rather than off: at the initial size neither
+    // appears (the grid's minimum is 1063x758 against a 1102x772 viewport),
+    // but the window can be dragged down to 980x720, and a control that has
+    // been squeezed off the right-hand edge with no way to scroll to it is
+    // worse than a scrollbar.
+    root->addWidget(scroll, 1);
+
+    m_statusStrip = new QLabel(tr("gate not answering"), this);
+    m_statusStrip->setObjectName(QStringLiteral("diversityWindowStatusLabel"));
+    m_statusStrip->setAccessibleName(tr("Gate status"));
+    m_statusStrip->setToolTip(
+        tr("Whether the Aether-gate bridge is answering, and whether it is "
+           "reporting a working two-tuner diversity setup. Everything above "
+           "goes to dashes when this says the gate is not answering -- a dead "
+           "poll must never leave last minute's numbers on screen looking "
+           "live."));
+    ThemeManager::instance().applyStyleSheet(m_statusStrip,
+                                             QString::fromLatin1(kStatusStripStyle));
+    DiversityWidgets::setLive(m_statusStrip, false);
+    root->addWidget(m_statusStrip);
 }
 
 DiversityWindow* DiversityWindow::createFor(AetherGateDiversityPanel* panel)
@@ -175,6 +211,8 @@ DiversityWindow* DiversityWindow::createFor(AetherGateDiversityPanel* panel)
             panel, &AetherGateDiversityPanel::requestCapture);
     connect(window, &DiversityWindow::requestMemoryClear,
             panel, &AetherGateDiversityPanel::requestMemoryClear);
+    connect(window, &DiversityWindow::requestMemoryName,
+            panel, &AetherGateDiversityPanel::requestMemoryName);
     return window;
 }
 
@@ -203,7 +241,8 @@ void DiversityWindow::closeEvent(QCloseEvent* event)
 QButtonGroup* DiversityWindow::addButtonRow(QWidget* row, const QString& caption,
                                             const QString& key, const QString& objectPrefix,
                                             const QStringList& labels,
-                                            const QStringList& values)
+                                            const QStringList& values,
+                                            const QStringList& tips)
 {
     auto* layout = qobject_cast<QHBoxLayout*>(row->layout());
     layout->addWidget(DiversityWidgets::makeCaption(caption, row));
@@ -213,6 +252,10 @@ QButtonGroup* DiversityWindow::addButtonRow(QWidget* row, const QString& caption
         auto* button = new QPushButton(labels[i], row);
         button->setObjectName(objectPrefix + values[i]);
         button->setAccessibleName(tr("%1 %2").arg(caption, labels[i]));
+        if (i < tips.size()) {
+            button->setToolTip(tips[i]);
+            button->setAccessibleDescription(tips[i]);
+        }
         button->setCheckable(true);
         button->setFixedHeight(26);
         button->setProperty("diversityValue", values[i]);
@@ -249,25 +292,48 @@ QWidget* DiversityWindow::buildChainRow()
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(6);
 
-    m_modeGroup = addButtonRow(row, tr("MODE"), QStringLiteral("mode"),
-                               QStringLiteral("diversityWindowMode"),
-                               {tr("OFF"), tr("MANUAL"), tr("NULL"), tr("TRACK")},
-                               {QStringLiteral("off"), QStringLiteral("manual"),
-                                QStringLiteral("null"), QStringLiteral("track")});
+    m_modeGroup = addButtonRow(
+        row, tr("MODE"), QStringLiteral("mode"), QStringLiteral("diversityWindowMode"),
+        {tr("OFF"), tr("MANUAL"), tr("NULL"), tr("TRACK")},
+        {QStringLiteral("off"), QStringLiteral("manual"), QStringLiteral("null"),
+         QStringLiteral("track")},
+        {tr("Ignore the second loop entirely -- you hear antenna A on its own, "
+            "as if this were an ordinary single-tuner receiver. This is the "
+            "reference every A/B comparison should be made against."),
+         tr("Combine the two loops using the phase and level you set on the "
+            "knobs below. Use it when you can hear where the noise is and "
+            "want to park a null on it by ear."),
+         tr("Solve once for the weight that cancels the strongest interfering "
+            "source, then hold it. Right for a steady local noise that is not "
+            "going anywhere."),
+         tr("Keep re-solving so the null follows a drifting or intermittent "
+            "source, and recall a remembered weight the moment a known "
+            "station comes back. Costs a little on very weak signals in "
+            "exchange for staying on the noise.")});
     layout->addSpacing(10);
     // "HEAR", not "LISTEN": it writes /diversity/set?source=, which is what
     // reaches the operator's ears. Which leg the PANADAPTER draws is a
     // different key (pan=) and lives with the noise tools, exactly where the
     // sidebar panel puts it.
-    m_hearGroup = addButtonRow(row, tr("HEAR"), QStringLiteral("source"),
-                               QStringLiteral("diversityWindowHear"),
-                               {tr("COMBINED"), tr("A"), tr("B")},
-                               {QStringLiteral("combined"), QStringLiteral("a"),
-                                QStringLiteral("b")});
+    m_hearGroup = addButtonRow(
+        row, tr("HEAR"), QStringLiteral("source"), QStringLiteral("diversityWindowHear"),
+        {tr("COMBINED"), tr("A"), tr("B")},
+        {QStringLiteral("combined"), QStringLiteral("a"), QStringLiteral("b")},
+        {tr("Listen to the combiner's output: the two loops added with "
+            "whatever weight the current mode has arrived at."),
+         tr("Listen to loop A on its own. Nothing is combined and nothing is "
+            "nulled."),
+         tr("Listen to loop B on its own.")});
 
     m_compareButton = new QPushButton(tr("Hear A only"), row);
     m_compareButton->setObjectName(QStringLiteral("diversityWindowCompareButton"));
     m_compareButton->setAccessibleName(tr("Hear antenna A only while pressed"));
+    m_compareButton->setToolTip(
+        tr("Hold this down to drop the combiner out and hear loop A raw; let "
+           "go and it returns to the mode it was in. It is a momentary "
+           "switch, not a setting, precisely so it cannot be left engaged by "
+           "accident -- and it is the only honest way to hear what the "
+           "combiner is actually buying you."));
     m_compareButton->setFixedHeight(26);
     m_compareButton->setAutoRepeat(false);
     m_compareButton->setEnabled(false);
@@ -299,6 +365,11 @@ QWidget* DiversityWindow::buildChainRow()
     m_realignButton = new QPushButton(tr("REALIGN"), row);
     m_realignButton->setObjectName(QStringLiteral("diversityWindowRealignButton"));
     m_realignButton->setAccessibleName(tr("Realign the two tuners"));
+    m_realignButton->setToolTip(
+        tr("Re-measure how far apart the two tuners' sample streams are and "
+           "line them back up. Nothing can be combined until they are "
+           "aligned, so press this after changing frequency or sample rate, "
+           "or whenever the correlation peak in EVENTS has collapsed."));
     m_realignButton->setFixedHeight(26);
     connect(m_realignButton, &QPushButton::clicked, this, &DiversityWindow::requestAlign);
     layout->addWidget(m_realignButton);
@@ -308,6 +379,9 @@ QWidget* DiversityWindow::buildChainRow()
     m_captureSpin = new QSpinBox(row);
     m_captureSpin->setObjectName(QStringLiteral("diversityWindowCaptureSpin"));
     m_captureSpin->setAccessibleName(tr("Diversity capture duration"));
+    m_captureSpin->setToolTip(
+        tr("How many seconds of raw two-channel audio the CAPTURE button "
+           "should record."));
     m_captureSpin->setRange(1, 60);
     m_captureSpin->setValue(10);
     m_captureSpin->setSuffix(QStringLiteral(" s"));
@@ -316,181 +390,21 @@ QWidget* DiversityWindow::buildChainRow()
     m_captureButton = new QPushButton(tr("CAPTURE"), row);
     m_captureButton->setObjectName(QStringLiteral("diversityWindowCaptureButton"));
     m_captureButton->setAccessibleName(tr("Capture raw diversity audio"));
+    m_captureButton->setToolTip(
+        tr("Record both loops, uncombined, to a two-channel file on the gate. "
+           "That file is the raw material for working out offline why a null "
+           "would not form -- nothing else in this window can be replayed."));
     m_captureButton->setFixedHeight(26);
     connect(m_captureButton, &QPushButton::clicked, this, [this] {
         if (!m_present)
             return;
         m_captureButton->setEnabled(false);
-        m_captureResult->setText(tr("recording…"));
+        m_captureResult->setText(tr("capture: recording…"));
         m_captureResult->setToolTip(QString());
         emit requestCapture(m_captureSpin->value());
     });
     layout->addWidget(m_captureButton);
     return row;
-}
-
-QWidget* DiversityWindow::buildAntennasPanel()
-{
-    QVBoxLayout* body = nullptr;
-    QFrame* frame = DiversityWidgets::makeGroupBox(
-        tr("ANTENNAS"), QStringLiteral("diversityWindowAntennas"), body, this);
-
-    auto* meters = new QHBoxLayout;
-    meters->setSpacing(10);
-    m_meterA = new DiversitySnrMeter(tr("A"), frame);
-    m_meterA->setObjectName(QStringLiteral("diversityWindowMeterA"));
-    m_meterB = new DiversitySnrMeter(tr("B"), frame);
-    m_meterB->setObjectName(QStringLiteral("diversityWindowMeterB"));
-    m_meterOut = new DiversitySnrMeter(tr("OUT"), frame);
-    m_meterOut->setObjectName(QStringLiteral("diversityWindowMeterOut"));
-    meters->addWidget(m_meterA);
-    meters->addWidget(m_meterB);
-    meters->addWidget(m_meterOut);
-    meters->addSpacing(12);
-
-    // Phase and ratio are a MANUAL-mode setpoint: Null and Track solve for
-    // their own weight and Off applies none, so outside manual these are
-    // disabled and never written by a poll. The caption greys with them --
-    // a knob that merely stops responding, with no visible reason, is the
-    // kind of dead control Principle XI is about.
-    auto* manual = new QVBoxLayout;
-    manual->setSpacing(4);
-    m_manualCaption = DiversityWidgets::makeCaption(tr("MANUAL WEIGHT"), frame);
-    m_manualCaption->setObjectName(QStringLiteral("diversityWindowManualCaption"));
-    manual->addWidget(m_manualCaption);
-
-    auto* knobs = new QHBoxLayout;
-    knobs->setSpacing(8);
-    m_phaseKnob = new ClientCompKnob(frame);
-    m_phaseKnob->setObjectName(QStringLiteral("diversityWindowPhaseKnob"));
-    m_phaseKnob->setAccessibleName(tr("Manual phase"));
-    m_phaseKnob->setFixedSize(84, 96);
-    m_phaseKnob->setLabel(tr("PHASE"));
-    m_phaseKnob->setRange(0.0f, 360.0f);
-    m_phaseKnob->setDefault(0.0f);
-    m_phaseKnob->setLabelFormat([](float v) { return QString::asprintf("%.0f°", double(v)); });
-    connect(m_phaseKnob, &ClientCompKnob::valueChanged, this,
-            [this](float) { m_phaseDebounce->start(kDebounceMs); });
-    knobs->addWidget(m_phaseKnob);
-
-    m_ratioKnob = new ClientCompKnob(frame);
-    m_ratioKnob->setObjectName(QStringLiteral("diversityWindowRatioKnob"));
-    m_ratioKnob->setAccessibleName(tr("Manual ratio"));
-    m_ratioKnob->setFixedSize(84, 96);
-    m_ratioKnob->setLabel(tr("RATIO"));
-    m_ratioKnob->setRange(-20.0f, 20.0f);
-    m_ratioKnob->setDefault(0.0f);
-    m_ratioKnob->setLabelFormat([](float v) { return QString::asprintf("%+.1f dB", double(v)); });
-    connect(m_ratioKnob, &ClientCompKnob::valueChanged, this,
-            [this](float) { m_ratioDebounce->start(kDebounceMs); });
-    knobs->addWidget(m_ratioKnob);
-    knobs->addStretch(1);
-    manual->addLayout(knobs);
-    manual->addStretch(1);
-    meters->addLayout(manual, 1);
-    body->addLayout(meters);
-    return frame;
-}
-
-QWidget* DiversityWindow::buildNoisePanel()
-{
-    QVBoxLayout* body = nullptr;
-    QFrame* frame = DiversityWidgets::makeGroupBox(
-        tr("NOISE"), QStringLiteral("diversityWindowNoise"), body, this);
-
-    auto* topRow = new QWidget(frame);
-    auto* top = new QHBoxLayout(topRow);
-    top->setContentsMargins(0, 0, 0, 0);
-    top->setSpacing(6);
-    top->addWidget(DiversityWidgets::makeCaption(tr("BLANKER"), topRow));
-    m_nbButton = new QPushButton(tr("NB"), topRow);
-    m_nbButton->setObjectName(QStringLiteral("diversityWindowNbButton"));
-    m_nbButton->setAccessibleName(tr("Noise blanker"));
-    m_nbButton->setCheckable(true);
-    m_nbButton->setFixedHeight(26);
-    applyToggleButtonStyle(m_nbButton, ToggleTribe::Warning);
-    connect(m_nbButton, &QPushButton::clicked, this, [this](bool on) {
-        QUrlQuery q;
-        q.addQueryItem(QStringLiteral("nb"), on ? QStringLiteral("on") : QStringLiteral("off"));
-        emit requestSet(q);
-    });
-    top->addWidget(m_nbButton);
-
-    m_nbKnob = new ClientCompKnob(topRow);
-    m_nbKnob->setObjectName(QStringLiteral("diversityWindowNbKnob"));
-    m_nbKnob->setAccessibleName(tr("Noise blanker threshold"));
-    m_nbKnob->setFixedSize(84, 88);
-    m_nbKnob->setLabel(tr("THRESH"));
-    m_nbKnob->setRange(0.0f, 40.0f);
-    m_nbKnob->setDefault(0.0f);
-    m_nbKnob->setLabelFormat([](float v) { return QString::asprintf("%.1f dB", double(v)); });
-    connect(m_nbKnob, &ClientCompKnob::valueChanged, this,
-            [this](float) { m_nbDebounce->start(kDebounceMs); });
-    top->addWidget(m_nbKnob);
-    top->addStretch(1);
-    body->addWidget(topRow);
-
-    // Which leg the panadapter draws, on its own row: with the blanker knob
-    // beside it the two would not fit the column at the window's minimum.
-    auto* panRow = new QWidget(frame);
-    auto* pan = new QHBoxLayout(panRow);
-    pan->setContentsMargins(0, 0, 0, 0);
-    pan->setSpacing(6);
-    m_panGroup = addButtonRow(panRow, tr("PAN"), QStringLiteral("pan"),
-                              QStringLiteral("diversityWindowPan"),
-                              {tr("A"), tr("B"), tr("COMBINED"), tr("NULLED")},
-                              {QStringLiteral("a"), QStringLiteral("b"),
-                               QStringLiteral("combined"), QStringLiteral("nulled")});
-    pan->addStretch(1);
-    body->addWidget(panRow);
-
-    m_mapStrip = new DiversityMapStrip(frame);
-    m_mapStrip->setObjectName(QStringLiteral("diversityWindowMapStrip"));
-    m_mapStrip->setStripHeight(kMapStripHeight);
-    body->addWidget(m_mapStrip);
-
-    m_sourcesList = new QListWidget(frame);
-    m_sourcesList->setObjectName(QStringLiteral("diversityWindowSourcesList"));
-    m_sourcesList->setAccessibleName(tr("Diversity sources"));
-    m_sourcesList->setFixedHeight(4 * (fontMetrics().height() + 6));
-    m_sourcesList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_sourcesList->setTextElideMode(Qt::ElideRight);
-    body->addWidget(m_sourcesList);
-
-    auto* bottomRow = new QWidget(frame);
-    auto* bottom = new QHBoxLayout(bottomRow);
-    bottom->setContentsMargins(0, 0, 0, 0);
-    bottom->setSpacing(6);
-    m_nullSourceButton = new QPushButton(tr("Null selected"), bottomRow);
-    m_nullSourceButton->setObjectName(QStringLiteral("diversityWindowNullSourceButton"));
-    m_nullSourceButton->setAccessibleName(tr("Null the selected noise source"));
-    m_nullSourceButton->setEnabled(false);
-    connect(m_sourcesList, &QListWidget::currentRowChanged, this,
-            [this](int row) { m_nullSourceButton->setEnabled(row >= 0); });
-    connect(m_nullSourceButton, &QPushButton::clicked, this, [this] {
-        // The index sent is the SELECTED ITEM's current position, never a row
-        // cached earlier: the list is rebuilt from every poll and "sources" can
-        // shrink or reorder between the click and this handler running.
-        QListWidgetItem* item = m_sourcesList->currentItem();
-        if (!item)
-            return;
-        QUrlQuery q;
-        q.addQueryItem(QStringLiteral("null_source"),
-                       QString::number(m_sourcesList->row(item)));
-        emit requestSet(q);
-    });
-    bottom->addWidget(m_nullSourceButton);
-    m_noiseStatus =
-        DiversityWidgets::makeFieldLabel(tr("noise ref: — · coherence —"), bottomRow);
-    m_noiseStatus->setObjectName(QStringLiteral("diversityWindowNoiseStatusLabel"));
-    m_noiseStatus->setAccessibleName(tr("Noise reference"));
-    m_noiseStatus->setMinimumWidth(m_noiseStatus->fontMetrics().horizontalAdvance(
-                                       tr("noise ref: in-band · coherence 0.00"))
-                                   + 8);
-    bottom->addWidget(m_noiseStatus);
-    bottom->addStretch(1);
-    body->addWidget(bottomRow);
-    return frame;
 }
 
 // --------------------------------------------------------------------------
@@ -513,14 +427,18 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
         m_statusStrip->setText(m_present ? tr("gate connected · diversity unavailable")
                                          : tr("gate not answering"));
         DiversityWidgets::setLive(m_statusStrip, m_present);
+        DiversitySnapshot snapshot;
+        snapshot.present = m_present;
+        addEventLines(m_eventLog.apply(snapshot));
         return;
     }
     m_statusStrip->setText(tr("gate connected · diversity live"));
     DiversityWidgets::setLive(m_statusStrip, true);
 
     const QString mode = d.value(QStringLiteral("mode")).toString();
+    const QString hear = d.value(QStringLiteral("source")).toString();
     checkValue(m_modeGroup, mode);
-    checkValue(m_hearGroup, d.value(QStringLiteral("source")).toString());
+    checkValue(m_hearGroup, hear);
     if (d.contains(QStringLiteral("pan")))
         checkValue(m_panGroup, d.value(QStringLiteral("pan")).toString());
 
@@ -549,16 +467,15 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
 
     // A null leg is "no estimate", not 0 dB -- clearReading(), not setSnrDb(0).
     const QJsonObject snr = d.value(QStringLiteral("snr_db")).toObject();
-    const auto applyLeg = [&snr](DiversitySnrMeter* meter, const char* key) {
-        double db = 0.0;
-        if (jsonNumber(snr, key, &db))
-            meter->setSnrDb(db, true);
-        else
-            meter->clearReading();
-    };
-    applyLeg(m_meterA, "a");
-    applyLeg(m_meterB, "b");
-    applyLeg(m_meterOut, "out");
+    double snrA = 0.0;
+    double snrB = 0.0;
+    double snrOut = 0.0;
+    const bool haveA = jsonNumber(snr, "a", &snrA);
+    const bool haveB = jsonNumber(snr, "b", &snrB);
+    const bool haveOut = jsonNumber(snr, "out", &snrOut);
+    haveA ? m_meterA->setSnrDb(snrA, true) : m_meterA->clearReading();
+    haveB ? m_meterB->setSnrDb(snrB, true) : m_meterB->clearReading();
+    haveOut ? m_meterOut->setSnrDb(snrOut, true) : m_meterOut->clearReading();
 
     // Same isObject() guard the sidebar keeps: a malformed "nb" must not read
     // as "blanker off, threshold 0" through toObject()'s silent {}.
@@ -575,32 +492,86 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
                                        d.value(QStringLiteral("sources")).toArray());
         m_nullSourceButton->setEnabled(m_sourcesList->currentRow() >= 0);
     }
-    if (d.contains(QStringLiteral("memory")))
-        applyMemory(d.value(QStringLiteral("memory")).toArray());
 
-    const QJsonValue rn = d.value(QStringLiteral("rn_source"));
-    const QString rnWord = (rn.isNull() || rn.isUndefined())
-        ? QStringLiteral("—")
-        : (rn.toString() == QLatin1String("inband") ? tr("in-band") : rn.toString());
-    double coh = 0.0;
-    m_noiseStatus->setText(tr("noise ref: %1 · coherence %2")
-                               .arg(rnWord,
-                                    jsonNumber(d, "noise_coherence", &coh)
-                                        ? QString::number(coh, 'f', 2)
-                                        : QStringLiteral("—")));
+    // --- who is talking ---------------------------------------------------
+    const QJsonArray memory = d.value(QStringLiteral("memory")).toArray();
+    const QJsonValue talkerValue = d.value(QStringLiteral("talker"));
+    bool haveTalker = false;
+    int talkerId = 0;
+    double talkerSinceS = 0.0;
+    if (talkerValue.isObject()) {
+        const QJsonObject talker = talkerValue.toObject();
+        double id = 0.0;
+        if (jsonNumber(talker, "id", &id)) {
+            haveTalker = true;
+            talkerId = int(std::lround(id));
+            jsonNumber(talker, "since_s", &talkerSinceS);
+        }
+    }
+    if (d.contains(QStringLiteral("memory")) || haveTalker)
+        applyTalkers(memory, haveTalker, talkerId, talkerSinceS);
 
+    // --- noise ------------------------------------------------------------
+    double coherence = 0.0;
+    const bool haveCoherence = jsonNumber(d, "noise_coherence", &coherence);
+    m_noiseStatus->setText(
+        tr("noise reference: %1 · coherence %2")
+            .arg(noiseReferenceWord(d.value(QStringLiteral("rn_source"))),
+                 haveCoherence ? QString::number(coherence, 'f', 2)
+                               : QStringLiteral("—")));
+
+    // --- balance ----------------------------------------------------------
+    m_balanceDelta->setText(
+        (haveA && haveB)
+            ? tr("A - B: %1 dB").arg(QString::asprintf("%+.1f", snrA - snrB))
+            : tr("A - B: —"));
+    m_balanceCoherence->setText(
+        haveCoherence ? tr("noise coherence %1").arg(QString::number(coherence, 'f', 2))
+                      : tr("noise coherence —"));
+
+    const QJsonValue passbandValue = d.value(QStringLiteral("passband"));
+    const bool havePassband = passbandValue.isObject();
+    double flatness = 0.0;
+    double slope = 0.0;
+    if (havePassband) {
+        const QJsonObject pb = passbandValue.toObject();
+        jsonNumber(pb, "flatness", &flatness);
+        jsonNumber(pb, "phase_slope_deg_per_khz", &slope);
+    }
+    m_balancePassband->setText(
+        havePassband
+            ? tr("passband flat %1 · slope %2°/kHz")
+                  .arg(QString::number(flatness, 'f', 2), QString::asprintf("%+.1f", slope))
+            : tr("passband —"));
+
+    // The verdict is the point of the block: three numbers the operator has
+    // to interpret become one sentence saying what can be done about them.
+    QString verdict;
+    if (!haveCoherence) {
+        verdict = tr("noise character unknown");
+    } else if (coherence < kCoherentNoiseThreshold) {
+        verdict = tr("isotropic noise: gain only");
+    } else {
+        verdict = tr("coherent noise: null available");
+    }
+    if (havePassband && flatness < kPassbandFlatEnough)
+        verdict += QStringLiteral(" · ") + tr("passband sloped");
+    m_balanceVerdict->setText(verdict);
+
+    // --- alignment --------------------------------------------------------
     const bool aligned = d.value(QStringLiteral("aligned")).toBool();
-    m_alignedValue->setText(aligned ? tr("aligned") : tr("not aligned"));
-    double lag = 0.0;
-    m_lagValue->setText(jsonNumber(d, "lag_samples", &lag)
-                            ? QString::number(qint64(std::llround(lag)))
-                            : QStringLiteral("—"));
-    double peak = 0.0;
-    m_peakValue->setText(jsonNumber(d, "corr_peak", &peak) ? QString::number(peak, 'f', 3)
-                                                           : QStringLiteral("—"));
     const bool realigning = d.value(QStringLiteral("realigning")).toBool();
-    m_realigningValue->setText(realigning ? tr("realigning…") : tr("steady"));
-    DiversityWidgets::setLive(m_realigningValue, realigning);
+    double lag = 0.0;
+    const bool haveLag = jsonNumber(d, "lag_samples", &lag);
+    double peak = 0.0;
+    const bool havePeak = jsonNumber(d, "corr_peak", &peak);
+    m_alignLine->setText(
+        tr("%1 · lag %2 · peak %3 · %4")
+            .arg(aligned ? tr("aligned") : tr("not aligned"),
+                 haveLag ? QString::number(qint64(std::llround(lag))) : QStringLiteral("—"),
+                 havePeak ? QString::number(peak, 'f', 3) : QStringLiteral("—"),
+                 realigning ? tr("realigning…") : tr("steady")));
+    DiversityWidgets::setLive(m_alignLine, realigning);
 
     // capture.active is the gate's own live state, so it wins over whatever
     // the /diversity/capture trigger last said.
@@ -609,55 +580,75 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
         const bool active = capture.value(QStringLiteral("active")).toBool();
         m_captureButton->setEnabled(!active);
         if (active) {
-            m_captureResult->setText(tr("recording…"));
+            m_captureResult->setText(tr("capture: recording…"));
             m_captureResult->setToolTip(QString());
             m_captureLocalResult = false;
         } else if (!m_captureLocalResult) {
             const QString path = capture.value(QStringLiteral("path")).toString();
             if (!path.isEmpty()) {
-                m_captureResult->setText(QFileInfo(path).fileName());
+                const QString base = QFileInfo(path).fileName();
+                m_captureResult->setText(tr("capture: %1").arg(base));
                 m_captureResult->setToolTip(path);
+                if (base != m_lastCaptureAnnounced) {
+                    m_lastCaptureAnnounced = base;
+                    addEventLines({DiversityEventLog::captureSavedLine(base)});
+                }
             }
         }
     }
 
     m_scope->setState(d);
-}
 
-void DiversityWindow::applyMemory(const QJsonArray& memory)
-{
-    QStringList rows;
-    rows.reserve(memory.size());
+    // --- timeline ---------------------------------------------------------
+    DiversityTimeline::Sample sample;
+    sample.haveA = haveA;
+    sample.a = snrA;
+    sample.haveB = haveB;
+    sample.b = snrB;
+    sample.haveOut = haveOut;
+    sample.out = snrOut;
+    sample.haveTalker = haveTalker;
+    sample.talkerId = talkerId;
+    sample.steadyQrm = d.value(QStringLiteral("steady_qrm")).toBool();
+    m_timeline->addSample(QDateTime::currentMSecsSinceEpoch(), sample);
+
+    // --- events -----------------------------------------------------------
+    DiversitySnapshot snapshot;
+    snapshot.present = m_present;
+    snapshot.available = true;
+    snapshot.haveTalker = haveTalker;
+    snapshot.talkerId = talkerId;
+    snapshot.talkerSinceS = talkerSinceS;
     for (const QJsonValue& v : memory) {
         const QJsonObject entry = v.toObject();
+        double id = 0.0;
+        if (!jsonNumber(entry, "id", &id))
+            continue;
+        const int idValue = int(std::lround(id));
+        snapshot.memoryIds << idValue;
+        if (!haveTalker || idValue != talkerId)
+            continue;
+        const QJsonValue nameValue = entry.value(QStringLiteral("name"));
+        if (nameValue.isString())
+            snapshot.talkerName = nameValue.toString();
         double phase = 0.0;
         double ratio = 0.0;
-        double age = 0.0;
-        rows << QStringLiteral("%1|%2|%3|%4")
-                    .arg(jsonNumber(entry, "phase_deg", &phase)
-                             ? QString::asprintf("%.0f°", phase)
-                             : QStringLiteral("—"),
-                         jsonNumber(entry, "ratio_db", &ratio)
-                             ? QString::asprintf("%+.1f dB", ratio)
-                             : QStringLiteral("—"),
-                         QString::number(entry.value(QStringLiteral("hits")).toInt()),
-                         jsonNumber(entry, "age_s", &age)
-                             ? QString::asprintf("%.0f s", age)
-                             : QStringLiteral("—"));
-    }
-    m_stationsCount->setText(tr("%1 stations remembered").arg(memory.size()));
-    if (rows == m_stationRows)
-        return;
-    m_stationRows = rows;
-    m_stations->setRowCount(rows.size());
-    for (int r = 0; r < rows.size(); ++r) {
-        const QStringList cells = rows[r].split(QLatin1Char('|'));
-        for (int c = 0; c < cells.size() && c < 4; ++c) {
-            auto* item = new QTableWidgetItem(cells[c]);
-            item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            m_stations->setItem(r, c, item);
+        if (jsonNumber(entry, "phase_deg", &phase) && jsonNumber(entry, "ratio_db", &ratio)) {
+            snapshot.haveTalkerWeight = true;
+            snapshot.talkerPhaseDeg = phase;
+            snapshot.talkerRatioDb = ratio;
         }
     }
+    const QJsonValue qrm = d.value(QStringLiteral("steady_qrm"));
+    snapshot.haveSteadyQrm = qrm.isBool();
+    snapshot.steadyQrm = snapshot.haveSteadyQrm && qrm.toBool();
+    snapshot.mode = mode;
+    snapshot.hear = hear;
+    snapshot.aligned = aligned;
+    snapshot.realigning = realigning;
+    snapshot.haveLag = haveLag;
+    snapshot.lagSamples = lag;
+    addEventLines(m_eventLog.apply(snapshot));
 }
 
 void DiversityWindow::applyMap(const QJsonObject& map)
@@ -672,14 +663,23 @@ void DiversityWindow::applyCaptureResult(bool ok, const QString& pathOrError)
         // An error this request reported must survive the very next poll:
         // capture.active is already false by then and its "path" is still the
         // last SUCCESSFUL capture's.
-        m_captureResult->setText(pathOrError);
+        m_captureResult->setText(tr("capture: %1").arg(pathOrError));
         m_captureResult->setToolTip(QString());
         m_captureLocalResult = true;
         return;
     }
-    m_captureResult->setText(pathOrError.isEmpty() ? QStringLiteral("—")
-                                                   : QFileInfo(pathOrError).fileName());
-    m_captureResult->setToolTip(pathOrError);
+    if (pathOrError.isEmpty()) {
+        m_captureResult->setText(tr("capture: —"));
+        m_captureResult->setToolTip(QString());
+    } else {
+        const QString base = QFileInfo(pathOrError).fileName();
+        m_captureResult->setText(tr("capture: %1").arg(base));
+        m_captureResult->setToolTip(pathOrError);
+        if (base != m_lastCaptureAnnounced) {
+            m_lastCaptureAnnounced = base;
+            addEventLines({DiversityEventLog::captureSavedLine(base)});
+        }
+    }
     m_captureLocalResult = false;
 }
 
@@ -694,31 +694,41 @@ void DiversityWindow::setPresent(bool present)
     clearReadouts();
     m_statusStrip->setText(tr("gate not answering"));
     DiversityWidgets::setLive(m_statusStrip, false);
+    DiversitySnapshot snapshot;
+    addEventLines(m_eventLog.apply(snapshot));
 }
 
 void DiversityWindow::clearReadouts()
 {
     m_scope->clear();
+    m_timeline->clear();
     m_mapStrip->setMap({});
     m_meterA->clearReading();
     m_meterB->clearReading();
     m_meterOut->clearReading();
     m_sourcesList->clear();
     m_nullSourceButton->setEnabled(false);
-    m_stationRows.clear();
-    m_stations->setRowCount(0);
-    m_stationsCount->setText(tr("%1 stations remembered").arg(0));
-    m_noiseStatus->setText(tr("noise ref: %1 · coherence %2")
+    m_talkerRows.clear();
+    m_talkerLiveRow = -1;
+    m_talkersRebuilding = true;
+    m_talkers->setRowCount(0);
+    m_talkersRebuilding = false;
+    m_talkersCount->setText(tr("%1 talkers remembered · nobody talking").arg(0));
+    m_noiseStatus->setText(tr("noise reference: %1 · coherence %2")
                                .arg(QStringLiteral("—"), QStringLiteral("—")));
-    m_alignedValue->setText(QStringLiteral("—"));
-    m_lagValue->setText(QStringLiteral("—"));
-    m_peakValue->setText(QStringLiteral("—"));
-    m_realigningValue->setText(QStringLiteral("—"));
-    DiversityWidgets::setLive(m_realigningValue, false);
-    m_captureResult->setText(QStringLiteral("—"));
+    m_balanceDelta->setText(tr("A - B: —"));
+    m_balanceCoherence->setText(tr("noise coherence —"));
+    m_balancePassband->setText(tr("passband —"));
+    m_balanceVerdict->setText(QStringLiteral("—"));
+    m_alignLine->setText(tr("%1 · lag %2 · peak %3 · %4")
+                             .arg(QStringLiteral("—"), QStringLiteral("—"),
+                                  QStringLiteral("—"), QStringLiteral("—")));
+    DiversityWidgets::setLive(m_alignLine, false);
+    m_captureResult->setText(tr("capture: —"));
     m_captureResult->setToolTip(QString());
     m_captureButton->setEnabled(true);
     m_captureLocalResult = false;
+    m_lastCaptureAnnounced.clear();
     m_compareButton->setEnabled(false);
 }
 

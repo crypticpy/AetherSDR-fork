@@ -25,10 +25,11 @@
 //     than keeping two copies of its rebuild-only-on-change and
 //     restore-selection-by-(lo,hi)-key rules in step by hand.
 //
-// It also carries two of DiversityWindow's own panel builders
-// (buildStationsPanel/buildAlignmentPanel). They are members of
-// DiversityWindow, defined here purely so DiversityWindow.cpp stays inside
-// the file-size budget -- the same reason this file exists at all.
+// It also carries all four of DiversityWindow's stage-panel builders
+// (buildAntennasPanel/buildNoisePanel/buildTalkersPanel/buildEventsPanel).
+// They are members of DiversityWindow, defined here purely so
+// DiversityWindow.cpp stays inside the file-size budget -- the same reason
+// this file exists at all.
 
 #include <QString>
 #include <QWidget>
@@ -90,6 +91,14 @@ QLabel* makeCaption(const QString& text, QWidget* parent);
 // A field caption beside a readout ("Lag", "Corr peak") -- and, for the one
 // status line that is a sentence rather than a number, the sentence itself.
 QLabel* makeFieldLabel(const QString& text, QWidget* parent);
+
+// A fixed-width monospaced-feel readout line: a whole sentence of numbers
+// ("A - B: +3.4 dB") whose minimum width is the widest it can ever be, so the
+// panel around it cannot reflow when a digit appears or disappears. Unlike
+// makeValue() it is left-aligned and reads as prose, which is what the
+// BALANCE block and the alignment line are.
+QLabel* makeReadoutLine(const QString& objectName, const QString& worstCase,
+                        const QString& tip, QWidget* parent);
 
 // A numeric readout whose MINIMUM width is the widest string it can ever
 // show, so the row it sits in cannot reflow when the digit count changes --

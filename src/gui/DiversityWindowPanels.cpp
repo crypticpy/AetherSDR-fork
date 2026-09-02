@@ -4,7 +4,11 @@
 
 #include "core/ThemeManager.h"
 #include "gui/AetherGateDiversityFormat.h"
+#include "gui/ClientCompKnob.h"
+#include "gui/DiversityMapStrip.h"
+#include "gui/Theme.h"
 
+#include <QAbstractItemView>
 #include <QAccessible>
 #include <QFont>
 #include <QFontMetrics>
@@ -23,6 +27,8 @@
 #include <QStringList>
 #include <QStyle>
 #include <QTableWidget>
+#include <QTimer>
+#include <QUrlQuery>
 #include <QVBoxLayout>
 #include <QVariant>
 
@@ -38,7 +44,16 @@ namespace {
 constexpr double kSnrLoDb = -10.0;
 constexpr double kSnrHiDb = 30.0;
 
-constexpr int kMeterWidth   = 52;
+// Same ~150ms coalescing the sidebar panel uses: a knob drag fires
+// valueChanged many times a second and each one becomes a real HTTP round
+// trip once the applet turns it into a request.
+constexpr int kDebounceMs = 150;
+
+// The map strip is the noise panel's main readout here rather than the
+// sidebar's 24px glance strip.
+constexpr int kMapStripHeight = 58;
+
+constexpr int kMeterWidth   = 46;
 constexpr int kHeaderHeight = 16;
 constexpr int kValueHeight  = 16;
 constexpr int kTickColWidth = 22;
@@ -50,9 +65,11 @@ const char* kGroupCaptionStyle =
     "QLabel { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold; "
     "background: transparent; }";
 
-// A row-caption above a group of chain buttons ("MODE", "HEAR", "PAN").
+// A row-caption above a group of chain buttons ("MODE", "HEAR", "PAN"). 10px,
+// not the 9px the first pass used: nothing in this window is allowed below
+// 10px any more, which was the operator's second complaint about it.
 const char* kCaptionStyle =
-    "QLabel { color: {{color.text.secondary}}; font-size: 9px; font-weight: bold; "
+    "QLabel { color: {{color.text.secondary}}; font-size: 10px; font-weight: bold; "
     "background: transparent; }";
 
 // Fixed-width numeric readouts. The [live] property selector is how a value
@@ -68,13 +85,24 @@ const char* kFieldLabelStyle =
     "QLabel { color: {{color.text.secondary}}; font-size: 10px; font-weight: bold; "
     "background: transparent; }";
 
-// Bearing / Level / Hits / Age. Fixed widths so a poll that adds or drops a
-// remembered talker scrolls the table, never resizes the panel around it.
-// Height comes from the layout (the table shares the scope's stretch row),
-// never from the row count.
-constexpr int kStationColumnWidths[] = {62, 66, 40, 52};
-constexpr int kStationRowHeight = 22;
-constexpr int kStationTableMinHeight = 120;
+// A whole readout sentence rather than a bare number ("A - B: +3.4 dB"). The
+// [live] selector is how the alignment line goes warning-coloured while the
+// gate is realigning without a setStyleSheet() on every poll.
+const char* kReadoutLineStyle =
+    "QLabel { color: {{color.text.primary}}; font-size: 11px; "
+    "background: transparent; }"
+    "QLabel[live=\"true\"] { color: {{color.accent.warning}}; }";
+
+// The one-word BALANCE verdict, and the alignment line: both are conclusions
+// rather than measurements, so they get the panel-caption weight.
+const char* kVerdictStyle =
+    "QLabel { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold; "
+    "background: transparent; }";
+
+const char* kSourcesListStyle =
+    "QListWidget { background: transparent; color: {{color.text.primary}};"
+    " font-size: 11px; border: 1px solid {{color.background.1}};"
+    " border-radius: 3px; }";
 
 } // namespace
 
@@ -258,6 +286,20 @@ QLabel* makeValue(const QString& objectName, const QString& worstCase, QWidget* 
     return label;
 }
 
+QLabel* makeReadoutLine(const QString& objectName, const QString& worstCase,
+                        const QString& tip, QWidget* parent)
+{
+    auto* label = new QLabel(QStringLiteral("—"), parent);
+    label->setObjectName(objectName);
+    ThemeManager::instance().applyStyleSheet(label,
+                                             QString::fromLatin1(kReadoutLineStyle));
+    label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    label->setMinimumWidth(label->fontMetrics().horizontalAdvance(worstCase) + 8);
+    label->setToolTip(tip);
+    label->setAccessibleDescription(tip);
+    return label;
+}
+
 void setLive(QWidget* w, bool live)
 {
     if (w->property("live").isValid() && w->property("live").toBool() == live)
@@ -321,100 +363,321 @@ void applySources(QListWidget* list, const QJsonArray& sources)
 
 } // namespace DiversityWidgets
 
+
 // --------------------------------------------------------------------------
-// DiversityWindow panel builders defined here rather than in
+// DiversityWindow stage-panel builders, defined here rather than in
 // DiversityWindow.cpp -- see this file's header comment.
+//
+// Every control built below gets a tooltip written for a ham who has never
+// seen a diversity combiner, because "no hover help anywhere" was the single
+// most-repeated thing wrong with the first pass. The tooltip is also set as
+// the accessible description, so the same explanation reaches a screen reader
+// rather than only a mouse.
 // --------------------------------------------------------------------------
 
-QWidget* DiversityWindow::buildStationsPanel()
+QWidget* DiversityWindow::buildAntennasPanel()
 {
     QVBoxLayout* body = nullptr;
     QFrame* frame = DiversityWidgets::makeGroupBox(
-        tr("STATIONS"), QStringLiteral("diversityWindowStations"), body, this);
+        tr("ANTENNAS"), QStringLiteral("diversityWindowAntennas"), body, this);
 
-    m_stationsCount = DiversityWidgets::makeFieldLabel(tr("0 stations remembered"), frame);
-    m_stationsCount->setObjectName(QStringLiteral("diversityWindowStationsCountLabel"));
-    m_stationsCount->setAccessibleName(tr("Remembered station count"));
+    auto* meters = new QHBoxLayout;
+    meters->setSpacing(8);
+    const auto addMeter = [&](DiversitySnrMeter*& meter, const QString& header,
+                              const QString& objectName, const QString& tip) {
+        meter = new DiversitySnrMeter(header, frame);
+        meter->setObjectName(objectName);
+        meter->setToolTip(tip);
+        meter->setAccessibleDescription(tip);
+        meters->addWidget(meter);
+    };
+    addMeter(m_meterA, tr("A"), QStringLiteral("diversityWindowMeterA"),
+             tr("Signal-to-noise on loop A alone, on a fixed -10 to +30 dB "
+                "scale. This is the reference: whatever the combiner does has "
+                "to beat the better of A and B to be worth having."));
+    addMeter(m_meterB, tr("B"), QStringLiteral("diversityWindowMeterB"),
+             tr("Signal-to-noise on loop B alone, same fixed scale. A loop that "
+                "reads far below the other is either mis-terminated or pointed "
+                "into a null."));
+    addMeter(m_meterOut, tr("OUT"), QStringLiteral("diversityWindowMeterOut"),
+             tr("Signal-to-noise on what you are actually hearing. If it does "
+                "not stand above both A and B, the combiner is not buying you "
+                "anything on this signal."));
+    meters->addSpacing(12);
 
-    m_stations = new QTableWidget(0, 4, frame);
-    m_stations->setObjectName(QStringLiteral("diversityWindowStationsTable"));
-    m_stations->setAccessibleName(tr("Remembered stations"));
-    m_stations->setHorizontalHeaderLabels(
-        {tr("Bearing"), tr("Level"), tr("Hits"), tr("Age")});
-    m_stations->verticalHeader()->setVisible(false);
-    m_stations->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_stations->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_stations->setSelectionMode(QAbstractItemView::SingleSelection);
-    for (int c = 0; c < 4; ++c)
-        m_stations->setColumnWidth(c, kStationColumnWidths[c]);
-    m_stations->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-    m_stations->horizontalHeader()->setStretchLastSection(true);
-    m_stations->verticalHeader()->setDefaultSectionSize(kStationRowHeight);
-    m_stations->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_stations->setMinimumHeight(kStationTableMinHeight);
-    m_stations->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    // Phase and ratio are a MANUAL-mode setpoint: Null and Track solve for
+    // their own weight and Off applies none, so outside manual these are
+    // disabled and never written by a poll. The caption greys with them --
+    // a knob that merely stops responding, with no visible reason, is the
+    // kind of dead control Principle XI is about.
+    auto* manual = new QVBoxLayout;
+    manual->setSpacing(4);
+    m_manualCaption = DiversityWidgets::makeCaption(tr("MANUAL WEIGHT"), frame);
+    m_manualCaption->setObjectName(QStringLiteral("diversityWindowManualCaption"));
+    m_manualCaption->setToolTip(
+        tr("The weight applied to loop B before it is added to loop A. Live "
+           "only in MANUAL mode -- NULL and TRACK solve for their own weight, "
+           "and OFF applies none, so the knobs grey out in those modes rather "
+           "than sitting there looking adjustable."));
+    manual->addWidget(m_manualCaption);
 
-    m_memoryClearButton = new QPushButton(tr("Clear memory"), frame);
-    m_memoryClearButton->setObjectName(QStringLiteral("diversityWindowMemoryClearButton"));
-    m_memoryClearButton->setAccessibleName(tr("Clear the remembered stations"));
-    connect(m_memoryClearButton, &QPushButton::clicked, this,
-            &DiversityWindow::requestMemoryClear);
+    auto* knobs = new QHBoxLayout;
+    knobs->setSpacing(8);
+    m_phaseKnob = new ClientCompKnob(frame);
+    m_phaseKnob->setObjectName(QStringLiteral("diversityWindowPhaseKnob"));
+    m_phaseKnob->setAccessibleName(tr("Manual phase"));
+    m_phaseKnob->setToolTip(
+        tr("How far loop B is rotated in phase before being added to loop A. "
+           "Sweep it and a local noise source will null sharply at one "
+           "setting; the wanted signal, arriving from a different direction, "
+           "will not. MANUAL mode only."));
+    m_phaseKnob->setAccessibleDescription(m_phaseKnob->toolTip());
+    m_phaseKnob->setFixedSize(72, 88);
+    m_phaseKnob->setLabel(tr("PHASE"));
+    m_phaseKnob->setRange(0.0f, 360.0f);
+    m_phaseKnob->setDefault(0.0f);
+    m_phaseKnob->setLabelFormat([](float v) { return QString::asprintf("%.0f°", double(v)); });
+    connect(m_phaseKnob, &ClientCompKnob::valueChanged, this,
+            [this](float) { m_phaseDebounce->start(kDebounceMs); });
+    knobs->addWidget(m_phaseKnob);
 
-    auto* header = new QHBoxLayout;
-    header->setSpacing(6);
-    header->addWidget(m_stationsCount, 1);
-    header->addWidget(m_memoryClearButton);
-    body->addLayout(header);
-    body->addWidget(m_stations, 1);
+    m_ratioKnob = new ClientCompKnob(frame);
+    m_ratioKnob->setObjectName(QStringLiteral("diversityWindowRatioKnob"));
+    m_ratioKnob->setAccessibleName(tr("Manual ratio"));
+    m_ratioKnob->setToolTip(
+        tr("How much louder loop B is made before being added to loop A. Get "
+           "this within a decibel of the level the noise arrives at on both "
+           "loops or the null will be shallow no matter what the phase is. "
+           "MANUAL mode only."));
+    m_ratioKnob->setAccessibleDescription(m_ratioKnob->toolTip());
+    m_ratioKnob->setFixedSize(72, 88);
+    m_ratioKnob->setLabel(tr("RATIO"));
+    m_ratioKnob->setRange(-20.0f, 20.0f);
+    m_ratioKnob->setDefault(0.0f);
+    m_ratioKnob->setLabelFormat([](float v) { return QString::asprintf("%+.1f dB", double(v)); });
+    connect(m_ratioKnob, &ClientCompKnob::valueChanged, this,
+            [this](float) { m_ratioDebounce->start(kDebounceMs); });
+    knobs->addWidget(m_ratioKnob);
+    knobs->addStretch(1);
+    manual->addLayout(knobs);
+    manual->addStretch(1);
+    meters->addLayout(manual, 1);
+    body->addLayout(meters);
+
+    // BALANCE: the three numbers that decide whether a second loop can do
+    // anything here at all, and the sentence they add up to. Without it the
+    // meters say "A is louder than B" and leave the operator to work out what
+    // that implies, which is exactly the gap this panel was reported as
+    // having.
+    body->addWidget(DiversityWidgets::makeCaption(tr("BALANCE"), frame));
+    m_balanceDelta = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowBalanceDeltaLabel"),
+        QStringLiteral("A - B: +99.9 dB"),
+        tr("How much better loop A's signal-to-noise is than loop B's right "
+           "now. Near zero means both loops are contributing; a large number "
+           "means one of them is doing all the work and the combiner has "
+           "little to add."),
+        frame);
+    m_balanceDelta->setAccessibleName(tr("Loop balance"));
+    body->addWidget(m_balanceDelta);
+
+    m_balanceCoherence = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowBalanceCoherenceLabel"),
+        QStringLiteral("noise coherence 0.00"),
+        tr("How alike the noise looks on the two loops, from 0 to 1. Near zero "
+           "is sky noise arriving from every direction at once, which no "
+           "combiner can cancel -- the second antenna can only add gain. Near "
+           "one means a single dominant local source, which can be nulled."),
+        frame);
+    m_balanceCoherence->setAccessibleName(tr("Noise coherence"));
+    body->addWidget(m_balanceCoherence);
+
+    m_balancePassband = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowBalancePassbandLabel"),
+        QStringLiteral("passband flat 0.00 · slope -99.9°/kHz"),
+        tr("How uniform the combined passband is across its width, and how "
+           "fast the phase between the loops drifts with frequency. A steep "
+           "slope means one weight cannot null the whole channel at once, so "
+           "the null will be deep at one edge and shallow at the other."),
+        frame);
+    m_balancePassband->setAccessibleName(tr("Passband balance"));
+    body->addWidget(m_balancePassband);
+
+    m_balanceVerdict = new QLabel(QStringLiteral("—"), frame);
+    m_balanceVerdict->setObjectName(QStringLiteral("diversityWindowBalanceVerdictLabel"));
+    m_balanceVerdict->setAccessibleName(tr("Balance verdict"));
+    m_balanceVerdict->setToolTip(
+        tr("What the three numbers above add up to. \"Gain only\" means the "
+           "noise is isotropic and there is nothing to null -- the second loop "
+           "can still help by adding signal. \"Null available\" means one "
+           "source dominates and NULL or TRACK has something to bite on."));
+    m_balanceVerdict->setAccessibleDescription(m_balanceVerdict->toolTip());
+    ThemeManager::instance().applyStyleSheet(m_balanceVerdict,
+                                             QString::fromLatin1(kVerdictStyle));
+    body->addWidget(m_balanceVerdict);
+    body->addStretch(1);
     return frame;
 }
 
-QWidget* DiversityWindow::buildAlignmentPanel()
+QWidget* DiversityWindow::buildNoisePanel()
 {
     QVBoxLayout* body = nullptr;
     QFrame* frame = DiversityWidgets::makeGroupBox(
-        tr("ALIGNMENT & CAPTURE"), QStringLiteral("diversityWindowAlignment"), body, this);
+        tr("NOISE"), QStringLiteral("diversityWindowNoise"), body, this);
 
-    auto* grid = new QGridLayout;
-    grid->setHorizontalSpacing(10);
-    grid->setVerticalSpacing(4);
-    const auto addField = [&](int row, const QString& caption, QLabel* value) {
-        grid->addWidget(DiversityWidgets::makeFieldLabel(caption, frame), row, 0);
-        grid->addWidget(value, row, 1);
-    };
+    auto* topRow = new QWidget(frame);
+    auto* top = new QHBoxLayout(topRow);
+    top->setContentsMargins(0, 0, 0, 0);
+    top->setSpacing(6);
+    top->addWidget(DiversityWidgets::makeCaption(tr("BLANKER"), topRow));
+    m_nbButton = new QPushButton(tr("NB"), topRow);
+    m_nbButton->setObjectName(QStringLiteral("diversityWindowNbButton"));
+    m_nbButton->setAccessibleName(tr("Noise blanker"));
+    m_nbButton->setToolTip(
+        tr("A noise blanker watches for short, loud spikes -- power-line "
+           "arcing, ignition noise, some switching supplies -- and mutes the "
+           "receiver for the microseconds each spike lasts, before anything "
+           "else in the chain hears it. It does nothing at all for a steady "
+           "hiss or a carrier; that is what the null is for."));
+    m_nbButton->setAccessibleDescription(m_nbButton->toolTip());
+    m_nbButton->setCheckable(true);
+    m_nbButton->setFixedHeight(26);
+    applyToggleButtonStyle(m_nbButton, ToggleTribe::Warning);
+    connect(m_nbButton, &QPushButton::clicked, this, [this](bool on) {
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("nb"), on ? QStringLiteral("on") : QStringLiteral("off"));
+        emit requestSet(q);
+    });
+    top->addWidget(m_nbButton);
 
-    m_alignedValue = DiversityWidgets::makeValue(
-        QStringLiteral("diversityWindowAlignedLabel"), tr("not aligned"), frame);
-    m_alignedValue->setAccessibleName(tr("Tuner alignment"));
-    addField(0, tr("Aligned"), m_alignedValue);
+    m_nbKnob = new ClientCompKnob(topRow);
+    m_nbKnob->setObjectName(QStringLiteral("diversityWindowNbKnob"));
+    m_nbKnob->setAccessibleName(tr("Noise blanker threshold"));
+    m_nbKnob->setToolTip(
+        tr("How far above the running average a sample has to jump before the "
+           "blanker calls it an impulse and mutes it. Too low and it chews "
+           "holes in speech and strong signals; too high and it never fires. "
+           "Start high and wind it down until the crackle stops."));
+    m_nbKnob->setAccessibleDescription(m_nbKnob->toolTip());
+    m_nbKnob->setFixedSize(72, 80);
+    m_nbKnob->setLabel(tr("THRESH"));
+    m_nbKnob->setRange(0.0f, 40.0f);
+    m_nbKnob->setDefault(0.0f);
+    m_nbKnob->setLabelFormat([](float v) { return QString::asprintf("%.1f dB", double(v)); });
+    connect(m_nbKnob, &ClientCompKnob::valueChanged, this,
+            [this](float) { m_nbDebounce->start(kDebounceMs); });
+    top->addWidget(m_nbKnob);
+    top->addStretch(1);
+    body->addWidget(topRow);
 
-    // Five digits plus a sign: 4158 samples is what a real RSPduo
-    // misalignment looks like, so this is headroom rather than a guess.
-    m_lagValue = DiversityWidgets::makeValue(
-        QStringLiteral("diversityWindowLagLabel"), QStringLiteral("-99999"), frame);
-    m_lagValue->setAccessibleName(tr("Alignment lag in samples"));
-    addField(1, tr("Lag"), m_lagValue);
+    // Which leg the panadapter draws, on its own row: with the blanker knob
+    // beside it the two would not fit the column at the window's minimum.
+    auto* panRow = new QWidget(frame);
+    auto* pan = new QHBoxLayout(panRow);
+    pan->setContentsMargins(0, 0, 0, 0);
+    pan->setSpacing(6);
+    m_panGroup = addButtonRow(
+        panRow, tr("PAN"), QStringLiteral("pan"), QStringLiteral("diversityWindowPan"),
+        {tr("A"), tr("B"), tr("COMBINED"), tr("NULLED")},
+        {QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("combined"),
+         QStringLiteral("nulled")},
+        {tr("Draw loop A's raw spectrum on the panadapter. What one antenna "
+            "sees, uncombined."),
+         tr("Draw loop B's raw spectrum on the panadapter."),
+         tr("Draw the combiner's output -- the two loops added with the "
+            "current weight. This is what you are hearing."),
+         tr("Draw the difference the null is removing: what the combiner threw "
+            "away. A tall peak here is the interference being cancelled, which "
+            "is the quickest confirmation that the null is on the right "
+            "thing.")});
+    pan->addStretch(1);
+    body->addWidget(panRow);
 
-    m_peakValue = DiversityWidgets::makeValue(
-        QStringLiteral("diversityWindowPeakLabel"), QStringLiteral("0.000"), frame);
-    m_peakValue->setAccessibleName(tr("Correlation peak"));
-    addField(2, tr("Corr peak"), m_peakValue);
+    m_mapStrip = new DiversityMapStrip(frame);
+    m_mapStrip->setObjectName(QStringLiteral("diversityWindowMapStrip"));
+    m_mapStrip->setStripHeight(kMapStripHeight);
+    m_mapStrip->setAxisMode(true);
+    m_mapStrip->setToolTip(
+        tr("How alike the two loops look at each frequency across the mapped "
+           "span. A tall bar means one local source dominates that patch and "
+           "the combiner has something it can null; short bars mean noise "
+           "arriving from everywhere at once, which nothing can cancel. The "
+           "shaded band is the passband you are actually listening through, "
+           "and the brackets underneath mark the sources listed below."));
+    m_mapStrip->setAccessibleDescription(m_mapStrip->toolTip());
+    body->addWidget(m_mapStrip);
 
-    m_realigningValue = DiversityWidgets::makeValue(
-        QStringLiteral("diversityWindowRealigningLabel"), tr("realigning…"), frame);
-    m_realigningValue->setAccessibleName(tr("Realignment state"));
-    addField(3, tr("State"), m_realigningValue);
-    grid->setColumnStretch(2, 1);
-    body->addLayout(grid);
+    // Wrapped rather than fixed-width: it is the widest string in the panel,
+    // and pinning the column to it would cost the talkers table two columns.
+    auto* mapCaption = new QLabel(
+        tr("inter-loop coherence per bin — high: one local source, low: sky noise"),
+        frame);
+    mapCaption->setWordWrap(true);
+    ThemeManager::instance().applyStyleSheet(mapCaption,
+                                             QString::fromLatin1(kCaptionStyle));
+    mapCaption->setObjectName(QStringLiteral("diversityWindowMapCaptionLabel"));
+    mapCaption->setToolTip(m_mapStrip->toolTip());
+    body->addWidget(mapCaption);
 
-    auto* captureRow = new QHBoxLayout;
-    captureRow->setSpacing(6);
-    m_captureResult = DiversityWidgets::makeFieldLabel(QStringLiteral("—"), frame);
-    m_captureResult->setObjectName(QStringLiteral("diversityWindowCaptureLabel"));
-    m_captureResult->setAccessibleName(tr("Last capture"));
-    captureRow->addWidget(DiversityWidgets::makeFieldLabel(tr("Capture"), frame));
-    captureRow->addWidget(m_captureResult, 1);
-    body->addLayout(captureRow);
+    m_sourcesList = new QListWidget(frame);
+    m_sourcesList->setObjectName(QStringLiteral("diversityWindowSourcesList"));
+    m_sourcesList->setAccessibleName(tr("Diversity sources"));
+    m_sourcesList->setToolTip(
+        tr("Each row is a patch of the band where both loops see the same "
+           "thing at a steady phase -- the signature of one interfering "
+           "source rather than sky noise. Select the one that is bothering "
+           "you and press Null selected: the gate solves for the weight that "
+           "cancels it and applies it. Hover a row for its phase and level."));
+    m_sourcesList->setAccessibleDescription(m_sourcesList->toolTip());
+    ThemeManager::instance().applyStyleSheet(m_sourcesList,
+                                             QString::fromLatin1(kSourcesListStyle));
+    m_sourcesList->setFixedHeight(3 * (fontMetrics().height() + 6));
+    m_sourcesList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_sourcesList->setTextElideMode(Qt::ElideRight);
+    body->addWidget(m_sourcesList);
+
+    auto* bottomRow = new QWidget(frame);
+    auto* bottom = new QHBoxLayout(bottomRow);
+    bottom->setContentsMargins(0, 0, 0, 0);
+    bottom->setSpacing(6);
+    m_nullSourceButton = new QPushButton(tr("Null selected"), bottomRow);
+    m_nullSourceButton->setObjectName(QStringLiteral("diversityWindowNullSourceButton"));
+    m_nullSourceButton->setAccessibleName(tr("Null the selected noise source"));
+    m_nullSourceButton->setToolTip(
+        tr("Point the combiner's null at the source selected above. The gate "
+           "solves for the phase and level that cancel it and switches to that "
+           "weight; if the source moves or stops, use TRACK instead so the "
+           "null follows it."));
+    m_nullSourceButton->setEnabled(false);
+    connect(m_sourcesList, &QListWidget::currentRowChanged, this,
+            [this](int row) { m_nullSourceButton->setEnabled(row >= 0); });
+    connect(m_nullSourceButton, &QPushButton::clicked, this, [this] {
+        // The index sent is the SELECTED ITEM's current position, never a row
+        // cached earlier: the list is rebuilt from every poll and "sources" can
+        // shrink or reorder between the click and this handler running.
+        QListWidgetItem* item = m_sourcesList->currentItem();
+        if (!item)
+            return;
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("null_source"),
+                       QString::number(m_sourcesList->row(item)));
+        emit requestSet(q);
+    });
+    bottom->addWidget(m_nullSourceButton);
+    body->addWidget(bottomRow);
+
+    m_noiseStatus = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowNoiseStatusLabel"),
+        tr("noise reference: guard band · coherence 0.00"),
+        tr("Where the gate measures \"noise\" from when it works out a "
+           "signal-to-noise figure. A GUARD BAND is a slice just outside the "
+           "passband, which is honest while the band is quiet but wrong if "
+           "something is sitting in the guard. IN-BAND means it is estimating "
+           "the noise floor underneath the signal itself. The coherence figure "
+           "is the same one the BALANCE block explains."),
+        frame);
+    m_noiseStatus->setAccessibleName(tr("Noise reference"));
+    body->addWidget(m_noiseStatus);
     body->addStretch(1);
     return frame;
 }

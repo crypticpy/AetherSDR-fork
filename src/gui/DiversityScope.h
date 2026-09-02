@@ -111,8 +111,20 @@ private:
         double ratioDb;
     };
 
+    // A remembered talker's weight, plus the gate's own stable id for it.
+    // The id is what makes a hollow marker on the dial mean the same thing as
+    // a row in the TALKERS table: without it the dots are, in the operator's
+    // words, unexplained.
+    struct MemoryMarker {
+        double phaseDeg;
+        double ratioDb;
+        bool   haveId;
+        int    id;
+    };
+
     void paintWeightPlot(QPainter& p, const QRectF& rectArea) const;
     void paintSnrBars(QPainter& p, const QRectF& rectArea) const;
+    void paintLegend(QPainter& p, const QRectF& rectArea) const;
     void paintTextLines(QPainter& p, const QRectF& rectArea);
     QString buildTopLine() const;
     QString buildBottomLine() const;
@@ -123,7 +135,14 @@ private:
     QString buildPassbandPhrase() const;
 
     QVector<WeightSample> m_trail;      // ring buffer, oldest first, capped
-    QVector<WeightSample> m_memory;
+    QVector<MemoryMarker> m_memory;
+
+    // "talker": the remembered entry whose weight is live right now, or none
+    // between overs. Independently optional like every other v3 key: a gate
+    // that does not report it leaves every marker hollow rather than guessing
+    // which one is on the air.
+    bool m_haveTalker{false};
+    int  m_talkerId{0};
 
     bool   m_haveWeight{false};
     double m_phaseDeg{0.0};

@@ -122,6 +122,12 @@ signals:
     void requestCapture(int seconds);
     // -> GET /diversity/memory/clear
     void requestMemoryClear();
+    // -> GET /diversity/memory/name?id=<id>&name=<urlencoded>. Emitted only
+    // by the pop-out window -- the sidebar has no room for an editable name
+    // column -- but it is declared here with the rest because the window's
+    // writes all take the panel's route to the applet rather than a second
+    // one of their own. An empty name clears the gate's label.
+    void requestMemoryName(int id, QString name);
 
 protected:
     // Watches m_compareButton for FocusOut/Hide — see restoreCompareHold()'s

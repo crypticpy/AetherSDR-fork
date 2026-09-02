@@ -122,6 +122,7 @@ private:
     void onDiversityRequestAlign();
     void onDiversityRequestCapture(int seconds);
     void onDiversityRequestMemoryClear();
+    void onDiversityRequestMemoryName(int id, QString name);
 
     QPointer<RadioModel>   m_model;
     QNetworkAccessManager* m_net{nullptr};

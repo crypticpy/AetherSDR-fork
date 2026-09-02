@@ -44,14 +44,43 @@ public:
     // Height only -- setMap() and the paint are identical at either size.
     void setStripHeight(int px);
 
+    // Window mode. The sidebar's strip is a GLANCE -- 24px, no axis, and the
+    // numeric sources list right under it carries the frequencies. In the
+    // window the same array is the noise panel's main readout, where a bar
+    // with no frequency under it is a picture of nothing in particular: axis
+    // mode adds MHz labels at the two edges and the centre, and draws the
+    // receiver's own passband over the strip so "the coherent patch" and "the
+    // bit I am listening to" can be compared by eye rather than by arithmetic.
+    //
+    // Off by default, so the sidebar's rendering and geometry are untouched.
+    void setAxisMode(bool on);
+    bool axisMode() const { return m_axisMode; }
+
+    // /diversity/map's "passband_hz": [lo, hi] absolute Hz, or absent on a
+    // gate that does not report one. Exposed because the strip is a raw
+    // QPainter paint with no children -- a test has no other way to check
+    // that a missing key drew no marker rather than a marker at zero.
+    bool   hasPassband() const { return m_havePassband; }
+    double passbandLoHz() const { return m_passbandLoHz; }
+    double passbandHiHz() const { return m_passbandHiHz; }
+
 protected:
     void paintEvent(QPaintEvent*) override;
 
 private:
+    // Recomputes the widget's fixed height from the bar height and whether
+    // the axis row is reserved.
+    void applyHeight();
+
     QVector<float> m_coherence;
     QVector<std::pair<double, double>> m_sources;
     double m_startHz{0.0};
     double m_stepHz{0.0};
+    bool   m_havePassband{false};
+    double m_passbandLoHz{0.0};
+    double m_passbandHiHz{0.0};
+    int    m_barHeight{24};
+    bool   m_axisMode{false};
 };
 
 } // namespace AetherSDR

@@ -14,39 +14,49 @@
 // an applet built afterwards would restore it — which would silently change
 // what every later case in that binary is testing.
 
+#include "DiversityGateFixture.h"
 #include "TestSettingsProfile.h"
 #include "core/AppSettings.h"
 #include "gui/AetherGateApplet.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/ClientCompKnob.h"
+#include "gui/DiversityMapStrip.h"
 #include "gui/DiversityScope.h"
+#include "gui/DiversityTimeline.h"
 #include "gui/DiversityWindow.h"
+#include "gui/DiversityWindowEvents.h"
 #include "gui/DiversityWindowPanels.h"
 
 #include <QApplication>
-#include <QHash>
+#include <QDateTime>
+#include <QJsonObject>
 #include <QLabel>
-#include <QNetworkAccessManager>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QNetworkReply>
-#include <QNetworkRequest>
 #include <QPushButton>
 #include <QStringList>
+#include <QTableWidget>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QTest>
-#include <QTimer>
 #include <QToolButton>
-#include <QUrl>
 
-#include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <cstring>
 
 using AetherSDR::AetherGateApplet;
 using AetherSDR::AppSettings;
 using AetherSDR::ClientCompKnob;
+using AetherSDR::DiversityEventLog;
+using AetherSDR::DiversityMapStrip;
 using AetherSDR::DiversityScope;
+using AetherSDR::DiversitySnapshot;
 using AetherSDR::DiversitySnrMeter;
+using AetherSDR::DiversityTimeline;
 using AetherSDR::DiversityWindow;
+
+using namespace DiversityGateFixture;
 
 namespace {
 
@@ -60,159 +70,6 @@ int g_failed = 0;
         }                                                                            \
     } while (0)
 
-// Same fake transport as tests/aether_gate_applet_test.cpp: a reply that
-// finishes on the next event-loop turn with a fixed body or a fixed error.
-class FakeReply : public QNetworkReply {
-public:
-    FakeReply(const QNetworkRequest& req, QNetworkReply::NetworkError err,
-              const QByteArray& body, const QByteArray& contentType, QObject* parent)
-        : QNetworkReply(parent), m_body(body)
-    {
-        setRequest(req);
-        setUrl(req.url());
-        setOperation(QNetworkAccessManager::GetOperation);
-        open(QIODevice::ReadOnly | QIODevice::Unbuffered);
-        if (err != QNetworkReply::NoError) {
-            setError(err, QStringLiteral("fake error %1").arg(int(err)));
-        } else {
-            setHeader(QNetworkRequest::ContentTypeHeader, QString::fromLatin1(contentType));
-            setAttribute(QNetworkRequest::HttpStatusCodeAttribute, 200);
-        }
-        QTimer::singleShot(0, this, [this, err] {
-            if (err != QNetworkReply::NoError)
-                emit errorOccurred(err);
-            setFinished(true);
-            if (!m_body.isEmpty())
-                emit readyRead();
-            emit finished();
-        });
-    }
-
-    void abort() override {}
-    bool isSequential() const override { return true; }
-    qint64 bytesAvailable() const override
-    {
-        return (m_body.size() - m_pos) + QNetworkReply::bytesAvailable();
-    }
-
-protected:
-    qint64 readData(char* data, qint64 maxSize) override
-    {
-        const qint64 n = std::min<qint64>(maxSize, m_body.size() - m_pos);
-        if (n <= 0)
-            return 0;
-        std::memcpy(data, m_body.constData() + m_pos, size_t(n));
-        m_pos += n;
-        return n;
-    }
-
-private:
-    QByteArray m_body;
-    qint64 m_pos{0};
-};
-
-struct Canned {
-    QNetworkReply::NetworkError error{QNetworkReply::NoError};
-    QByteArray body;
-    QByteArray contentType{"application/json"};
-};
-
-class FakeGate : public QNetworkAccessManager {
-public:
-    QHash<QString, Canned> routes;      // by URL path
-    QStringList log;                    // path?query of every request, in order
-    bool down{false};                   // connection refused on everything
-
-    int count(const QString& prefix) const
-    {
-        int n = 0;
-        for (const QString& s : log) {
-            if (s.startsWith(prefix))
-                ++n;
-        }
-        return n;
-    }
-
-protected:
-    QNetworkReply* createRequest(Operation, const QNetworkRequest& req, QIODevice*) override
-    {
-        const QUrl u = req.url();
-        log << u.path() + (u.hasQuery() ? QStringLiteral("?") + u.query() : QString());
-        if (down)
-            return new FakeReply(req, QNetworkReply::ConnectionRefusedError, {}, {}, this);
-        if (!routes.contains(u.path()))
-            return new FakeReply(req, QNetworkReply::ContentNotFoundError, {}, {}, this);
-        const Canned c = routes.value(u.path());
-        return new FakeReply(req, c.error, c.body, c.contentType, this);
-    }
-};
-
-void settle()
-{
-    QTest::qWait(20);
-}
-
-void tick(AetherGateApplet& a)
-{
-    QMetaObject::invokeMethod(&a, "poll", Qt::DirectConnection);
-    settle();
-}
-
-const QByteArray kStatus = R"({"connected": true, "streaming": true,
-    "res": {"bins": 1024, "max_bins": 16384, "span_hz": 2000400.0, "bin_hz": 1953.5,
-            "samp_rate": 2000400.0, "rates": [2000000, 2000400, 3200000],
-            "can_set_rate": true}})";
-
-const QByteArray kDevice = R"({
-    "antenna": {"value": "Antenna B", "options": ["Antenna A", "Antenna B"]},
-    "settings": [
-      {"key": "lna_state", "name": "LNA state", "type": "1", "value": "2"}
-    ]})";
-
-// Every v2/v3 field the window reads, including the two it alone shows
-// (steady_qrm, passband) and the memory list its stations table renders.
-const QByteArray kDiversityFull = R"({"available": true, "channels": 2,
-    "mode": "manual", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
-    "weight": [0.7, 0.1], "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
-    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 42, "slice_id": 0,
-    "nb": {"enabled": true, "threshold_db": 18.5, "blanked_pct": 3.2},
-    "pan": "nulled",
-    "sources": [
-      {"lo_hz": 3512000.0, "hi_hz": 3560000.0, "phase_deg": 141.0, "ratio_db": -2.1,
-       "coherence": 0.82, "level_db": -40.0}
-    ],
-    "memory": [
-      {"phase_deg": 141.0, "ratio_db": -2.1, "age_s": 5.0, "hits": 12},
-      {"phase_deg": 10.0, "ratio_db": 1.0, "age_s": 20.0, "hits": 3}
-    ],
-    "rn_source": "guard", "noise_coherence": 0.07, "talk_mod": 0.62,
-    "steady_qrm": true,
-    "passband": {"flatness": 0.87, "phase_slope_deg_per_khz": -2.1, "coherence": 0.62},
-    "capture": {"active": false, "path": null}})";
-
-// Same shape with every optional leg NULL and no v2/v3 blocks at all -- the
-// "gate is here but has nothing measured yet" payload.
-const QByteArray kDiversityNulls = R"({"available": true, "channels": 2,
-    "mode": "track", "source": "combined", "phase_deg": 10.0, "ratio_db": 0.0,
-    "weight": [1.0, 0.0], "lag_samples": null, "aligned": false, "corr_peak": null,
-    "snr_db": {"a": null, "b": null, "out": null}, "updates": 0, "slice_id": 0,
-    "rn_source": null, "capture": {"active": false, "path": null}})";
-
-QByteArray makeDiversityMap(int points)
-{
-    QByteArray coherence = "[";
-    for (int i = 0; i < points; ++i) {
-        if (i)
-            coherence += ",";
-        coherence += QByteArray::number(double(i) / double(points), 'f', 4);
-    }
-    coherence += "]";
-    QByteArray body = "{\"start_hz\": 3500000.0, \"step_hz\": 100.0, \"coherence\": ";
-    body += coherence;
-    body += R"(, "level_db": [], "sources": [
-        {"lo_hz": 3512000.0, "hi_hz": 3560000.0}]})";
-    return body;
-}
 
 // AppSettings is one process-wide cache, and the window's own visibility is
 // persisted in it -- so every case starts from a known closed state rather
@@ -314,13 +171,16 @@ void testFullAndNullPayloadsApplyAndTheScopeAgrees()
     CHECK(meterA && std::abs(meterA->shownDb() - 12.3) < 1e-9);
     CHECK(meterOut && std::abs(meterOut->shownDb() - 15.1) < 1e-9);
 
-    auto* stations = w->findChild<QLabel*>(
-        QStringLiteral("diversityWindowStationsCountLabel"));
-    CHECK(stations && stations->text() == QStringLiteral("2 stations remembered"));
-    auto* aligned = w->findChild<QLabel*>(QStringLiteral("diversityWindowAlignedLabel"));
-    CHECK(aligned && aligned->text() == QStringLiteral("aligned"));
-    auto* lag = w->findChild<QLabel*>(QStringLiteral("diversityWindowLagLabel"));
-    CHECK(lag && lag->text() == QStringLiteral("3"));
+    auto* talkers = w->findChild<QLabel*>(
+        QStringLiteral("diversityWindowTalkersCountLabel"));
+    CHECK(talkers
+          && talkers->text() == QStringLiteral("2 talkers remembered · nobody talking"));
+    // Alignment is one fixed-width line now, not four labelled fields: the
+    // panel had exactly one question in it and four boxes made it look like
+    // four.
+    auto* align = w->findChild<QLabel*>(QStringLiteral("diversityWindowAlignLabel"));
+    CHECK(align
+          && align->text() == QStringLiteral("aligned · lag 3 · peak 0.910 · steady"));
 
     // Now the same window fed a payload whose every optional leg is null.
     net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityNulls};
@@ -328,8 +188,8 @@ void testFullAndNullPayloadsApplyAndTheScopeAgrees()
     CHECK(scope && std::isnan(scope->lastGainDb()));
     CHECK(meterA && std::isnan(meterA->shownDb()));
     // A null lag is "unknown", not zero.
-    CHECK(lag && lag->text() == QStringLiteral("—"));
-    CHECK(aligned && aligned->text() == QStringLiteral("not aligned"));
+    CHECK(align
+          && align->text() == QStringLiteral("not aligned · lag — · peak — · steady"));
     closedToStart();
 }
 
@@ -467,7 +327,7 @@ void testGateGoingAwayClearsTheWindowsReadouts()
     auto* scope = w->findChild<DiversityScope*>(QStringLiteral("diversityWindowScope"));
     auto* meterB = w->findChild<DiversitySnrMeter*>(QStringLiteral("diversityWindowMeterB"));
     auto* stations = w->findChild<QLabel*>(
-        QStringLiteral("diversityWindowStationsCountLabel"));
+        QStringLiteral("diversityWindowTalkersCountLabel"));
     auto* status = w->findChild<QLabel*>(QStringLiteral("diversityWindowStatusLabel"));
     CHECK(meterB && !std::isnan(meterB->shownDb()));
     CHECK(status && status->text() == QStringLiteral("gate connected · diversity live"));
@@ -480,10 +340,358 @@ void testGateGoingAwayClearsTheWindowsReadouts()
 
     CHECK(scope && std::isnan(scope->lastGainDb()));
     CHECK(meterB && std::isnan(meterB->shownDb()));
-    CHECK(stations && stations->text() == QStringLiteral("0 stations remembered"));
+    CHECK(stations
+          && stations->text() == QStringLiteral("0 talkers remembered · nobody talking"));
     CHECK(status && status->text() == QStringLiteral("gate not answering"));
     // The operator opened it; a dropped poll is not a reason to take it away.
     CHECK(w->isVisible());
+    closedToStart();
+}
+
+
+// (g) Who is talking. The gate names one memory entry as live; that row is
+// lit, its id cell gets the same filled dot the dial's marker gets, and the
+// header says so. "talker": null takes all of it away again -- an operator
+// must never be looking at a highlight for somebody who stopped transmitting.
+void testLiveTalkerLightsItsRowAndHeader()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityTalkers);
+    openButton(a)->click();
+    settle();
+    tick(a);
+
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* table = w->findChild<QTableWidget*>(QStringLiteral("diversityWindowTalkersTable"));
+    auto* count = w->findChild<QLabel*>(QStringLiteral("diversityWindowTalkersCountLabel"));
+    CHECK(table && table->rowCount() == 3);
+    CHECK(count
+          && count->text()
+                 == QStringLiteral("3 talkers remembered · #2 talking 14 s"));
+    if (!table)
+        return;
+
+    CHECK(table->item(0, 0) && table->item(0, 0)->text() == QStringLiteral("1"));
+    CHECK(table->item(1, 0) && table->item(1, 0)->text() == QStringLiteral("● 2"));
+    CHECK(table->item(1, 1) && table->item(1, 1)->text() == QStringLiteral("Al"));
+    // Heard/First are durations, not raw seconds.
+    CHECK(table->item(1, 5) && table->item(1, 5)->text() == QStringLiteral("3 s"));
+    CHECK(table->item(1, 6) && table->item(1, 6)->text() == QStringLiteral("4 m"));
+    CHECK(table->item(2, 5) && table->item(2, 5)->text() == QStringLiteral("1 m"));
+    CHECK(table->item(2, 6) && table->item(2, 6)->text() == QStringLiteral("2 h"));
+    // Exactly one row carries the highlight brush.
+    CHECK(table->item(1, 0)->background().style() != Qt::NoBrush);
+    CHECK(table->item(0, 0)->background().style() == Qt::NoBrush);
+    CHECK(table->item(2, 0)->background().style() == Qt::NoBrush);
+
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
+                                                kDiversityTalkersIdle};
+    tick(a);
+    CHECK(count
+          && count->text()
+                 == QStringLiteral("3 talkers remembered · nobody talking"));
+    CHECK(table->item(1, 0) && table->item(1, 0)->text() == QStringLiteral("2"));
+    CHECK(table->item(1, 0)->background().style() == Qt::NoBrush);
+    closedToStart();
+}
+
+// (h) Naming a talker is the window's only new write, and it takes the same
+// route every other one does. The half-typed name also has to survive the
+// poll that lands while the editor is open -- a 250ms rebuild cadence is
+// otherwise long odds against ever finishing a callsign.
+void testNamingATalkerWritesThroughAndSurvivesAPoll()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityTalkers);
+    net.routes[QStringLiteral("/diversity/memory/name")] = {QNetworkReply::NoError,
+                                                            QByteArray("{}")};
+    openButton(a)->click();
+    settle();
+    tick(a);
+
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* table = w->findChild<QTableWidget*>(QStringLiteral("diversityWindowTalkersTable"));
+    CHECK(table != nullptr);
+    if (!table)
+        return;
+
+    QTableWidgetItem* nameItem = table->item(1, 1);
+    CHECK(nameItem && (nameItem->flags() & Qt::ItemIsEditable));
+    if (!nameItem)
+        return;
+    table->editItem(nameItem);
+    settle();
+    auto* editor = table->viewport()->findChild<QLineEdit*>();
+    CHECK(editor != nullptr);
+
+    // The gate now says this talker is called something else. The poll must
+    // not rebuild the table out from under the open editor.
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
+                                                kDiversityTalkersIdle};
+    tick(a);
+    CHECK(table->item(1, 1) == nameItem);
+    CHECK(nameItem->text() == QStringLiteral("Al"));
+    CHECK(table->viewport()->findChild<QLineEdit*>() == editor);
+
+    const int before = net.count(QStringLiteral("/diversity/memory/name"));
+    if (editor) {
+        editor->setText(QStringLiteral("Bob"));
+        QTest::keyClick(editor, Qt::Key_Return);
+    }
+    settle();
+    CHECK(net.count(QStringLiteral("/diversity/memory/name?id=2&name=Bob"))
+          == before + 1);
+    CHECK(net.count(QStringLiteral("/diversity/memory/name")) == before + 1);
+    closedToStart();
+}
+
+// (i) The timeline is the window's only accumulated state. It grows one
+// sample per poll, forgets anything older than its own window, and is emptied
+// when the gate goes away -- two minutes of history from a dead gate would be
+// two minutes of a lie.
+void testTimelineAccumulatesAgesOutAndClears()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityTalkers);
+    openButton(a)->click();
+    settle();
+    tick(a);
+
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* timeline =
+        w->findChild<DiversityTimeline*>(QStringLiteral("diversityWindowTimeline"));
+    CHECK(timeline && timeline->sampleCount() > 0);
+    if (!timeline)
+        return;
+
+    const int before = timeline->sampleCount();
+    tick(a);
+    tick(a);
+    CHECK(timeline->sampleCount() == before + 2);
+
+    // A sample past the far edge of the window retires everything behind it.
+    DiversityTimeline::Sample far;
+    far.haveOut = true;
+    far.out = 5.0;
+    timeline->addSample(QDateTime::currentMSecsSinceEpoch() + timeline->windowMs() + 1000,
+                        far);
+    CHECK(timeline->sampleCount() == 1);
+
+    net.down = true;
+    tick(a);
+    tick(a);
+    tick(a);
+    CHECK(!a.gatePresent());
+    CHECK(timeline->sampleCount() == 0);
+    closedToStart();
+}
+
+// (j) Event derivation is a pure function of two consecutive snapshots, and
+// is tested as one -- no widgets, no network, no timing. One transition, one
+// line: an event list that repeats itself every poll is noise, not history.
+void testEventLogDerivesOneLinePerTransition()
+{
+    DiversityEventLog log;
+    DiversitySnapshot base;
+    base.present = true;
+    base.available = true;
+    base.mode = QStringLiteral("track");
+    base.hear = QStringLiteral("combined");
+    base.haveSteadyQrm = true;
+    base.memoryIds = {1};
+    // The first snapshot has nothing to be a transition from.
+    CHECK(log.apply(base).isEmpty());
+    CHECK(log.apply(base).isEmpty());
+
+    DiversitySnapshot start = base;
+    start.haveTalker = true;
+    start.talkerId = 2;
+    start.talkerName = QStringLiteral("Bob");
+    start.haveTalkerWeight = true;
+    start.talkerPhaseDeg = 141.0;
+    start.talkerRatioDb = 1.0;
+    start.memoryIds = {1, 2};
+    QStringList lines = log.apply(start);
+    CHECK(lines.size() == 2);
+    CHECK(lines.contains(
+        QStringLiteral("#2 \"Bob\" started (phase 141°, +1.0 dB)")));
+    CHECK(lines.contains(QStringLiteral("new talker #2 remembered")));
+
+    // A talker that keeps talking is not an event.
+    DiversitySnapshot talking = start;
+    talking.talkerSinceS = 14.0;
+    CHECK(log.apply(talking).isEmpty());
+
+    DiversitySnapshot ended = talking;
+    ended.haveTalker = false;
+    lines = log.apply(ended);
+    CHECK(lines == QStringList{QStringLiteral("#2 \"Bob\" ended after 14 s")});
+
+    DiversitySnapshot qrm = ended;
+    qrm.steadyQrm = true;
+    lines = log.apply(qrm);
+    CHECK(lines == QStringList{QStringLiteral("steady carrier nulled")});
+
+    DiversitySnapshot moded = qrm;
+    moded.mode = QStringLiteral("null");
+    lines = log.apply(moded);
+    CHECK(lines == QStringList{QStringLiteral("mode → null")});
+
+    DiversitySnapshot heard = moded;
+    heard.hear = QStringLiteral("a");
+    lines = log.apply(heard);
+    CHECK(lines == QStringList{QStringLiteral("hear → A")});
+
+    DiversitySnapshot gone = heard;
+    gone.present = false;
+    lines = log.apply(gone);
+    CHECK(lines == QStringList{QStringLiteral("gate lost")});
+
+    // Presence is a barrier: coming back says one thing, not a burst of
+    // everything that changed while nobody was listening.
+    DiversitySnapshot back = base;
+    lines = log.apply(back);
+    CHECK(lines == QStringList{QStringLiteral("gate back")});
+}
+
+// (k) The receiver's own passband over the coherence map. It is drawn only
+// when the gate sends it: a marker at a guessed frequency would be worse than
+// no marker at all.
+void testMapPassbandParsesOnlyWhenTheGateSendsIt()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityTalkers);
+    openButton(a)->click();
+    settle();
+
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* strip =
+        w->findChild<DiversityMapStrip*>(QStringLiteral("diversityWindowMapStrip"));
+    CHECK(strip && !strip->hasPassband());
+    if (!strip)
+        return;
+
+    w->applyMap(asObject(makeDiversityMapWithPassband(8)));
+    CHECK(strip->hasPassband());
+    CHECK(std::abs(strip->passbandLoHz() - 3501200.0) < 1.0);
+    CHECK(std::abs(strip->passbandHiHz() - 3504000.0) < 1.0);
+
+    // An older gate stops sending it; the marker goes away with it.
+    w->applyMap(asObject(makeDiversityMap(8)));
+    CHECK(!strip->hasPassband());
+    closedToStart();
+}
+
+// (l) A gate that predates ids, names, first_seen_s, talker and passband. The
+// window is the newer half of the pair and has to keep working against it --
+// rendering, but saying "—" rather than inventing a zero for anything it was
+// not told (Principle XI).
+void testOldGatePayloadRendersWithoutInventingAnything()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityOldGate);
+    openButton(a)->click();
+    settle();
+    tick(a);
+
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* count = w->findChild<QLabel*>(QStringLiteral("diversityWindowTalkersCountLabel"));
+    CHECK(count
+          && count->text()
+                 == QStringLiteral("1 talkers remembered · nobody talking"));
+
+    auto* table = w->findChild<QTableWidget*>(QStringLiteral("diversityWindowTalkersTable"));
+    CHECK(table && table->rowCount() == 1);
+    if (table && table->rowCount() == 1) {
+        CHECK(table->item(0, 0) && table->item(0, 0)->text() == QStringLiteral("—"));
+        // Nothing to address a name write to, so the cell cannot be edited.
+        CHECK(table->item(0, 1) && table->item(0, 1)->text().isEmpty());
+        CHECK(table->item(0, 1) && !(table->item(0, 1)->flags() & Qt::ItemIsEditable));
+        CHECK(table->item(0, 5) && table->item(0, 5)->text() == QStringLiteral("9 s"));
+        CHECK(table->item(0, 6) && table->item(0, 6)->text() == QStringLiteral("—"));
+        CHECK(table->item(0, 0)->background().style() == Qt::NoBrush);
+    }
+
+    auto* coherence =
+        w->findChild<QLabel*>(QStringLiteral("diversityWindowBalanceCoherenceLabel"));
+    auto* passband =
+        w->findChild<QLabel*>(QStringLiteral("diversityWindowBalancePassbandLabel"));
+    auto* verdict =
+        w->findChild<QLabel*>(QStringLiteral("diversityWindowBalanceVerdictLabel"));
+    auto* noise = w->findChild<QLabel*>(QStringLiteral("diversityWindowNoiseStatusLabel"));
+    CHECK(coherence && coherence->text() == QStringLiteral("noise coherence —"));
+    CHECK(passband && passband->text() == QStringLiteral("passband —"));
+    CHECK(verdict && verdict->text() == QStringLiteral("noise character unknown"));
+    CHECK(noise
+          && noise->text() == QStringLiteral("noise reference: — · coherence —"));
+    // What it DID send still gets rendered.
+    auto* delta = w->findChild<QLabel*>(QStringLiteral("diversityWindowBalanceDeltaLabel"));
+    CHECK(delta && delta->text() == QStringLiteral("A - B: +1.0 dB"));
+
+    auto* strip =
+        w->findChild<DiversityMapStrip*>(QStringLiteral("diversityWindowMapStrip"));
+    CHECK(strip && !strip->hasPassband());
+    closedToStart();
+}
+
+
+// (m) The layout budget. Every panel in this window has a minimum size, and
+// the sum of them has to fit 1120x860 or the operator meets a scrollbar the
+// first time he opens it. That is a real constraint on every future addition
+// here, so it is a test rather than a comment.
+void testNothingScrollsAtTheInitialSize()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityTalkers);
+    openButton(a)->click();
+    settle();
+    tick(a);
+
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    w->resize(1120, 860);
+    settle();
+    w->grab();   // forces a full layout pass on an offscreen platform
+
+    auto* scroll = w->findChild<QScrollArea*>();
+    CHECK(scroll != nullptr);
+    if (!scroll)
+        return;
+    CHECK(scroll->widget()->minimumSizeHint().width() <= scroll->viewport()->width());
+    CHECK(scroll->widget()->minimumSizeHint().height() <= scroll->viewport()->height());
+    CHECK(!scroll->verticalScrollBar()->isVisible());
+    CHECK(!scroll->horizontalScrollBar()->isVisible());
     closedToStart();
 }
 
@@ -500,6 +708,13 @@ int main(int argc, char** argv)
     testPhaseKnobDisabledInTrackModeAndNotWrittenByAPoll();
     testMapPollRunsWhileWindowVisibleWithSidebarNoiseCollapsed();
     testGateGoingAwayClearsTheWindowsReadouts();
+    testLiveTalkerLightsItsRowAndHeader();
+    testNamingATalkerWritesThroughAndSurvivesAPoll();
+    testTimelineAccumulatesAgesOutAndClears();
+    testEventLogDerivesOneLinePerTransition();
+    testMapPassbandParsesOnlyWhenTheGateSendsIt();
+    testOldGatePayloadRendersWithoutInventingAnything();
+    testNothingScrollsAtTheInitialSize();
 
     std::printf("\n%d diversity window test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

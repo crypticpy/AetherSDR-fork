@@ -981,7 +981,9 @@ set(GUI_SOURCES
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowEvents.cpp
     src/gui/DiversityWindowPanels.cpp
     src/gui/KiwiPublicReceiverPicker.cpp
     src/gui/FavoritesPickerDialog.cpp

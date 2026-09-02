@@ -49,6 +49,18 @@ constexpr double kWeightPlotReserve = 56.0;
 constexpr double kLargeWeightPlotMax = 340.0;
 constexpr int    kLargeMinHeight = 260;
 
+// Large mode's own text sizes. The operator's complaint about the first
+// window was, verbatim, that the text is too small; these are the point sizes
+// the redesign settled on, fixed rather than derived from the widget font so
+// a themed font change cannot quietly shrink them below legible again.
+constexpr double kLargeTextPt   = 11.0;
+constexpr double kLargeTickPt   = 10.0;
+constexpr double kLargeMarkerPt = 9.0;
+
+// The legend strip under the plot (large mode only) -- one line saying what
+// the filled dot, the hollow rings and the two circles actually mean.
+constexpr double kLegendHeight = 18.0;
+
 // A passband flat enough to combine without the weight fighting the tilt --
 // below this the third text line says so in a word rather than making the
 // operator read the number.
@@ -76,6 +88,14 @@ DiversityScope::DiversityScope(QWidget* parent) : QWidget(parent)
     setAccessibleDescription(
         tr("Live diversity weight, A/B/OUT signal-to-noise, and combiner "
            "status. Read-only -- nothing here can be edited."));
+    setToolTip(tr("The dial is the combiner's weight on loop B relative to "
+                  "loop A: the angle is the phase shift it is applying, and "
+                  "the distance from the centre is how much louder B is being "
+                  "made than A (centre ring = equal, rim = B twenty decibels "
+                  "up). The filled dot is the weight in use right now, the "
+                  "fading trail is where it has been, and each hollow ring is "
+                  "a talker the gate remembered, numbered to match the "
+                  "TALKERS list."));
 
     // Raw QPainter keyed off ThemeManager::color(), same pattern
     // DiversityMapStrip/MiniPanScope already use for a custom-painted widget
@@ -111,10 +131,27 @@ void DiversityScope::setState(const QJsonObject& d)
     for (const QJsonValue& v : memoryArray) {
         const QJsonObject mo = v.toObject();
         double mPhase = 0.0, mRatio = 0.0;
-        if (jsonNumber(mo, "phase_deg", &mPhase) && jsonNumber(mo, "ratio_db", &mRatio))
-            m_memory.push_back({mPhase, mRatio});
+        if (!jsonNumber(mo, "phase_deg", &mPhase) || !jsonNumber(mo, "ratio_db", &mRatio))
+            continue;
+        double mId = 0.0;
+        const bool haveId = jsonNumber(mo, "id", &mId);
+        m_memory.push_back({mPhase, mRatio, haveId, int(std::lround(mId))});
     }
     m_memoryCount = memoryArray.size();
+
+    // "talker": null between overs, an object while somebody's remembered
+    // weight is the live one. Not toObject() unguarded -- a silent {} would
+    // read as "talker #0 is on the air", which is a station the gate never
+    // reported.
+    const QJsonValue talker = d.value(QStringLiteral("talker"));
+    m_haveTalker = false;
+    if (talker.isObject()) {
+        double id = 0.0;
+        if (jsonNumber(talker.toObject(), "id", &id)) {
+            m_haveTalker = true;
+            m_talkerId = int(std::lround(id));
+        }
+    }
 
     const QJsonObject snr = d.value(QStringLiteral("snr_db")).toObject();
     m_snrAValid = jsonNumber(snr, "a", &m_snrA);
@@ -190,6 +227,8 @@ void DiversityScope::clear()
     m_memoryCount = 0;
     m_haveSteadyQrm = false;
     m_steadyQrm = false;
+    m_haveTalker = false;
+    m_talkerId = 0;
     m_havePassband = false;
     m_pbFlatness = 0.0;
     m_pbSlopeDegPerKhz = 0.0;
@@ -226,9 +265,13 @@ void DiversityScope::paintEvent(QPaintEvent*)
 
     const double w = width();
     const double h = height();
-    // Two fixed-field lines compact, three large -- see paintTextLines().
-    const double textRowsH = m_large ? 60.0 : 32.0;
-    const double topH = std::max(0.0, h - textRowsH);
+    // Two fixed-field lines compact, three large -- see paintTextLines(). The
+    // large numbers are the 11pt lines the redesign asked for, plus the
+    // legend strip; compact is byte-for-byte what it was, because the
+    // sidebar's 250px geometry is a standing test (bottomLinesElided()).
+    const double textRowsH = m_large ? 3.0 * (kLargeTextPt + 9.0) : 32.0;
+    const double legendH = m_large ? kLegendHeight : 0.0;
+    const double topH = std::max(0.0, h - textRowsH - legendH);
 
     // Compact keeps the sidebar's fixed 120px square. Large sizes the square
     // off whatever the row actually is, capped so the bars beside it keep a
@@ -240,11 +283,56 @@ void DiversityScope::paintEvent(QPaintEvent*)
     const double gap = m_large ? 18.0 : 6.0;
     const QRectF weightRect(0, squareY, squareSide, squareSide);
     const QRectF barsRect(squareSide + gap, 0, std::max(0.0, w - squareSide - gap), topH);
-    const QRectF textRect(0, topH, w, textRowsH);
+    const QRectF legendRect(0, topH, w, legendH);
+    const QRectF textRect(0, topH + legendH, w, textRowsH);
 
     paintWeightPlot(p, weightRect);
     paintSnrBars(p, barsRect);
+    if (m_large)
+        paintLegend(p, legendRect);
     paintTextLines(p, textRect);
+}
+
+// "● live weight   ○ remembered talker (#id)   inner ring: equal level ·
+// rim: B +20 dB" -- the sentence that turns the dial from a decoration into a
+// reading. Large only: at the sidebar's 250px it would elide into nonsense,
+// and an elided legend is worse than none.
+void DiversityScope::paintLegend(QPainter& p, const QRectF& rectArea) const
+{
+    if (rectArea.height() <= 0.0)
+        return;
+    auto& tm = ThemeManager::instance();
+    QFont legend = font();
+    legend.setPointSizeF(kLargeTickPt);
+    p.setFont(legend);
+    const QFontMetricsF fm(legend);
+    const double y = rectArea.top() + rectArea.height() / 2.0;
+    const double markerR = 3.0;
+    double x = rectArea.left() + 4.0;
+
+    // The two marks are drawn, not spelled: a legend that says "the filled
+    // dot" while showing nothing filled is one more thing to decode.
+    p.setPen(Qt::NoPen);
+    p.setBrush(tm.color(this, QStringLiteral("color.accent")));
+    p.drawEllipse(QPointF(x + markerR, y), markerR, markerR);
+    x += 2.0 * markerR + 5.0;
+    p.setPen(tm.color(this, QStringLiteral("color.text.secondary")));
+    const QString liveText = tr("live weight");
+    p.drawText(QPointF(x, y + fm.ascent() / 2.0 - 1.0), liveText);
+    x += fm.horizontalAdvance(liveText) + 16.0;
+
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(tm.color(this, QStringLiteral("color.text.secondary")), 1));
+    p.drawEllipse(QPointF(x + markerR, y), markerR, markerR);
+    x += 2.0 * markerR + 5.0;
+    const QString memText = tr("remembered talker (#id)");
+    p.drawText(QPointF(x, y + fm.ascent() / 2.0 - 1.0), memText);
+    x += fm.horizontalAdvance(memText) + 16.0;
+
+    const QString ringText = tr("inner ring: equal level · rim: B +20 dB");
+    p.drawText(QPointF(x, y + fm.ascent() / 2.0 - 1.0),
+               fm.elidedText(ringText, Qt::ElideRight,
+                             std::max(0.0, rectArea.right() - 4.0 - x)));
 }
 
 void DiversityScope::paintWeightPlot(QPainter& p, const QRectF& rectArea) const
@@ -269,10 +357,19 @@ void DiversityScope::paintWeightPlot(QPainter& p, const QRectF& rectArea) const
     // crosshair through the origin and the four cardinal phases named, so a
     // dot at "about 180°" reads as such without a legend.
     if (m_large) {
+        // Crosshair in the ring pen (same colour, same alpha, same 1px): it
+        // is part of the same frame of reference, not a second one.
         p.drawLine(QPointF(center.x() - R, center.y()), QPointF(center.x() + R, center.y()));
         p.drawLine(QPointF(center.x(), center.y() - R), QPointF(center.x(), center.y() + R));
+        // Rim ticks every 45°, so a dot between two cardinals can be read to
+        // the nearest eighth-turn without a protractor.
+        for (int deg = 45; deg < 360; deg += 90) {
+            const double theta = double(deg) * M_PI / 180.0;
+            const QPointF dir(std::cos(theta), -std::sin(theta));
+            p.drawLine(center + dir * (R * 0.92), center + dir * R);
+        }
         QFont tick = font();
-        tick.setPointSizeF(std::max(7.0, font().pointSizeF() - 1.0));
+        tick.setPointSizeF(kLargeTickPt);
         p.setFont(tick);
         p.setPen(tm.color(this, QStringLiteral("color.text.secondary")));
         const QFontMetricsF fm(tick);
@@ -311,16 +408,42 @@ void DiversityScope::paintWeightPlot(QPainter& p, const QRectF& rectArea) const
     }
 
     // Memory: hollow markers -- prior talkers the gate remembered a weight
-    // for, distinct from the live trail by having no fill.
-    p.setBrush(Qt::NoBrush);
-    p.setPen(QPen(tm.color(this, QStringLiteral("color.text.secondary")), 1));
-    for (const WeightSample& m : m_memory)
-        p.drawEllipse(weightPoint(m.phaseDeg, m.ratioDb), 3.0, 3.0);
+    // for, distinct from the live trail by having no fill. The one whose
+    // weight is live right now (the gate's "talker") is filled in the accent
+    // instead, and every marker carries its own id beside it: that number is
+    // the whole bridge between this dial and the TALKERS table, and without
+    // it the dots are, in the operator's words, unexplained.
+    const QColor secondary = tm.color(this, QStringLiteral("color.text.secondary"));
+    const QColor accent = tm.color(this, QStringLiteral("color.accent"));
+    QFont idFont = font();
+    idFont.setPointSizeF(m_large ? kLargeMarkerPt : std::max(6.0, font().pointSizeF() - 2.0));
+    idFont.setBold(true);
+    const QFontMetricsF idFm(idFont);
+    for (const MemoryMarker& m : m_memory) {
+        const QPointF at = weightPoint(m.phaseDeg, m.ratioDb);
+        const bool live = m_haveTalker && m.haveId && m.id == m_talkerId;
+        if (live) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(accent);
+            p.drawEllipse(at, 4.0, 4.0);
+        } else {
+            p.setBrush(Qt::NoBrush);
+            p.setPen(QPen(secondary, 1));
+            p.drawEllipse(at, 3.5, 3.5);
+        }
+        if (!m.haveId)
+            continue;
+        p.setFont(idFont);
+        p.setBrush(Qt::NoBrush);
+        p.setPen(tm.color(this, QStringLiteral("color.text.primary")));
+        p.drawText(QPointF(at.x() + 6.0, at.y() - 4.0 + idFm.ascent() / 2.0),
+                   QString::number(m.id));
+    }
 
     // Current weight: the one filled, accented dot.
     if (m_haveWeight) {
         p.setPen(Qt::NoPen);
-        p.setBrush(tm.color(this, QStringLiteral("color.accent")));
+        p.setBrush(accent);
         p.drawEllipse(weightPoint(m_phaseDeg, m_ratioDb), 4.0, 4.0);
     }
 }
@@ -334,7 +457,7 @@ void DiversityScope::paintSnrBars(QPainter& p, const QRectF& rectArea) const
     const bool gainGood = !std::isnan(m_gainDb) && m_gainDb >= kGainGoodDb;
 
     QFont barFont = p.font();
-    barFont.setPointSizeF(m_large ? 11.0 : 8.0);
+    barFont.setPointSizeF(m_large ? kLargeTextPt : 8.0);
     barFont.setBold(m_large);
     p.setFont(barFont);
 
@@ -460,7 +583,8 @@ void DiversityScope::paintTextLines(QPainter& p, const QRectF& rectArea)
     auto& tm = ThemeManager::instance();
     const QColor secondary = tm.color(this, QStringLiteral("color.text.secondary"));
     QFont small = font();
-    small.setPointSizeF(std::max(7.0, font().pointSizeF() - (m_large ? 0.0 : 1.0)));
+    small.setPointSizeF(m_large ? kLargeTextPt
+                                : std::max(7.0, font().pointSizeF() - 1.0));
     p.setFont(small);
     p.setPen(secondary);
 

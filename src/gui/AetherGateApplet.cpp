@@ -254,6 +254,8 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
             &AetherGateApplet::onDiversityRequestCapture);
     connect(m_diversityPanel, &AetherGateDiversityPanel::requestMemoryClear, this,
             &AetherGateApplet::onDiversityRequestMemoryClear);
+    connect(m_diversityPanel, &AetherGateDiversityPanel::requestMemoryName, this,
+            &AetherGateApplet::onDiversityRequestMemoryName);
     root->addWidget(m_diversityPanel);
 
     root->addStretch(1);
@@ -920,6 +922,30 @@ void AetherGateApplet::onDiversityRequestMemoryClear()
     if (base.isEmpty() || !m_present)
         return;
     QNetworkRequest req{QUrl(base + QStringLiteral("/diversity/memory/clear"))};
+    req.setTransferTimeout(4000);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
+}
+
+// The operator's own label for a remembered talker. Same no-read-back shape
+// as onDiversityRequestMemoryClear() above: the gate echoes the stored name
+// in the next periodic /diversity poll's memory[] entry, which is also what
+// makes a rejected write visibly revert rather than silently stick in the
+// table. `name` arrives as raw operator text -- percent-encoded here so a
+// callsign with a space, an ampersand or an equals sign in it cannot inject a
+// second query parameter.
+void AetherGateApplet::onDiversityRequestMemoryName(int id, QString name)
+{
+    const QString base = baseUrl();
+    if (base.isEmpty() || !m_present)
+        return;
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("id"), QString::number(id));
+    q.addQueryItem(QStringLiteral("name"),
+                   QString::fromLatin1(QUrl::toPercentEncoding(name)));
+    QUrl url(base + QStringLiteral("/diversity/memory/name"));
+    url.setQuery(q);
+    QNetworkRequest req{url};
     req.setTransferTimeout(4000);
     QNetworkReply* reply = m_net->get(req);
     connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);

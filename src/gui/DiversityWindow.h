@@ -7,32 +7,54 @@
 // every design decision in it is a concession to that: a 176px scope, a
 // four-row sources list, phase/ratio on a slider and a spinbox, four
 // collapsible blocks so the whole section fits at all. This window is the
-// same state with the width to show it properly -- a large scope, real
-// per-antenna meters, the remembered-station list as a table, and the
-// alignment/capture numbers as fixed-width fields you can read at a glance
-// from across the shack.
+// same state with the width to show it properly.
 //
-// It owns NO network transport and NO state of its own. Every payload
-// arrives through applyDiversity()/applyMap()/applyCaptureResult() exactly as
-// the sidebar panel receives it, and every write leaves as one of the same
-// five request signals the panel emits -- DiversityWindow::createFor() wires
-// them straight through to the panel's own signals, so AetherGateApplet keeps
-// being the one place a gate request is built. That is also why a change made
-// here shows up in the sidebar and vice versa: both are views of the same
-// polled state, neither echoes locally.
+// v2 of it exists because the v1 layout answered the wrong question. A ham
+// looking at it could not tell WHO the remembered weights belonged to, why
+// there were dots on the dial, what the noise panel was measuring, or what
+// had just happened while he was tuning. So the second pass is organised
+// around those questions rather than around the wire format:
+//
+//   * TALKERS   -- the memory list as people, not coordinates: a stable id,
+//                  an editable name, the phase (two loops give inter-antenna
+//                  PHASE, not a bearing -- there is no third baseline to
+//                  triangulate from), level, hits, and how long ago each was
+//                  heard. The one whose weight is live right now is lit.
+//   * the dial  -- every marker numbered to match those rows, with a legend
+//                  under it saying what filled/hollow and the two rings mean.
+//   * TIMELINE  -- two minutes of A/B/OUT, so "is this helping?" is a glance
+//                  rather than an inference from three jittering numbers.
+//   * EVENTS    -- poll-to-poll transitions as sentences, because "what just
+//                  happened" is not answerable from any instantaneous readout.
+//   * NOISE     -- the coherence map with a frequency axis and the receiver's
+//                  own passband drawn over it, plus every control explained
+//                  in a tooltip written for somebody who has never seen a
+//                  diversity combiner.
+//
+// It owns NO network transport and NO state of its own beyond the event log
+// and the timeline's own ring buffer. Every payload arrives through
+// applyDiversity()/applyMap()/applyCaptureResult() exactly as the sidebar
+// panel receives it, and every write leaves as one of the same request
+// signals the panel emits -- DiversityWindow::createFor() wires them straight
+// through to the panel's own signals, so AetherGateApplet keeps being the one
+// place a gate request is built. That is also why a change made here shows up
+// in the sidebar and vice versa: both are views of the same polled state,
+// neither echoes locally.
 //
 // Layout, top to bottom:
 //   * chain row  -- MODE (off/manual/null/track), HEAR (combined/A/B), the
 //                   hold-to-compare "Hear A only", REALIGN, and CAPTURE.
-//   * scope row  -- DiversityScope in large mode; the only row that stretches.
-//   * ANTENNAS / NOISE      -- meters + manual weight, blanker + noise map.
-//   * STATIONS  / ALIGNMENT & CAPTURE.
+//   * row 0      -- the scope (two columns) and TALKERS beside it.
+//   * row 1      -- the timeline, full width.
+//   * row 2      -- ANTENNAS | NOISE | EVENTS.
 //   * status strip mirroring the applet's own presence line.
 //
 // Nothing in it moves or resizes on a poll: every numeric readout has a fixed
-// field width, the stations table has fixed column widths and a fixed height,
-// and no widget is shown or hidden by data.
+// field width, the talkers table has fixed column widths, the timeline has a
+// fixed height and a fixed time axis, and no widget is shown or hidden by
+// data.
 
+#include "gui/DiversityWindowEvents.h"
 #include "gui/PersistentDialog.h"
 
 #include <QString>
@@ -48,6 +70,7 @@ class QListWidget;
 class QPushButton;
 class QSpinBox;
 class QTableWidget;
+class QTableWidgetItem;
 class QTimer;
 class QVBoxLayout;
 class QWidget;
@@ -59,18 +82,19 @@ class ClientCompKnob;
 class DiversityMapStrip;
 class DiversityScope;
 class DiversitySnrMeter;
+class DiversityTimeline;
 
 class DiversityWindow : public PersistentDialog {
     Q_OBJECT
 public:
     explicit DiversityWindow(QWidget* parent = nullptr);
 
-    // Builds a window for `panel` and connects its five request signals
-    // straight through to the panel's own identically-named ones, so a write
-    // made here takes exactly the route a write made in the sidebar does.
-    // The window is parented to the panel: it is a top-level either way (a
-    // QDialog), but the parent keeps it in front of the main window and gets
-    // it destroyed with the applet.
+    // Builds a window for `panel` and connects its request signals straight
+    // through to the panel's own identically-named ones, so a write made here
+    // takes exactly the route a write made in the sidebar does. The window is
+    // parented to the panel: it is a top-level either way (a QDialog), but the
+    // parent keeps it in front of the main window and gets it destroyed with
+    // the applet.
     static DiversityWindow* createFor(AetherGateDiversityPanel* panel);
 
     // Same three payload entry points AetherGateDiversityPanel has, with the
@@ -92,6 +116,9 @@ signals:
     void requestAlign();
     void requestCapture(int seconds);
     void requestMemoryClear();
+    // -> GET /diversity/memory/name?id=<id>&name=<urlencoded>. An empty name
+    // clears the gate's own label for that talker.
+    void requestMemoryName(int id, QString name);
 
 protected:
     // Persists DiversityWindowVisible; PersistentDialog's own override saves
@@ -102,20 +129,35 @@ private:
     QWidget* buildChainRow();
     QWidget* buildAntennasPanel();
     QWidget* buildNoisePanel();
-    QWidget* buildStationsPanel();
-    QWidget* buildAlignmentPanel();
+    QWidget* buildTalkersPanel();
+    QWidget* buildEventsPanel();
 
     // One exclusive row of checkable buttons (MODE, HEAR, PAN). `values` are
     // the wire values; `key` is the /diversity/set query key each button
-    // writes. Returns the group so applyDiversity() can check a button back
-    // without re-emitting.
+    // writes; `tips` is one hover explanation per button. Returns the group so
+    // applyDiversity() can check a button back without re-emitting.
     QButtonGroup* addButtonRow(QWidget* row, const QString& caption, const QString& key,
                                const QString& objectPrefix, const QStringList& labels,
-                               const QStringList& values);
+                               const QStringList& values, const QStringList& tips);
     // Checks the button carrying `value` without emitting a write.
     static void checkValue(QButtonGroup* group, const QString& value);
 
-    void applyMemory(const QJsonArray& memory);
+    // Rebuilds the talkers table from one "memory" array, lighting the row
+    // whose id matches `talkerId` when `haveTalker`.
+    void applyTalkers(const QJsonArray& memory, bool haveTalker, int talkerId,
+                      double talkerSinceS);
+    // Re-applies the live-talker row brush after a theme switch -- the
+    // highlight is a token-backed QBrush on the items, which a stylesheet
+    // re-polish cannot reach.
+    void restyleTalkerRows();
+    // True while the operator has a Name cell open in an editor. A poll must
+    // not rebuild the table out from under a half-typed callsign.
+    bool talkersBusy() const;
+    void onTalkerItemChanged(QTableWidgetItem* item);
+
+    // Stamps and prepends lines to the EVENTS list, capped.
+    void addEventLines(const QStringList& lines);
+
     void clearReadouts();
     // True while the operator is holding/editing `knob` or its debounce has a
     // write pending -- a poll must not move it out from under either.
@@ -131,8 +173,9 @@ private:
     QString       m_compareResumeMode;
     bool          m_compareDown{false};
 
-    // --- scope ------------------------------------------------------------
-    DiversityScope* m_scope{nullptr};
+    // --- scope / timeline -------------------------------------------------
+    DiversityScope*    m_scope{nullptr};
+    DiversityTimeline* m_timeline{nullptr};
 
     // --- antennas ---------------------------------------------------------
     DiversitySnrMeter* m_meterA{nullptr};
@@ -143,6 +186,12 @@ private:
     ClientCompKnob*    m_ratioKnob{nullptr};
     QTimer*            m_phaseDebounce{nullptr};
     QTimer*            m_ratioDebounce{nullptr};
+    // BALANCE block: the three numbers that decide whether the second loop is
+    // buying anything, and a one-word verdict derived from them.
+    QLabel* m_balanceDelta{nullptr};
+    QLabel* m_balanceCoherence{nullptr};
+    QLabel* m_balancePassband{nullptr};
+    QLabel* m_balanceVerdict{nullptr};
 
     // --- noise ------------------------------------------------------------
     QPushButton*       m_nbButton{nullptr};
@@ -154,21 +203,27 @@ private:
     QPushButton*       m_nullSourceButton{nullptr};
     QLabel*            m_noiseStatus{nullptr};
 
-    // --- stations ---------------------------------------------------------
-    QTableWidget* m_stations{nullptr};
-    // Last rendered table content, one "col|col|col|col" per row -- the table
-    // is rebuilt only when this changes, so an unchanged memory list does not
+    // --- talkers ----------------------------------------------------------
+    QTableWidget* m_talkers{nullptr};
+    // Last rendered table content, one packed row per entry -- the table is
+    // rebuilt only when this changes, so an unchanged memory list does not
     // drop the operator's selection or scroll position on every poll.
-    QStringList   m_stationRows;
-    QLabel*       m_stationsCount{nullptr};
+    QStringList   m_talkerRows;
+    // Row currently lit as the live talker, or -1. Kept so a theme switch can
+    // re-brush it without a rebuild.
+    int           m_talkerLiveRow{-1};
+    QLabel*       m_talkersCount{nullptr};
     QPushButton*  m_memoryClearButton{nullptr};
+    // Set while applyTalkers() is writing items, so the itemChanged() that
+    // commits a Name edit can tell an operator's typing from our own paint.
+    bool          m_talkersRebuilding{false};
 
-    // --- alignment & capture ----------------------------------------------
-    QLabel* m_alignedValue{nullptr};
-    QLabel* m_lagValue{nullptr};
-    QLabel* m_peakValue{nullptr};
-    QLabel* m_realigningValue{nullptr};
-    QLabel* m_captureResult{nullptr};
+    // --- events -----------------------------------------------------------
+    QLabel*           m_alignLine{nullptr};
+    QLabel*           m_captureResult{nullptr};
+    QListWidget*      m_events{nullptr};
+    QPushButton*      m_eventsClearButton{nullptr};
+    DiversityEventLog m_eventLog;
 
     QLabel* m_statusStrip{nullptr};
 
@@ -177,6 +232,9 @@ private:
     // (possibly stale) capture.path must not overwrite the error this
     // request just reported. Same guard the sidebar panel keeps.
     bool m_captureLocalResult{false};
+    // Last capture basename announced into the event list, so a poll that
+    // keeps reporting the same finished capture does not announce it again.
+    QString m_lastCaptureAnnounced;
 };
 
 } // namespace AetherSDR
