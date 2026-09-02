@@ -2869,6 +2869,22 @@ add_test(NAME health_applet_test COMMAND health_applet_test)
 set_tests_properties(health_applet_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# GATE applet presence state machine and control building. Socket-free: the
+# applet takes an injected QNetworkAccessManager whose createRequest() answers
+# from canned replies, so no port is opened or listened on.
+add_executable(aether_gate_applet_test
+    tests/aether_gate_applet_test.cpp
+    src/gui/AetherGateApplet.cpp
+)
+target_include_directories(aether_gate_applet_test PRIVATE src tests)
+target_link_libraries(aether_gate_applet_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(aether_gate_applet_test PROPERTIES AUTOMOC ON)
+add_test(NAME aether_gate_applet_test COMMAND aether_gate_applet_test)
+set_tests_properties(aether_gate_applet_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(meter_applet_capability_test
     tests/meter_applet_capability_test.cpp
     src/gui/MeterApplet.cpp

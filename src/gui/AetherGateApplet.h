@@ -11,8 +11,8 @@ class QFormLayout;
 class QLabel;
 class QNetworkAccessManager;
 class QNetworkReply;
-class QSpinBox;
 class QTimer;
+class QUrlQuery;
 
 namespace AetherSDR {
 
@@ -35,16 +35,28 @@ class RadioModel;
 //
 // Presence is detected by PROBING the gate's control port rather than by
 // sniffing the radio serial: the serial is operator-settable (--serial), so a
-// renamed gate would vanish from the UI. If the endpoint answers, it is a gate.
+// renamed gate would vanish from the UI. A gate is whatever answers /status
+// with a JSON object; a port that answers anything else is not one.
 class AetherGateApplet : public QWidget {
     Q_OBJECT
 public:
-    explicit AetherGateApplet(QWidget* parent = nullptr);
+    // `net` is the transport, or nullptr for a manager of the applet's own.
+    // Injectable so the presence state machine can be driven socket-free
+    // (tests/aether_gate_applet_test.cpp answers from canned replies).
+    explicit AetherGateApplet(QWidget* parent = nullptr,
+                              QNetworkAccessManager* net = nullptr);
 
     void setRadioModel(RadioModel* model);
 
-    // True once the gate's control port has answered at least once. AppletPanel
-    // uses this to keep the button hidden for operators on a real Flex.
+    // The radio's address, or empty while disconnected. The gate answers at the
+    // radio's address: a new address starts a fresh probe, an empty one drops
+    // presence at once — the GATE button must not linger for a radio that is
+    // gone. setRadioModel() feeds this from the model; it is public so the
+    // state machine can be driven without one.
+    void setRadioAddress(const QString& ip);
+
+    // True while the gate's control port is answering. AppletPanel uses this
+    // to keep the button hidden for operators on a real Flex.
     bool gatePresent() const { return m_present; }
 
 signals:
@@ -54,16 +66,20 @@ protected:
     void showEvent(QShowEvent* e) override;
     void hideEvent(QHideEvent* e) override;
 
+private slots:
+    void poll();                                  // /status — cheap, on the timer
+
 private:
     QString baseUrl() const;
-    void reprobe();                               // address changed — ask again
-    void poll();                                  // /status — cheap, on the timer
+    void scheduleTimer();                         // cadence from visible/present/address
     void refreshDeviceControls();                 // /device — only when it can have changed
-    void applyStatus(const QByteArray& json);
-    void applyDeviceControls(const QByteArray& json);
+    void applyStatus(const QJsonObject& root, bool isJson);
+    void applyDeviceControls(const QJsonObject& dev, bool isJson);
     void buildDeviceControls(const QJsonObject& dev);
     void sendResolution();
-    void get(const QString& path, void (AetherGateApplet::*handler)(const QByteArray&));
+    void sendDeviceSet(const QUrlQuery& query);
+    void get(const QString& path,
+             void (AetherGateApplet::*handler)(const QJsonObject&, bool));
     void setPresent(bool present);
 
     QPointer<RadioModel>   m_model;
@@ -71,12 +87,15 @@ private:
     QTimer*                m_timer{nullptr};
     bool                   m_present{false};
     int                    m_failures{0};
-    QString                m_probedIp;            // the address we last asked
+    QString                m_ip;                  // the address we are asking
+    bool                   m_deviceFetched{false};
+    int                    m_pollsSinceDevice{0};
 
     // Header
     QLabel* m_status{nullptr};
 
-    // Resolution
+    // Resolution — hidden when the gate predates the "res" status field.
+    QWidget*   m_resBox{nullptr};
     QComboBox* m_span{nullptr};
     QComboBox* m_bins{nullptr};
     QLabel*    m_binWidth{nullptr};
@@ -84,6 +103,7 @@ private:
     // Device controls, rebuilt from whatever the gate reports.
     QWidget*     m_deviceBox{nullptr};
     QFormLayout* m_deviceForm{nullptr};
+    QLabel*      m_deviceHint{nullptr};           // shown when the gate has no /device
     QComboBox*   m_antenna{nullptr};
     QHash<QString, QWidget*> m_settingWidgets;    // Soapy setting key -> control
     QString      m_controlsFingerprint;           // rebuild only when the SET changes
