@@ -449,6 +449,15 @@ void AetherGateApplet::poll()
     }
     get(QStringLiteral("/status"), &AetherGateApplet::applyStatus);
     pollDiversity();               // piggyback — never a second timer
+    // The SITE page's BEACON CHECK has to know where the radio is before it
+    // tunes away, and this applet is the only object in the diversity section
+    // that can see a SliceModel. Pushed on the poll that already runs rather
+    // than watched for: a frequency that is one second stale is exactly as
+    // good, because what the check wants is somewhere to come home to.
+    if (m_diversityPanel) {
+        const SliceModel* slice = activeSlice();
+        m_diversityPanel->setActiveSliceHz(slice ? slice->frequency() * 1.0e6 : 0.0);
+    }
 }
 
 void AetherGateApplet::refreshDeviceControls()
@@ -814,20 +823,21 @@ void AetherGateApplet::updateBandPoll()
 // its cache: the first slice flagged active, falling back to the first slice
 // there is. With no model wired (the applet can be driven address-first) there
 // is nothing to tune and the click is dropped rather than guessed at.
+SliceModel* AetherGateApplet::activeSlice() const
+{
+    if (!m_model)
+        return nullptr;
+    const QList<SliceModel*> slices = m_model->slices();
+    for (SliceModel* slice : slices) {
+        if (slice && slice->isActive())
+            return slice;
+    }
+    return slices.isEmpty() ? nullptr : slices.first();
+}
+
 void AetherGateApplet::onDiversityRequestTune(double hz)
 {
-    if (!m_model || hz <= 0.0)
-        return;
-    const QList<SliceModel*> slices = m_model->slices();
-    SliceModel* target = nullptr;
-    for (SliceModel* slice : slices) {
-        if (slice && slice->isActive()) {
-            target = slice;
-            break;
-        }
-    }
-    if (!target && !slices.isEmpty())
-        target = slices.first();
+    SliceModel* target = (hz > 0.0) ? activeSlice() : nullptr;
     if (!target)
         return;
     target->setFrequency(hz / 1.0e6);

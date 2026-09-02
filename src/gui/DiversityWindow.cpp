@@ -229,6 +229,8 @@ DiversityWindow* DiversityWindow::createFor(AetherGateDiversityPanel* panel)
             panel, &AetherGateDiversityPanel::requestTune);
     connect(window, &DiversityWindow::requestFilter,
             panel, &AetherGateDiversityPanel::requestFilter);
+    connect(window, &DiversityWindow::requestSite,
+            panel, &AetherGateDiversityPanel::requestSite);
     return window;
 }
 
@@ -250,6 +252,7 @@ void DiversityWindow::endCompareHold()
 void DiversityWindow::closeEvent(QCloseEvent* event)
 {
     endCompareHold();
+    endBeaconCheck();
     AppSettings::instance().setValue(QStringLiteral("DiversityWindowVisible"),
                                      QStringLiteral("False"));
     PersistentDialog::closeEvent(event);

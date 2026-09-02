@@ -135,6 +135,13 @@ QWidget* DiversityWindow::buildSitePage()
            "-- because the shape is what tells you which appliance to go and "
            "unplug."));
     m_noiseProfile = new DiversityNoiseProfilePanel(noiseFrame);
+    // The row buttons quote the gate's own route and query back at it. Nothing
+    // between here and the wire inspects either -- a gate that grows a new kind
+    // of finding gets a working button in this window without a new build.
+    connect(m_noiseProfile, &DiversityNoiseProfilePanel::actionRequested, this,
+            [this](const QString& route, const QUrlQuery& query) {
+                emit requestSite(route, query);
+            });
     noiseBody->addWidget(m_noiseProfile);
     root->addWidget(noiseFrame);
 
@@ -148,6 +155,15 @@ QWidget* DiversityWindow::buildSitePage()
            "measurement of YOUR station -- the antennas, the feedline, the "
            "noise floor -- rather than a report about somebody else's."));
     m_beacons = new DiversityBeaconPanel(beaconFrame);
+    connect(m_beacons, &DiversityBeaconPanel::actionRequested, this,
+            [this](const QString& route, const QUrlQuery& query) {
+                emit requestSite(route, query);
+            });
+    // A BEACON CHECK leaves by the same door a click on the BAND waterfall
+    // does: the gate has no tune route, so the frequency crosses to
+    // AetherGateApplet and becomes a real slice tune there.
+    connect(m_beacons, &DiversityBeaconPanel::tuneRequested, this,
+            &DiversityWindow::requestTune);
     beaconBody->addWidget(m_beacons);
     // Neither panel stretches: the beacon table is a fixed eighteen rows and
     // the noise profile is a fixed set of lines, so surplus height collects at
@@ -173,6 +189,30 @@ void DiversityWindow::applyBeacons(const QJsonObject& beacons)
 {
     if (m_beacons)
         m_beacons->applyBeacons(beacons);
+}
+
+void DiversityWindow::applySiteReply(const QJsonObject& reply)
+{
+    // Both panels are offered it and each ignores it unless it is the one that
+    // asked, so a refusal is shown by the control that caused it and by no
+    // other. The gate's own state comes back on the next poll either way --
+    // nothing here writes a readout from a reply.
+    if (m_noiseProfile)
+        m_noiseProfile->applyActionReply(reply);
+    if (m_beacons)
+        m_beacons->applyActionReply(reply);
+}
+
+void DiversityWindow::endBeaconCheck()
+{
+    if (m_beacons)
+        m_beacons->cancelCheck();
+}
+
+void DiversityWindow::setActiveSliceHz(double hz)
+{
+    if (m_beacons)
+        m_beacons->setActiveSliceHz(hz);
 }
 
 void DiversityWindow::applySite(const QJsonObject& d)

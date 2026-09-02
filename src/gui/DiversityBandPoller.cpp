@@ -91,6 +91,12 @@ void DiversityBandPoller::attachFilter(AetherGateDiversityPanel* panel)
             &AetherGateDiversityPanel::applyFilter);
     connect(panel, &AetherGateDiversityPanel::requestFilter, this,
             &DiversityBandPoller::sendFilter);
+    // The SITE page's write channel, wired here for the same reason: the
+    // applet's constructor keeps the one attachFilter() line it already has.
+    connect(this, &DiversityBandPoller::siteReceived, panel,
+            &AetherGateDiversityPanel::applySiteReply);
+    connect(panel, &AetherGateDiversityPanel::requestSite, this,
+            &DiversityBandPoller::sendSite);
 }
 
 void DiversityBandPoller::restart()
@@ -216,6 +222,17 @@ void DiversityBandPoller::fetchFilter()
 // gate was never told about.
 void DiversityBandPoller::sendFilter(const QString& path, const QUrlQuery& query)
 {
+    sendWrite(path, query, false);
+}
+
+void DiversityBandPoller::sendSite(const QString& path, const QUrlQuery& query)
+{
+    sendWrite(path, query, true);
+}
+
+void DiversityBandPoller::sendWrite(const QString& path, const QUrlQuery& query,
+                                    bool asSite)
+{
     if (m_base.isEmpty() || !m_net)
         return;
     QUrl url(m_base + path);
@@ -226,12 +243,15 @@ void DiversityBandPoller::sendFilter(const QString& path, const QUrlQuery& query
     req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
                      QNetworkRequest::AlwaysNetwork);
     QNetworkReply* reply = m_net->get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, asSite] {
         reply->deleteLater();
         QJsonObject obj;
         if (reply->error() == QNetworkReply::NoError)
             parseObject(reply->readAll(), &obj);
-        emit filterReceived(obj);
+        if (asSite)
+            emit siteReceived(obj);
+        else
+            emit filterReceived(obj);
     });
 }
 

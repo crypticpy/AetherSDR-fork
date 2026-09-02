@@ -255,6 +255,11 @@ void AetherGateDiversityPanel::toggleWindow()
         // by the object that owns it, and this is that object.
         connect(m_window, &DiversityWindow::bandPageChanged, this,
                 [this] { emit bandPollChanged(); });
+        // The window is built lazily, so the slice frequency the applet has
+        // been pushing since it connected has to be handed over once here --
+        // otherwise the first BEACON CHECK of a session would have nowhere to
+        // come home to until the next poll.
+        m_window->setActiveSliceHz(m_activeSliceHz);
     }
     const bool wantVisible = !m_window->isVisible();
     AppSettings::instance().setValue(QLatin1String(kWindowVisibleKey),
@@ -389,6 +394,19 @@ void AetherGateDiversityPanel::applyFilter(const QJsonObject& filter)
 {
     if (m_window)
         m_window->applyFilter(filter);
+}
+
+void AetherGateDiversityPanel::applySiteReply(const QJsonObject& reply)
+{
+    if (m_window)
+        m_window->applySiteReply(reply);
+}
+
+void AetherGateDiversityPanel::setActiveSliceHz(double hz)
+{
+    m_activeSliceHz = hz;
+    if (m_window)
+        m_window->setActiveSliceHz(hz);
 }
 
 void AetherGateDiversityPanel::applyCaptureResult(bool ok, const QString& pathOrError)

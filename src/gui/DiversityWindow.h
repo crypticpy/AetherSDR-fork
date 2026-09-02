@@ -149,6 +149,24 @@ public:
     // POLLED.
     void applyFilter(const QJsonObject& filter);
 
+    // The reply to one of the SITE page's own writes -- a noise-profile action
+    // button, or the station locator. Routed to whichever of the two panels
+    // asked; a reply nobody asked for is dropped, so the beacon panel never
+    // shows the noise panel's refusal.
+    void applySiteReply(const QJsonObject& reply);
+
+    // Where the radio is tuned now, in absolute Hz. The SITE page's BEACON
+    // CHECK is the only thing that needs it: it is the frequency the check
+    // comes home to, and without one the check refuses to start rather than
+    // tuning away with no way back.
+    void setActiveSliceHz(double hz);
+
+    // Ends a running BEACON CHECK and tunes the slice back at once. Called
+    // from closeEvent(): a countdown nobody can see must not be left holding
+    // the radio on a beacon frequency. A page switch is NOT this -- it hides
+    // the page and the check goes on, which is the whole point of it.
+    void endBeaconCheck();
+
     // True while the window is showing BAND rather than SLICE.
     // AetherGateDiversityPanel::wantsBandPoll() combines it with the window's
     // own visibility, and AetherGateApplet polls /diversity/spatial and
@@ -188,6 +206,10 @@ signals:
     // "/filter" for a plain re-read. A signal of its own rather than a wider
     // requestSet(), which means "/diversity/set" and nothing else.
     void requestFilter(QString path, QUrlQuery query);
+    // -> GET <path>?<query> for the SITE page: the gate's own route and query,
+    // quoted back out of a noise-profile action or built from the station
+    // locator field. Answered through applySiteReply().
+    void requestSite(QString path, QUrlQuery query);
     // The visible page changed, or the window opened or closed. Carries
     // whether the two BAND routes should be polled; the SITE page's own route
     // is read back off sitePageVisible() by the same handler, so one signal

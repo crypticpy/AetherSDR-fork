@@ -2,9 +2,13 @@
 
 #include "core/ThemeManager.h"
 #include "gui/DiversityWindowPanels.h"
+#include "gui/Theme.h"
 
+#include <QAbstractItemView>
 #include <QColor>
+#include <QCoreApplication>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -12,9 +16,13 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPointF>
+#include <QPushButton>
 #include <QRectF>
 #include <QSizePolicy>
 #include <QStringList>
+#include <QTableWidget>
+#include <QTableWidgetItem>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -44,9 +52,61 @@ constexpr float kHumFullScaleDb = 40.0f;
 // gate that forgets cannot push the strip off the panel.
 constexpr int kMaxPeriodicLines = 3;
 
+// How long a refusal from the gate stays on the status line. Long enough to
+// read a sentence, short enough that it cannot be mistaken for a permanent
+// state of the panel.
+constexpr int kTransientMs = 5000;
+
+// Kind, what it is, the detail the gate wrote, the window it was measured over,
+// its size, and the one button.
+constexpr int kKindColumnWidths[] = {70, 178, 300, 62, 52, 88};
+constexpr int kKindColumnCount = int(sizeof(kKindColumnWidths) / sizeof(kKindColumnWidths[0]));
+constexpr int kKindActionColumn = kKindColumnCount - 1;
+constexpr int kKindRowHeight = 22;
+constexpr int kKindHeaderHeight = 22;
+
+// The gate caps its own list at mains + impulse + three periodic + three tone,
+// but the height of this table is part of a page with a no-scroll promise, so
+// the cap is enforced here too. Six rows is every finding a real site has
+// produced (a mains comb, an impulse rate, three modulation rates and one
+// tone); a seventh would be a second tone, which the row above it has already
+// told the operator about.
+constexpr int kMaxKindRows = 6;
+
+// Same table dressing the beacon, talkers and finder tables use, so they read
+// as one family of instrument rather than four tables in one window.
+const char* kKindTableStyle =
+    "QTableWidget { background: transparent; color: {{color.text.primary}};"
+    " font-size: 11px; border: none; }"
+    "QTableWidget::item { padding: 0px 3px; }"
+    "QTableWidget::item:selected { background: {{color.background.2}};"
+    " color: {{color.text.primary}}; }"
+    "QHeaderView::section { background: {{color.background.1}};"
+    " color: {{color.text.secondary}}; font-size: 10px; font-weight: bold;"
+    " border: none; padding: 3px 3px; }";
+
+const char* kStatusStyle =
+    "QLabel { color: {{color.text.secondary}}; font-size: 11px;"
+    " background: transparent; }"
+    "QLabel[live=\"true\"] { color: {{color.accent.warning}}; }";
+
+constexpr int kActionButtonHeight = 18;
+
 QString emDash()
 {
     return QStringLiteral("—");
+}
+
+// "over 2 s" -- and "over 2 s" rather than "over 2.0 s", because the window is
+// a property of the detector rather than a measurement and a decimal point on
+// it would invite reading it as one.
+QString windowText(const QJsonObject& row)
+{
+    const QJsonValue v = row.value(QStringLiteral("window_s"));
+    if (!v.isDouble())
+        return emDash();
+    return QCoreApplication::translate("DiversityNoiseProfilePanel", "over %1 s")
+        .arg(QString::number(v.toDouble(), 'g', 3));
 }
 
 bool jsonNumber(const QJsonObject& obj, const char* key, double* out)
@@ -181,13 +241,24 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
 {
     setObjectName(QStringLiteral("diversityWindowNoiseProfilePanel"));
 
-    auto* root = new QHBoxLayout(this);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(12);
+    m_statusTimer = new QTimer(this);
+    m_statusTimer->setSingleShot(true);
+    connect(m_statusTimer, &QTimer::timeout, this, [this] {
+        m_status->setText(QString());
+        DiversityWidgets::setLive(m_status, false);
+    });
 
-    auto* left = new QVBoxLayout;
-    left->setContentsMargins(0, 0, 0, 0);
-    left->setSpacing(2);
+    auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(4);
+
+    // The four sentences, two to a row. They said the whole story before the
+    // table below them existed and they still say the part of it that is a
+    // measurement rather than a decision -- and the SITE page's own tests read
+    // them, which is the cheapest guard there is on the parse underneath.
+    auto* headline = new QHBoxLayout;
+    headline->setContentsMargins(0, 0, 0, 0);
+    headline->setSpacing(12);
 
     m_verdict = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowNoiseProfileVerdictLabel"),
@@ -199,18 +270,7 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
            "charger. The more harmonics, the harsher the switching edge."),
         this);
     m_verdict->setAccessibleName(tr("Mains hum verdict"));
-    left->addWidget(m_verdict);
-
-    // Explicit line breaks, never word wrap: a wrapping label is
-    // height-for-width, which makes the grid it sits in height-for-width too
-    // and puts a scrollbar on a page that fits.
-    QLabel* mainsCaption = DiversityWidgets::makeFieldLabel(
-        tr("a 100 or 120 Hz comb is a rectifier: a supply, an LED driver,\n"
-           "a dimmer, a charger — walk the house and unplug them one at a time"),
-        this);
-    mainsCaption->setObjectName(QStringLiteral("diversityWindowNoiseProfileMainsCaption"));
-    mainsCaption->setAccessibleName(tr("Mains hum legend"));
-    left->addWidget(mainsCaption);
+    headline->addWidget(m_verdict);
 
     m_impulses = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowNoiseProfileImpulsesLabel"),
@@ -222,15 +282,23 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
            "vehicle ignition. This is what the noise blanker works on."),
         this);
     m_impulses->setAccessibleName(tr("Impulse noise"));
-    left->addWidget(m_impulses);
+    headline->addWidget(m_impulses);
 
-    QLabel* impulseCaption = DiversityWidgets::makeFieldLabel(
-        tr("impulses: electric fences, vehicle ignition, arcing insulators,\n"
-           "power-line telecoms — the blanker's own quarry"),
+    m_seconds = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowNoiseProfileSecondsLabel"),
+        tr("measured over 99.9 s"),
+        tr("How much audio the profile above was measured from. A short window "
+           "is a fresh profile still settling; the numbers steady out as it "
+           "grows."),
         this);
-    impulseCaption->setObjectName(QStringLiteral("diversityWindowNoiseProfileImpulseCaption"));
-    impulseCaption->setAccessibleName(tr("Impulse noise legend"));
-    left->addWidget(impulseCaption);
+    m_seconds->setAccessibleName(tr("Profile measurement window"));
+    headline->addWidget(m_seconds);
+    headline->addStretch(1);
+    root->addLayout(headline);
+
+    auto* lines = new QHBoxLayout;
+    lines->setContentsMargins(0, 0, 0, 0);
+    lines->setSpacing(12);
 
     m_periodic = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowNoiseProfilePeriodicLabel"),
@@ -242,23 +310,7 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
            "more about it than any amount of combining."),
         this);
     m_periodic->setAccessibleName(tr("Periodic noise lines"));
-    left->addWidget(m_periodic);
-
-    QLabel* periodicCaption = DiversityWidgets::makeFieldLabel(
-        tr("the strongest lines that are not mains harmonics"), this);
-    periodicCaption->setObjectName(QStringLiteral("diversityWindowNoiseProfileLinesCaption"));
-    periodicCaption->setAccessibleName(tr("Periodic lines legend"));
-    left->addWidget(periodicCaption);
-
-    m_seconds = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("diversityWindowNoiseProfileSecondsLabel"),
-        tr("measured over 99.9 s"),
-        tr("How much audio the profile above was measured from. A short window "
-           "is a fresh profile still settling; the numbers steady out as it "
-           "grows."),
-        this);
-    m_seconds->setAccessibleName(tr("Profile measurement window"));
-    left->addWidget(m_seconds);
+    lines->addWidget(m_periodic);
 
     m_subband = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowSubbandLineLabel"),
@@ -271,9 +323,70 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
            "so."),
         this);
     m_subband->setAccessibleName(tr("Per-bin weight refinement"));
-    left->addWidget(m_subband);
-    left->addStretch(1);
-    root->addLayout(left);
+    lines->addWidget(m_subband);
+    lines->addStretch(1);
+    root->addLayout(lines);
+
+    auto* body = new QHBoxLayout;
+    body->setContentsMargins(0, 0, 0, 0);
+    body->setSpacing(12);
+
+    m_kinds = new QTableWidget(0, kKindColumnCount, this);
+    m_kinds->setObjectName(QStringLiteral("diversityWindowNoiseKindsTable"));
+    m_kinds->setAccessibleName(tr("Noise findings"));
+    m_kinds->setHorizontalHeaderLabels({tr("Kind"), tr("What"), tr("Detail"),
+                                        tr("Window"), tr("dB"), tr("Do")});
+    ThemeManager::instance().applyStyleSheet(m_kinds,
+                                             QString::fromLatin1(kKindTableStyle));
+    static const struct { int column; const char* tip; } kHeaderTips[] = {
+        {0, QT_TR_NOOP("What sort of noise this row is. MAINS is a comb locked "
+                       "to the grid, IMPULSE is spikes, PERIODIC is a "
+                       "modulation rate of the noise itself, TONE is a line in "
+                       "the audio the automatic notch can reach, and FLOOR is "
+                       "the gate saying it found none of the others.")},
+        {1, QT_TR_NOOP("The gate's own one-line verdict on this finding.")},
+        {2, QT_TR_NOOP("What the verdict was measured from -- the comb spacing "
+                       "and its harmonics, how far the impulses reach over the "
+                       "floor, how deep the notch is holding a tone.")},
+        {3, QT_TR_NOOP("How long a window this finding was measured over. "
+                       "Impulses want a longer one than a hum comb does, so "
+                       "the two rows can disagree and both be current.")},
+        {4, QT_TR_NOOP("How big this finding is, in decibels over the local "
+                       "noise floor. A dash is a finding with no size to "
+                       "report, not a finding of zero.")},
+        {5, QT_TR_NOOP("The one thing worth doing about this row, named by the "
+                       "gate rather than by this window. A lit button is an "
+                       "action already in force -- press it again to undo it. "
+                       "A dashed one means the gate has looked and there is "
+                       "nothing to do; its hover says why.")},
+    };
+    for (const auto& entry : kHeaderTips) {
+        if (QTableWidgetItem* header = m_kinds->horizontalHeaderItem(entry.column))
+            header->setToolTip(tr(entry.tip));
+    }
+    m_kinds->verticalHeader()->setVisible(false);
+    m_kinds->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_kinds->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_kinds->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_kinds->setSortingEnabled(false);
+    for (int c = 0; c < kKindColumnCount; ++c)
+        m_kinds->setColumnWidth(c, kKindColumnWidths[c]);
+    m_kinds->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    m_kinds->horizontalHeader()->setStretchLastSection(false);
+    m_kinds->horizontalHeader()->setFixedHeight(kKindHeaderHeight);
+    m_kinds->verticalHeader()->setDefaultSectionSize(kKindRowHeight);
+    m_kinds->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_kinds->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    // A fixed height for the CAP rather than for the row count: a table that
+    // grew and shrank as findings came and went would move the strip beside it
+    // and the beacon panel under it on every poll.
+    m_kinds->setFixedHeight(kKindHeaderHeight + kMaxKindRows * kKindRowHeight + 2);
+    m_kinds->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    int kindsWidth = 2;
+    for (int c = 0; c < kKindColumnCount; ++c)
+        kindsWidth += kKindColumnWidths[c];
+    m_kinds->setFixedWidth(kindsWidth);
+    body->addWidget(m_kinds);
 
     auto* right = new QVBoxLayout;
     right->setContentsMargins(0, 0, 0, 0);
@@ -288,7 +401,22 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
     stripCaption->setAccessibleName(tr("Noise history legend"));
     right->addWidget(stripCaption);
     right->addStretch(1);
-    root->addLayout(right, 1);
+    body->addLayout(right, 1);
+    root->addLayout(body);
+
+    m_status = new QLabel(QString(), this);
+    m_status->setObjectName(QStringLiteral("diversityWindowNoiseActionStatusLabel"));
+    m_status->setAccessibleName(tr("Noise action status"));
+    ThemeManager::instance().applyStyleSheet(m_status,
+                                             QString::fromLatin1(kStatusStyle));
+    // A fixed height whether or not it is saying anything: a line that appeared
+    // only when the gate refused something would shift everything under it at
+    // the moment the operator most needs it to stay still.
+    m_status->setText(tr("the gate refused that"));
+    m_status->setFixedHeight(m_status->sizeHint().height());
+    m_status->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    m_status->setText(QString());
+    root->addWidget(m_status);
 
     clear();
 }
@@ -302,6 +430,130 @@ void DiversityNoiseProfilePanel::clear()
     m_seconds->setText(tr("measured over %1 s").arg(emDash()));
     m_subband->setText(tr("Per-bin weights: %1").arg(emDash()));
     m_strip->clearHistory();
+    m_actionPending = false;
+    m_statusTimer->stop();
+    m_status->setText(QString());
+    DiversityWidgets::setLive(m_status, false);
+    m_kindRows.clear();
+    m_kinds->setRowCount(0);
+}
+
+void DiversityNoiseProfilePanel::showTransient(const QString& text)
+{
+    m_status->setText(text);
+    DiversityWidgets::setLive(m_status, true);
+    m_statusTimer->start(kTransientMs);
+}
+
+void DiversityNoiseProfilePanel::applyActionReply(const QJsonObject& reply)
+{
+    if (!m_actionPending)
+        return;
+    m_actionPending = false;
+    const QString error = reply.value(QStringLiteral("error")).toString();
+    if (error.isEmpty())
+        return;
+    // No row moves. The next /diversity poll is what puts this row back where
+    // the gate actually has it, so the table never shows a state the radio was
+    // never in.
+    showTransient(error);
+}
+
+// One row per finding, in the gate's own order -- mains, impulse, periodic,
+// tone -- because that is the order in which an operator can act on them: the
+// comb is a plug to pull, the impulses are a blanker to arm, the tone is a
+// notch to place.
+void DiversityNoiseProfilePanel::applyKinds(const QJsonValue& kinds)
+{
+    const QJsonArray rows = kinds.toArray();
+
+    QStringList packed;
+    QVector<QJsonObject> keep;
+    for (const QJsonValue& v : rows) {
+        if (packed.size() >= kMaxKindRows)
+            break;
+        if (!v.isObject())
+            continue;
+        const QJsonObject row = v.toObject();
+        const QJsonObject action = row.value(QStringLiteral("action")).toObject();
+        double db = 0.0;
+        packed << QStringLiteral("%1\x1f%2\x1f%3\x1f%4\x1f%5\x1f%6\x1f%7\x1f%8\x1f%9")
+                      .arg(row.value(QStringLiteral("kind")).toString().toUpper(),
+                           row.value(QStringLiteral("label")).toString(),
+                           row.value(QStringLiteral("detail")).toString(),
+                           windowText(row),
+                           jsonNumber(row, "db", &db) ? QString::number(db, 'f', 1)
+                                                      : emDash(),
+                           action.value(QStringLiteral("label")).toString(),
+                           action.value(QStringLiteral("route")).toString(),
+                           action.value(QStringLiteral("query")).toString(),
+                           row.value(QStringLiteral("active")).toBool()
+                               ? QStringLiteral("1")
+                               : QStringLiteral("0"));
+        keep.push_back(row);
+    }
+
+    // Rebuild only on change -- see the header. The `why` text is not part of
+    // the key on purpose: it is a hover on a button that cannot be pressed, and
+    // rebuilding the table for a reworded reason would be spending a rebuild on
+    // something nobody can see.
+    if (packed == m_kindRows)
+        return;
+    m_kindRows = packed;
+
+    m_kinds->setRowCount(packed.size());
+    for (int row = 0; row < packed.size(); ++row) {
+        const QStringList cells = packed.at(row).split(QChar(0x1f));
+        for (int col = 0; col < kKindActionColumn; ++col) {
+            QTableWidgetItem* item = new QTableWidgetItem(cells.at(col));
+            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            item->setTextAlignment(col >= 3 ? (Qt::AlignRight | Qt::AlignVCenter)
+                                            : (Qt::AlignLeft | Qt::AlignVCenter));
+            // The detail is the gate's sentence and can be longer than the
+            // column: the hover is where the rest of it lives, because a
+            // column wide enough for the worst one would be most of the page.
+            if (col == 2)
+                item->setToolTip(cells.at(col));
+            m_kinds->setItem(row, col, item);
+        }
+
+        const QString label = cells.at(5);
+        const QString route = cells.at(6);
+        const QString query = cells.at(7);
+        const bool active = cells.at(8) == QStringLiteral("1");
+        const bool haveAction = !route.isEmpty() && !label.isEmpty();
+
+        auto* button = new QPushButton(haveAction ? label : emDash(), m_kinds);
+        button->setObjectName(QStringLiteral("diversityWindowNoiseKindAction%1").arg(row));
+        button->setFixedHeight(kActionButtonHeight);
+        button->setCheckable(true);
+        button->setChecked(active);
+        button->setEnabled(haveAction);
+        applyToggleButtonStyle(button);
+        if (haveAction) {
+            button->setAccessibleName(tr("%1 the %2 finding").arg(label, cells.at(0)));
+            button->setToolTip(tr("GET %1?%2 on the gate. %3")
+                                   .arg(route, query,
+                                        active
+                                            ? tr("This action is in force now.")
+                                            : tr("The gate nominated this action "
+                                                 "for this finding.")));
+            connect(button, &QPushButton::clicked, this, [this, route, query] {
+                m_actionPending = true;
+                emit actionRequested(route, QUrlQuery(query));
+            });
+        } else {
+            const QString why = keep.at(row).value(QStringLiteral("why")).toString();
+            button->setAccessibleName(tr("Nothing to do about the %1 finding")
+                                          .arg(cells.at(0)));
+            button->setToolTip(why.isEmpty()
+                                   ? tr("The gate nominated no action for this "
+                                        "finding.")
+                                   : why);
+        }
+        button->setAccessibleDescription(button->toolTip());
+        m_kinds->setCellWidget(row, kKindActionColumn, button);
+    }
 }
 
 void DiversityNoiseProfilePanel::applyProfile(const QJsonValue& profile)
@@ -316,9 +568,11 @@ void DiversityNoiseProfilePanel::applyProfile(const QJsonValue& profile)
         m_impulses->setText(tr("impulses: %1").arg(emDash()));
         m_periodic->setText(tr("lines: %1").arg(emDash()));
         m_seconds->setText(tr("measured over %1 s").arg(emDash()));
+        applyKinds(QJsonValue());
         return;
     }
     const QJsonObject p = profile.toObject();
+    applyKinds(p.value(QStringLiteral("kinds")));
 
     double mains = 0.0;
     double hum = 0.0;

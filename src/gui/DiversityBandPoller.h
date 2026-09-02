@@ -98,6 +98,12 @@ signals:
     // An empty object is a failed request or a gate with no such route, and
     // means "leave the page alone" rather than "the filter went away".
     void filterReceived(QJsonObject filter);
+    // The reply to one of the SITE page's own writes -- a noise-profile action
+    // button, or the station locator. It is a separate signal from the
+    // /diversity status the applet already feeds the window because these
+    // replies can be {"error": "..."}, and an error body pushed through the
+    // status path would blank the whole diversity section for a poll.
+    void siteReceived(QJsonObject reply);
 
 public slots:
     // One tick: while BAND is up, always /diversity/spatial and
@@ -113,8 +119,18 @@ public slots:
     // redraws from.
     void sendFilter(const QString& path, const QUrlQuery& query);
 
+    // One GET on `path` with `query` for the SITE page, answered by
+    // siteReceived(). The two routes it uses are the gate's own, quoted back
+    // out of the noise profile's action objects: /diversity/set and
+    // /filter/notch. Nothing here knows or checks which -- a gate that grows a
+    // new action gets a working button without a new build.
+    void sendSite(const QString& path, const QUrlQuery& query);
+
 private:
     void restart();
+    // The one GET both write doors are made of; `asSite` picks which of the
+    // two reply signals carries the answer.
+    void sendWrite(const QString& path, const QUrlQuery& query, bool asSite);
     void fetchSpatial();
     void fetchFinder();
     void fetchBeacons();

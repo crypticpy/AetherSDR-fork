@@ -980,7 +980,9 @@ set(GUI_SOURCES
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
     src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFinderPanel.cpp

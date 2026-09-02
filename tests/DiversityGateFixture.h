@@ -348,6 +348,88 @@ inline const QByteArray kDiversityStatusWithPrint = R"({"available": true, "chan
     "talker": {"id": 3, "since_s": 4.0},
     "capture": {"active": false, "path": null}})";
 
+// The same site as kDiversityStatusWithSite, plus the "kinds" array the SITE
+// page's action table is built from: one row per finding, each carrying the
+// gate's own verdict and either the action it nominated or the reason there
+// is none. Six rows, in the order the gate emits them -- mains, impulse, three
+// periodic, then a tone the ANF found -- and every rendered field is a
+// different value from every other row's, so a test that asserted the wrong
+// row would fail rather than pass by coincidence.
+inline const QByteArray kDiversityStatusWithKinds = R"JSON({"available": true, "channels": 2,
+    "mode": "track", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
+    "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
+    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 42,
+    "nb": {"enabled": false, "threshold_db": 18.5, "blanked_pct": 0.0},
+    "rn_source": "guard", "noise_coherence": 0.14,
+    "subband": {"enabled": true, "bins": 33, "extra_db": 0.0},
+    "noise_profile": {"mains_hz": 60.0, "hum_db": 13.7, "harmonics": 2,
+                      "impulses_per_s": 1475.1, "impulse_db": 14.8,
+                      "periodic": [{"hz": 244.1, "db": 18.6},
+                                   {"hz": 488.3, "db": 9.2}],
+                      "seconds": 2.0, "window_s": 2.0, "impulse_window_s": 4.0,
+      "kinds": [
+        {"kind": "mains", "label": "Mains hum · 60 Hz grid",
+         "detail": "120 Hz comb, 2 harmonics", "db": 22.0, "window_s": 2.0,
+         "action": null,
+         "why": "not directional enough to null (coherence 0.14)",
+         "active": false},
+        {"kind": "impulse", "label": "Impulses · 1475.1/s",
+         "detail": "14.8 dB over the floor", "db": 14.8, "window_s": 4.0,
+         "action": {"label": "BLANK", "route": "/diversity/set",
+                    "query": "nb=on&nb_db=12"},
+         "why": null, "active": false},
+        {"kind": "periodic", "label": "Periodic · 244.1 Hz",
+         "detail": "a modulation rate of the noise, not a tone in the audio",
+         "db": 18.6, "window_s": 2.0, "action": null,
+         "why": "nothing to notch; ANF handles tones in the passband",
+         "active": false},
+        {"kind": "periodic", "label": "Periodic · 488.3 Hz",
+         "detail": "a modulation rate of the noise, not a tone in the audio",
+         "db": 9.2, "window_s": 2.0, "action": null,
+         "why": "nothing to notch; ANF handles tones in the passband",
+         "active": false},
+        {"kind": "periodic", "label": "Periodic · 732.4 Hz",
+         "detail": "a modulation rate of the noise, not a tone in the audio",
+         "db": 6.1, "window_s": 2.0, "action": null,
+         "why": "nothing to notch; ANF handles tones in the passband",
+         "active": false},
+        {"kind": "tone", "label": "Tone · 1240 Hz",
+         "detail": "ANF is holding it 31 dB down", "db": 31.0, "window_s": 2.0,
+         "action": {"label": "NOTCH", "route": "/filter/notch",
+                    "query": "add=1240&width=160"},
+         "why": null, "active": false}]},
+    "capture": {"active": false, "path": null}})JSON";
+
+// The same site with two of the actions already in force: the blanker is on
+// (so the impulse row offers UNBLANK and is lit) and the mains direction is
+// being nulled (so the mains row offers NULLED and is lit). The lit state is
+// the gate's, not the window's -- nothing here is set optimistically when a
+// button is pressed.
+inline const QByteArray kDiversityStatusKindsActive = R"JSON({"available": true, "channels": 2,
+    "mode": "null", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
+    "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
+    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 51,
+    "nb": {"enabled": true, "threshold_db": 12.0, "blanked_pct": 0.4},
+    "rn_source": "guard", "noise_coherence": 0.62,
+    "subband": {"enabled": true, "bins": 33, "extra_db": 0.0},
+    "noise_profile": {"mains_hz": 60.0, "hum_db": 13.7, "harmonics": 2,
+                      "impulses_per_s": 1475.1, "impulse_db": 14.8,
+                      "periodic": [], "seconds": 2.0,
+                      "window_s": 2.0, "impulse_window_s": 4.0,
+      "kinds": [
+        {"kind": "mains", "label": "Mains hum · 60 Hz grid",
+         "detail": "120 Hz comb, 2 harmonics", "db": 22.0, "window_s": 2.0,
+         "action": {"label": "NULLED", "route": "/diversity/set",
+                    "query": "mode=track"},
+         "why": null, "active": true},
+        {"kind": "impulse", "label": "Impulses · 1475.1/s",
+         "detail": "14.8 dB over the floor, blanking 0.4 %", "db": 14.8,
+         "window_s": 4.0,
+         "action": {"label": "UNBLANK", "route": "/diversity/set",
+                    "query": "nb=off"},
+         "why": null, "active": true}]},
+    "capture": {"active": false, "path": null}})JSON";
+
 // Every result the beacon watch reports carries a wall-clock stamp, and the
 // age column is the only cell in the window whose text depends on the local
 // clock -- so the payload is built at run time rather than frozen into a
@@ -389,6 +471,110 @@ inline const QByteArray kDiversityBeaconsNoBand = R"({"available": true,
     "band_hz": null, "slot": 12, "now": null, "results": [], "last": null})";
 
 inline const QByteArray kDiversityBeaconsUnavailable = R"({"available": false})";
+// A station that has told the gate where it is, with a night's log behind it:
+// three beacons heard on 20 m (bearings, distances and heard-of-samples all
+// different from each other), one on 15 m so the table's band filter has
+// something to exclude, a propagation line for each of the two bands, and a
+// three-point pattern. Built at run time for the same reason the one above is:
+// every "at" and every "updated" is a wall-clock stamp.
+QByteArray makeDiversityBeaconsWithPattern(double heardAgeS = 125.0)
+{
+    const double at = double(QDateTime::currentSecsSinceEpoch()) - heardAgeS;
+    const double updated20 = double(QDateTime::currentSecsSinceEpoch()) - 245.0;
+    const double updated15 = double(QDateTime::currentSecsSinceEpoch()) - 3900.0;
+    QByteArray body = R"({"available": true, "band_hz": 14100000.0, "slot": 12,
+    "station_grid": "EM10",
+    "now": {"call": "4X6TU", "location": "Tel Aviv, Israel", "seconds_left": 9.4},
+    "results": [
+      {"call": "W6WX", "location": "Mt Umunhum, California", "band_hz": 14100000.0,
+       "at": )";
+    body += QByteArray::number(at, 'f', 1);
+    body += R"(, "heard": true, "snr_db": 12.0, "snr_mean_db": 9.4, "snr_a": 10.1,
+       "snr_b": 8.2, "phase_deg": 51.6, "coherence": 0.62, "gain_db": 1.8,
+       "steps_heard": 3, "lowest_w": 1.0, "grid": "CM97",
+       "bearing_deg": 295, "distance_km": 2405, "samples": 7, "heard_n": 3,
+       "last_heard": )";
+    body += QByteArray::number(at, 'f', 1);
+    body += R"(},
+      {"call": "KH6RS", "location": "Maui, Hawaii", "band_hz": 14100000.0,
+       "at": )";
+    body += QByteArray::number(at, 'f', 1);
+    body += R"(, "heard": true, "snr_db": -3.3, "snr_mean_db": -4.8, "snr_a": -5.5,
+       "snr_b": -1.1, "phase_deg": -14.7, "coherence": 0.07, "gain_db": 2.0,
+       "steps_heard": 1, "lowest_w": 100.0, "grid": "BL10",
+       "bearing_deg": 264, "distance_km": 6108, "samples": 9, "heard_n": 2,
+       "last_heard": )";
+    body += QByteArray::number(at, 'f', 1);
+    body += R"(},
+      {"call": "OH2B", "location": "Lohja, Finland", "band_hz": 14100000.0,
+       "at": )";
+    body += QByteArray::number(at, 'f', 1);
+    body += R"(, "heard": false, "steps_heard": 0, "grid": "KP20",
+       "bearing_deg": 33, "distance_km": 8244, "samples": 6, "heard_n": 0},
+      {"call": "ZL6B", "location": "Masterton, New Zealand", "band_hz": 21150000.0,
+       "at": )";
+    body += QByteArray::number(at, 'f', 1);
+    body += R"(, "heard": true, "snr_db": 4.0, "steps_heard": 4, "lowest_w": 0.1,
+       "grid": "RE78", "bearing_deg": 241, "distance_km": 13005,
+       "samples": 4, "heard_n": 4}
+    ], "last": null,
+    "propagation": [
+      {"band_hz": 14100000.0, "sampled": 7, "heard": 3, "of": 18, "best_w": 1.0,
+       "median_snr_db": -3.3, "updated": )";
+    body += QByteArray::number(updated20, 'f', 1);
+    body += R"(},
+      {"band_hz": 21150000.0, "sampled": 4, "heard": 1, "of": 18, "best_w": 0.1,
+       "median_snr_db": 4.0, "updated": )";
+    body += QByteArray::number(updated15, 'f', 1);
+    body += R"(}],
+    "pattern": [
+      {"call": "OH2B", "band_hz": 14100000.0, "bearing_deg": 33,
+       "distance_km": 8244, "b_minus_a_db": 3.4, "phase_deg": -102.0,
+       "snr_db": -8.0},
+      {"call": "KH6RS", "band_hz": 14100000.0, "bearing_deg": 264,
+       "distance_km": 6108, "b_minus_a_db": 4.4, "phase_deg": -14.7,
+       "snr_db": -3.3},
+      {"call": "W6WX", "band_hz": 14100000.0, "bearing_deg": 295,
+       "distance_km": 2405, "b_minus_a_db": -1.9, "phase_deg": 51.6,
+       "snr_db": 12.0}]})";
+    return body;
+}
+
+inline const QByteArray kDiversityBeaconsWithPattern =
+    makeDiversityBeaconsWithPattern();
+
+// The same night's log from a station that has never entered a locator: every
+// bearing and distance is null and the pattern is empty, because a bearing
+// needs two points and the gate only knows one of them. Not an error and not
+// an empty table -- the signal reports are all still there.
+QByteArray makeDiversityBeaconsNoGrid(double heardAgeS = 125.0)
+{
+    const double at = double(QDateTime::currentSecsSinceEpoch()) - heardAgeS;
+    QByteArray body = R"({"available": true, "band_hz": 14100000.0, "slot": 12,
+    "station_grid": null,
+    "now": {"call": "4X6TU", "location": "Tel Aviv, Israel", "seconds_left": 9.4},
+    "results": [
+      {"call": "W6WX", "location": "Mt Umunhum, California", "band_hz": 14100000.0,
+       "at": )";
+    body += QByteArray::number(at, 'f', 1);
+    body += R"(, "heard": true, "snr_db": 12.0, "snr_mean_db": 9.4,
+       "steps_heard": 3, "lowest_w": 1.0, "grid": "CM97",
+       "bearing_deg": null, "distance_km": null, "samples": 7, "heard_n": 3}
+    ], "last": null,
+    "propagation": [
+      {"band_hz": 14100000.0, "sampled": 7, "heard": 3, "of": 18,
+       "best_w": null, "median_snr_db": null, "updated": null}],
+    "pattern": []})";
+    return body;
+}
+
+inline const QByteArray kDiversityBeaconsNoGrid = makeDiversityBeaconsNoGrid();
+
+// What /diversity/set replies with when the locator will not parse. Same shape
+// as every other refusal on this page.
+inline const QByteArray kDiversityBadGrid =
+    R"({"error": "not a Maidenhead locator: 'ZZ99'"})";
+
 
 // --- /filter ---------------------------------------------------------------
 // The FILTER page's payloads. The response curve is GENERATED rather than

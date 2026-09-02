@@ -207,6 +207,29 @@ the right is the last 120 seconds: bars are impulses per second, the line is
 hum in dB, so you can see an appliance switch on. A noise figure tells you
 none of this; these are sentences you can act on.
 
+**Acting on the noise profile.** The table under those lines is the gate's
+own list of findings, one row per kind: `MAINS`, `IMPULSE`, `PERIODIC`,
+`TONE`, or a single `FLOOR` row when nothing else was found. Each row
+carries the gate's label and detail, the window it was measured over (the
+impulse detector runs over a longer one than the rest, and the row says
+so), its size in dB, and **one button — the action the gate itself
+nominated**. `BLANK` turns the noise blanker on at the threshold the gate
+chose; `UNBLANK` turns it off again and the row lights up while it is in
+force; `NULLED` shows a direction already being nulled; `NOTCH` adds a
+fixed notch on a tone. Pressing it sends the gate's own route and query
+string back verbatim — this window composes none of them, so a gate that
+grows a new kind of finding gets a working button here without a new
+AetherSDR build.
+
+A row whose button reads `—` is a finding with nothing to do about it, and
+the gate's reason is on the button's hover: `not directional enough to null
+(coherence 0.14)`, `nothing to notch; ANF handles tones in the passband`,
+`already a fixed notch`. That is a finding too — an operator who is not
+told it goes looking for a control that is not missing. If the gate refuses
+an action, its own words appear on the line under the table for five
+seconds and nothing moves: the row's state comes back on the next poll,
+which is the gate's answer rather than the window's optimism.
+
 **BEACONS.** The NCDXF/IARU International Beacon Project: eighteen known
 transmitters sharing one frequency on a three-minute rota, listed here in
 transmission order with the one on the air now lit. Because the
@@ -226,6 +249,56 @@ five: 14.100, 18.110, 21.150, 24.930 and 28.200 MHz. Beacon phase is worth
 more than it looks — it is the only phase in this window whose right answer
 is already known, which is what a future geometry solve has to calibrate
 itself against.
+
+**Station grid.** Type your Maidenhead locator into the field at the top of
+BEACONS and press `SET` — four characters (`EM10`) or six (`EM10bk`), case
+does not matter. The gate already knows where every beacon is; your locator
+is the second point every bearing needs. With it the table gains **Brg**
+(degrees true) and **km** columns and the pattern plot beside it comes
+alive. Without it both columns are dashes and the plot says `needs the
+station grid` rather than drawing a dial with nothing on it. `FORGET` drops
+it again and keeps every result. A locator that will not parse comes back
+as the gate's own refusal on the status line.
+
+**Heard.** The **Heard** column is `3/7`: how many of that beacon's passes
+on this band you actually heard, out of how many the gate sampled. One in
+seven is a path that opens; seven in seven is a path that is simply there.
+The **SNR** cell shows the latest pass and carries the mean over every pass
+on its hover — one number answers "is it open now", the other answers "is
+this path any good".
+
+**Propagation.** Results now survive a gate restart, so the log is a
+night's work rather than a snapshot and eighteen rows of one band is no
+longer the whole of it. The lines under the pattern plot are the rest,
+collapsed to one sentence per band the gate has sampled:
+`20 m · 3 of 18 heard · weakest 1 W · median −3.3 dB · 4 min ago`. The
+weakest step is the point of it — hearing the 0.1 W dash is thirty
+decibels of margin over hearing only the 100 W one.
+
+**The pattern plot.** A compass dial: one dot per beacon heard on *both*
+loops, at the bearing it actually lies on, with loop B minus loop A as the
+radius. The ring at half radius is the two loops equal; a dot outside it is
+a direction where B hears better, one inside is a direction where A does,
+and the scale is clipped at ±10 dB because a pair that differs by more than
+that on a beacon is not a pattern, it is a broken feedline. Because both
+loops heard the same signal at the same instant, propagation cancels and
+what is left is your antennas. Hover a dot for its call, band, bearing,
+distance, B−A, phase and SNR. With a locator but nothing heard on both
+loops yet it says so; that one is fixed by time on the air rather than by
+typing.
+
+**BEACON CHECK.** The five beacon frequencies are the only place in the
+hobby where "go and listen for three minutes" is a complete measurement
+procedure, and the row of band buttons is that procedure. Pressing `20 m`
+tunes the *active slice* to 14.100 MHz, leaves it there for one full
+eighteen-slot cycle plus ten seconds of slack, and then puts the radio back
+exactly where it was; the countdown reads `CHECK 20 m · 2:41 left` and
+`CANCEL` brings it home at once. It moves the frequency and **nothing
+else** — not the mode, not the combiner, not the filter — because a check
+that changed the receiver would not be measuring the receiver you use.
+Closing the window ends a running check and tunes back; switching pages
+does not. With no slice for it to remember it refuses to start rather than
+tuning away with no way home.
 
 The whole page is polled only while it is on screen, and a gate too old to
 serve the beacon route says `beacon watch: not available from this gate`.
@@ -323,8 +396,12 @@ The gate's HTTP control port (default 8731) serves:
   syllabic_hz, over_s, overs} or null), focus, passband, noise coherence, blanker, sources, loops,
   capture, `subband` {enabled, bins, extra_db}: the per-bin refinement of
   the tracked weight, `noise_profile` {mains_hz, hum_db, harmonics,
-  impulses_per_s, impulse_db, periodic[], seconds}: what kind of noise
-  this is).
+  impulses_per_s, impulse_db, periodic[], seconds, window_s,
+  impulse_window_s, `kinds[]`}: what kind of noise this is). Each `kinds`
+  row is {kind: "mains"|"impulse"|"periodic"|"tone"|"floor", label, detail,
+  db (or null), window_s, action (or null), why (or null), active}, and an
+  `action` is {label, route, query} — the gate's own nomination, meant to
+  be sent back as `GET <route>?<query>` unchanged.
 - `GET /diversity/set?mode=&source=&phase=&ratio=&nb=&nb_db=&pan=&null_source=&focus=&subband=`
   — any subset; `source=combined|a|b|stereo` is what reaches the audio
   (stereo: A left, B right) and `pan=` what the panadapter draws;
@@ -341,6 +418,16 @@ The gate's HTTP control port (default 8731) serves:
   SNR in 500 Hz, each loop's SNR, the pair's phase and coherence, the
   power steps heard (100/10/1/0.1 W) and the MRC gain. Idle unless a beacon
   frequency (14.100, 18.110, 21.150, 24.930, 28.200) is inside the span.
+  With a station locator set it also carries `station_grid` and, per
+  result, `grid`, `bearing_deg` (null without one), `distance_km`,
+  `samples`, `heard_n`, `snr_mean_db` and `last_heard`; plus
+  `propagation[]` {band_hz, sampled, heard, of, best_w, median_snr_db,
+  updated} — one row per band the gate has sampled, kept across restarts —
+  and `pattern[]` {call, band_hz, bearing_deg, distance_km, b_minus_a_db,
+  phase_deg, snr_db}, sorted by bearing, for beacons heard on both loops.
+- `GET /diversity/set?grid=<locator>` sets the station's Maidenhead
+  locator (four or six characters); `grid=off` forgets it. Replies with the
+  diversity status, or `{"error": "not a Maidenhead locator: 'ZZ99'"}`.
 - `python -m aether_gate.replay CAPTURE.npz` (in the gate) — the replay
   lab: a capture through the live combiner path as A / B / wideband /
   per-bin WAVs at one gain, plus `summary.json`.

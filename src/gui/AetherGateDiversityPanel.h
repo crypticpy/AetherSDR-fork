@@ -94,6 +94,18 @@ public:
     // any time.
     void applyFilter(const QJsonObject& filter);
 
+    // The reply to one of the SITE page's own writes. Deliberately NOT fed
+    // through applyDiversity(): these replies are a status object most of the
+    // time but {"error": "..."} when the gate refuses, and one error body down
+    // the status path would read as "diversity went away" for a whole poll.
+    void applySiteReply(const QJsonObject& reply);
+
+    // Where the radio is tuned now, in absolute Hz, pushed down once a second
+    // from AetherGateApplet -- the only object in this section that can see
+    // the SliceModel. The SITE page's BEACON CHECK is what needs it: it is the
+    // frequency the check comes home to.
+    void setActiveSliceHz(double hz);
+
     // present/absent — mirrors AetherGateApplet::setPresent(): false hides
     // the panel and resets every readout that must not outlive a reconnect
     // to a different (or older) gate at the same address.
@@ -172,6 +184,12 @@ signals:
     // existing connection to it harder to read. Served by
     // DiversityBandPoller::sendFilter(), which owns this page's transport.
     void requestFilter(QString path, QUrlQuery query);
+    // -> GET <path>?<query> for the SITE page: the route and query string are
+    // the gate's own, quoted verbatim out of a noise-profile action or built
+    // from the station-locator field. Its answer comes back through
+    // applySiteReply() rather than through the status path. Served by
+    // DiversityBandPoller::sendSite().
+    void requestSite(QString path, QUrlQuery query);
     // wantsBandPoll() may have changed: the window opened or closed, or its
     // page switched. Polling it once a second off the status timer would leave
     // the BAND page blank for up to a second after it is opened, which is the
@@ -196,6 +214,9 @@ private:
     // close, and although closing only hides it, nothing in this panel should
     // depend on that staying true.
     QPointer<DiversityWindow> m_window;
+    // Last frequency the applet reported for the active slice, in Hz. Kept
+    // here so a window opened later starts out knowing it.
+    double m_activeSliceHz{0.0};
     // DiversityWindowVisible is restored ONCE, on the first poll that reports
     // diversity available -- reopening at construction would pop a window for
     // a gate that may not even be there, and reopening on every poll would

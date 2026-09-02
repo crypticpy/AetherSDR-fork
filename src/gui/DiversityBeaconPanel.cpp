@@ -1,21 +1,27 @@
 #include "gui/DiversityBeaconPanel.h"
 
 #include "core/ThemeManager.h"
+#include "gui/DiversityBeaconPattern.h"
 #include "gui/DiversityWindowPanels.h"
+#include "gui/Theme.h"
 
 #include <QAbstractItemView>
 #include <QBrush>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QStringList>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -57,15 +63,26 @@ constexpr Beacon kSchedule[] = {
 
 constexpr int kBeaconCount = int(sizeof(kSchedule) / sizeof(kSchedule[0]));
 
-// Call, location, heard, SNR, A, B, phase, coherence, gain, steps, age.
-constexpr int kColumnWidths[] = {64, 186, 46, 50, 46, 46, 52, 44, 48, 58, 76};
+// Call, location, last pass, SNR, A, B, phase, coherence, gain, steps, age,
+// bearing, distance, heard-of-samples. The first eleven are in the order they
+// have always been in: the three the station grid made possible are appended
+// rather than slotted in beside the numbers they belong with, because a column
+// that moved would silently change what every existing hover and every existing
+// test is pointing at.
+constexpr int kColumnWidths[] = {62, 106, 30, 44, 44, 44, 40, 40, 40, 58, 72,
+                                 40, 44, 40};
 constexpr int kColumnCount = int(sizeof(kColumnWidths) / sizeof(kColumnWidths[0]));
+constexpr int kSnrColumn = 3;
 constexpr int kStepsColumn = 9;
-constexpr int kRowHeight = 22;
-constexpr int kHeaderHeight = 24;
+constexpr int kBearingColumn = 11;
+constexpr int kDistanceColumn = 12;
+constexpr int kHeardColumn = 13;
+constexpr int kRowHeight = 19;
+constexpr int kHeaderHeight = 22;
 
 // The four one-second dashes each beacon sends after its call.
 constexpr int kPowerSteps = 4;
+
 
 // Same table dressing the TALKERS and FINDER tables use, so the three read as
 // one family of instrument rather than three tables in one window.
@@ -135,9 +152,35 @@ QString stepsText(const QJsonObject& result)
     return out;
 }
 
+// "3/7": how many of this beacon's passes on this band were heard, out of how
+// many the gate sampled. Two numbers rather than a percentage because the
+// denominator matters -- 1/1 and 7/7 are both "100 %" and only one of them is
+// a claim about the path.
+QString heardText(const QJsonObject& result)
+{
+    const QJsonValue n = result.value(QStringLiteral("heard_n"));
+    const QJsonValue of = result.value(QStringLiteral("samples"));
+    if (!n.isDouble() || !of.isDouble())
+        return emDash();
+    return QStringLiteral("%1/%2")
+        .arg(qint64(std::llround(n.toDouble())))
+        .arg(qint64(std::llround(of.toDouble())));
+}
+
 QString resultKey(double bandHz, const QString& call)
 {
     return QStringLiteral("%1|%2").arg(qint64(std::llround(bandHz))).arg(call);
+}
+
+// An integer field, or a dash. Distances and bearings are whole numbers on the
+// wire and rounding one here would be inventing a precision the gate did not
+// claim.
+QString integerField(const QJsonObject& obj, const char* key)
+{
+    const QJsonValue v = obj.value(QLatin1String(key));
+    if (!v.isDouble())
+        return emDash();
+    return QString::number(qint64(std::llround(v.toDouble())));
 }
 
 } // namespace
@@ -162,13 +205,21 @@ DiversityBeaconPanel::DiversityBeaconPanel(QWidget* parent) : QWidget(parent)
     m_header->setAccessibleName(tr("Beacon schedule"));
     root->addWidget(m_header);
 
+    root->addWidget(buildGridRow());
+    root->addWidget(buildCheckRow());
+
+    auto* body = new QHBoxLayout;
+    body->setContentsMargins(0, 0, 0, 0);
+    body->setSpacing(12);
+
     m_table = new QTableWidget(kBeaconCount, kColumnCount, this);
     m_table->setObjectName(QStringLiteral("diversityWindowBeaconTable"));
     m_table->setAccessibleName(tr("Beacon watch"));
-    m_table->setHorizontalHeaderLabels({tr("Call"), tr("Location"), tr("Heard"),
+    m_table->setHorizontalHeaderLabels({tr("Call"), tr("Location"), tr("Last"),
                                         tr("SNR"), tr("A"), tr("B"), tr("Phase"),
                                         tr("Coh"), tr("Gain"), tr("Steps"),
-                                        tr("Age")});
+                                        tr("Age"), tr("Brg"), tr("km"),
+                                        tr("Heard")});
     ThemeManager::instance().applyStyleSheet(m_table,
                                              QString::fromLatin1(kBeaconTableStyle));
 
@@ -211,6 +262,18 @@ DiversityBeaconPanel::DiversityBeaconPanel(QWidget* parent) : QWidget(parent)
         {10, QT_TR_NOOP("How long ago this result was measured. The cycle "
                         "repeats every three minutes, so anything older than "
                         "that was missed on the last pass.")},
+        {11, QT_TR_NOOP("The bearing to this beacon in degrees TRUE, worked out "
+                        "from its locator and yours. Dashes until you have set "
+                        "the station grid above -- a bearing needs two points "
+                        "and the gate only knows one of them.")},
+        {12, QT_TR_NOOP("Great-circle distance to the transmitter in "
+                        "kilometres. It is what turns a signal report into a "
+                        "path: the same SNR at 2,400 km and at 16,000 km are "
+                        "not the same measurement.")},
+        {13, QT_TR_NOOP("How many of this beacon's passes on this band you have "
+                        "actually heard, out of how many the gate has sampled. "
+                        "One in seven is a path that opens; seven in seven is a "
+                        "path that is simply there.")},
     };
     for (const auto& entry : kHeaderTips) {
         if (QTableWidgetItem* header = m_table->horizontalHeaderItem(entry.column))
@@ -233,20 +296,31 @@ DiversityBeaconPanel::DiversityBeaconPanel(QWidget* parent) : QWidget(parent)
     // A fixed eighteen rows, always: the table is the schedule, and a schedule
     // that grew and shrank with what had been heard would not be one.
     m_table->setFixedHeight(kHeaderHeight + kBeaconCount * kRowHeight + 2);
-    m_table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    root->addWidget(m_table);
+    int tableWidth = 2;
+    for (int c = 0; c < kColumnCount; ++c)
+        tableWidth += kColumnWidths[c];
+    m_table->setFixedWidth(tableWidth);
+    m_table->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    body->addWidget(m_table);
+
+    body->addWidget(buildPatternColumn(), 1);
+    root->addLayout(body);
 
     // Explicit line breaks, never word wrap: a wrapping label is
     // height-for-width and would put a scrollbar on a page that fits.
+    // One line, not two: the page has to fit the window it opens at, and the
+    // sentence this used to carry second ("phase from a known direction is
+    // what a geometry solve wants") is already on the Phase column's hover,
+    // where somebody wondering about that column will actually look.
     m_caption = DiversityWidgets::makeFieldLabel(
         tr("Each beacon sends its call then 1 s dashes at 100, 10, 1 and 0.1 W "
-           "every 3 min;\n"
-           "the lowest step heard is the band's real reach. Phase from a known "
-           "direction is what a geometry solve wants."),
+           "every 3 min; the lowest step heard is the band's real reach."),
         this);
     m_caption->setObjectName(QStringLiteral("diversityWindowBeaconCaption"));
     m_caption->setAccessibleName(tr("Beacon watch legend"));
     root->addWidget(m_caption);
+
+    root->addWidget(buildStatusLine());
 
     clear();
 }
@@ -256,7 +330,22 @@ void DiversityBeaconPanel::clear()
     m_results.clear();
     m_bandHz = 0.0;
     m_nowCall.clear();
+    m_stationGrid.clear();
+    m_actionPending = false;
     m_header->setText(tr("beacon watch: %1").arg(emDash()));
+    if (!m_gridEdit->hasFocus()) {
+        const QSignalBlocker blockGrid(m_gridEdit);
+        m_gridEdit->clear();
+    }
+    m_gridHint->setText(tr("not set — bearings need it"));
+    m_status->setText(QString());
+    DiversityWidgets::setLive(m_status, false);
+    // A check outlives neither the gate nor the window: the radio must not be
+    // left parked on a beacon frequency by a countdown nobody can see.
+    cancelCheck();
+    updateCheckLabel();
+    renderPropagation(QJsonValue());
+    m_pattern->clearPattern();
     renderRows();
 }
 
@@ -278,6 +367,25 @@ void DiversityBeaconPanel::applyBeacons(const QJsonObject& beacons)
 
     const QJsonValue bandValue = beacons.value(QStringLiteral("band_hz"));
     m_bandHz = bandValue.isDouble() ? bandValue.toDouble() : 0.0;
+
+    // The locator, the per-band log and the dial are facts about the STATION,
+    // not about the band in the span, so they are read before the schedule and
+    // they survive a retune.
+    const QJsonValue gridValue = beacons.value(QStringLiteral("station_grid"));
+    m_stationGrid = gridValue.isString() ? gridValue.toString() : QString();
+    // Never while the operator is typing into it: a poll that overwrote a
+    // half-typed locator once a second would make the field unusable.
+    if (!m_gridEdit->hasFocus()) {
+        const QSignalBlocker blockGrid(m_gridEdit);
+        m_gridEdit->setText(m_stationGrid);
+    }
+    m_gridHint->setText(m_stationGrid.isEmpty()
+                            ? tr("not set — bearings need it")
+                            : tr("set: %1").arg(m_stationGrid));
+
+    renderPropagation(beacons.value(QStringLiteral("propagation")));
+    m_pattern->applyPattern(beacons.value(QStringLiteral("pattern")).toArray(),
+                            !m_stationGrid.isEmpty());
 
     const auto remember = [this](const QJsonValue& value) {
         if (!value.isObject())
@@ -346,8 +454,8 @@ void DiversityBeaconPanel::renderRows()
         QStringList cells;
         cells << call << where;
         if (!haveResult) {
-            cells << emDash() << emDash() << emDash() << emDash() << emDash()
-                  << emDash() << emDash() << emDash() << emDash();
+            for (int i = 2; i < kColumnCount; ++i)
+                cells << emDash();
         } else {
             cells << (heard ? QStringLiteral("●") : QStringLiteral("○"))
                   << signedNumber(result, "snr_db", 1)
@@ -356,7 +464,14 @@ void DiversityBeaconPanel::renderRows()
                   << number(result, "phase_deg", 0)
                   << number(result, "coherence", 2)
                   << signedNumber(result, "gain_db", 1) << stepsText(result)
-                  << ageText(result);
+                  << ageText(result)
+                  // Bearing and distance are the gate's own, computed from the
+                  // station locator. Without one it sends null and the dash is
+                  // the honest answer -- a bearing this window worked out from
+                  // half the data would be a drawn guess.
+                  << integerField(result, "bearing_deg")
+                  << integerField(result, "distance_km")
+                  << heardText(result);
         }
 
         for (int col = 0; col < kColumnCount; ++col) {
@@ -370,6 +485,20 @@ void DiversityBeaconPanel::renderRows()
             }
             item->setText(cells.at(col));
             item->setBackground(call == m_nowCall ? live : none);
+        }
+
+        // The SNR cell shows the LATEST pass; the average over every pass the
+        // gate has kept lives on its hover. One number answers "is it open
+        // now", the other answers "is this path any good", and putting the
+        // second in the cell would make the column stop reacting to the band.
+        if (QTableWidgetItem* snr = m_table->item(row, kSnrColumn)) {
+            const QJsonValue mean = result.value(QStringLiteral("snr_mean_db"));
+            snr->setToolTip(mean.isDouble()
+                                ? tr("mean over %1 pass(es): %2 dB")
+                                      .arg(integerField(result, "samples"),
+                                           QString::asprintf("%+.1f", mean.toDouble()))
+                                : tr("no averaged signal-to-noise for this "
+                                     "beacon on this band yet"));
         }
 
         // The lowest step heard is the row's headline number, so it is worth a

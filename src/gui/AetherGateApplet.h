@@ -22,6 +22,7 @@ class QUrlQuery;
 namespace AetherSDR {
 
 class RadioModel;
+class SliceModel;
 
 // The RSPduo dual-tuner-combining section -- everything diversity-related
 // used to live directly in this applet; it moved to its own widget when
@@ -133,6 +134,9 @@ private:
     // The one diversity request that does NOT go to the gate: the gate has no
     // tune route, so a click on the BAND page tunes AetherSDR's own active
     // slice. `hz` is absolute.
+    // The slice a diversity write is about: the active one, or the first if
+    // none is marked active. Null with no radio model or no slices.
+    SliceModel* activeSlice() const;
     void onDiversityRequestTune(double hz);
     // Starts or stops the band poller from the panel's wantsBandPoll().
     void updateBandPoll();
