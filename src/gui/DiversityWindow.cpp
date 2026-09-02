@@ -334,18 +334,24 @@ QWidget* DiversityWindow::buildChainRow()
             "exchange for staying on the noise.")});
     layout->addSpacing(10);
     // "HEAR", not "LISTEN": it writes /diversity/set?source=, which is what
-    // reaches the operator's ears. Which leg the PANADAPTER draws is a
+    // reaches the operator's ears. OUT is the meters' word for the combined
+    // output, and the short label is what lets four choices fit the row. Which leg the PANADAPTER draws is a
     // different key (pan=) and lives with the noise tools, exactly where the
     // sidebar panel puts it.
     m_hearGroup = addButtonRow(
         row, tr("HEAR"), QStringLiteral("source"), QStringLiteral("diversityWindowHear"),
-        {tr("COMBINED"), tr("A"), tr("B")},
-        {QStringLiteral("combined"), QStringLiteral("a"), QStringLiteral("b")},
+        {tr("OUT"), tr("A"), tr("B"), tr("STEREO")},
+        {QStringLiteral("combined"), QStringLiteral("a"), QStringLiteral("b"),
+         QStringLiteral("stereo")},
         {tr("Listen to the combiner's output: the two loops added with "
             "whatever weight the current mode has arrived at."),
          tr("Listen to loop A on its own. Nothing is combined and nothing is "
             "nulled."),
-         tr("Listen to loop B on its own.")});
+         tr("Listen to loop B on its own."),
+         tr("Loop A in the left channel, loop B in the right, one AGC for "
+            "both: the loops as a soundstage on two speakers. A station "
+            "arriving from one side sits off-centre; noise both loops see "
+            "sits in the middle. The tracker keeps learning meanwhile.")});
 
     m_compareButton = new QPushButton(tr("Hear A only"), row);
     m_compareButton->setObjectName(QStringLiteral("diversityWindowCompareButton"));

@@ -23,6 +23,7 @@
 #include "gui/DiversityBandPoller.h"
 #include "gui/DiversityWindow.h"
 
+#include <QAbstractButton>
 #include <QApplication>
 #include <QCheckBox>
 #include <QLabel>
@@ -558,6 +559,55 @@ void testNothingScrollsOnTheSitePageAtTheInitialSize()
     closedToStart();
 }
 
+// The chain row's HEAR is what reaches the operator's ears; STEREO is loop A
+// left and loop B right. A click writes source=stereo by the one route every
+// diversity write takes, and a gate that reports stereo lights the button
+// without a write of its own.
+void testHearRowOffersStereoAndWritesIt()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityStatusWithSite);
+    openButton(a)->click();
+    settle();
+    tick(a);
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    QAbstractButton* stereo = nullptr;
+    for (auto* b : w->findChildren<QAbstractButton*>()) {
+        if (b->property("diversityValue").toString() == QStringLiteral("stereo"))
+            stereo = b;
+    }
+    CHECK(stereo != nullptr);
+    if (!stereo)
+        return;
+    CHECK(!stereo->isChecked());
+    // The chain row sits above the pages, outside every scroll area: a fourth
+    // HEAR button must not push the window's minimum width past its opening
+    // size, or the window would open wider than the tests' 1120 px.
+    CHECK(w->minimumSizeHint().width() <= 1120);
+
+    QSignalSpy sets(a.diversityPanel(), &AetherGateDiversityPanel::requestSet);
+    stereo->click();
+    settle();
+    CHECK(sets.count() == 1);
+    CHECK(net.log.contains(QStringLiteral("/diversity/set?source=stereo")));
+
+    // MUTATION: the gate reports stereo. The row follows the gate; a poll is
+    // not a write.
+    QByteArray st = kDiversityStatusWithSite;
+    st.replace("\"source\": \"combined\"", "\"source\": \"stereo\"");
+    CHECK(st != kDiversityStatusWithSite);
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, st};
+    tick(a);
+    CHECK(stereo->isChecked());
+    CHECK(sets.count() == 1);
+    closedToStart();
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -571,6 +621,7 @@ int main(int argc, char** argv)
     testBeaconMessagesForNoBandAndNoRoute();
     testPerBinCheckboxReflectsStatusAndWrites();
     testNothingScrollsOnTheSitePageAtTheInitialSize();
+    testHearRowOffersStereoAndWritesIt();
 
     std::printf("\n%d diversity site test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

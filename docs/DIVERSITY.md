@@ -83,10 +83,19 @@ decide where to be tuned. SITE is about neither: it is about your station —
 what kind of noise this address makes, and what the world's beacon network
 measures your antennas to be worth.
 
-**Chain row.** MODE (off / manual / null / track), HEAR (combined, A, B —
-what goes to the audio), *Hear A only* (press-and-hold A/B comparison that
-restores the previous mode on release), REALIGN, and CAPTURE with a
-duration: writes an aligned two-channel recording on the gate.
+**Chain row.** MODE (off / manual / null / track), HEAR (OUT — the combined
+output, A, B, STEREO — what goes to the audio; the combiner keeps learning
+whichever you pick), *Hear A only* (press-and-hold A/B comparison that restores the
+previous mode on release), REALIGN, and CAPTURE with a duration: writes an
+aligned two-channel recording on the gate.
+
+**STEREO** puts loop A in the left channel and loop B in the right, with
+one AGC gain for both so the loops keep their level difference. On two
+speakers the loops become a soundstage: a station arriving from one side
+sits off-centre, noise both loops see sits in the middle, and a fade on
+one loop is a fade on one side. Give the app's own RX noise reduction a
+miss while you listen this way — its chain works on a mono mix. In FM the
+stereo monitor plays loop A (the discriminator keeps one phase state).
 
 **Scope.** The polar dial shows the live weight as a filled dot (angle =
 phase, radius = level ratio; inner ring equal level, rim B +20 dB) and each
@@ -242,7 +251,9 @@ The gate's HTTP control port (default 8731) serves:
   impulses_per_s, impulse_db, periodic[], seconds}: what kind of noise
   this is).
 - `GET /diversity/set?mode=&source=&phase=&ratio=&nb=&nb_db=&pan=&null_source=&focus=&subband=`
-  — any subset; `focus=<id>` pins, `focus=off` releases; `subband=on|off`
+  — any subset; `source=combined|a|b|stereo` is what reaches the audio
+  (stereo: A left, B right) and `pan=` what the panadapter draws;
+  `focus=<id>` pins, `focus=off` releases; `subband=on|off`
   (default on: in null/track every passband bin gets its own weight
   wherever the learned noise has a direction, the talker held
   distortionless).
