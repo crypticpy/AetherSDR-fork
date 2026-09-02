@@ -317,3 +317,27 @@ physics it depends on and the way it can disappoint.
     aligns the start. Three degrees of freedom: a beam and two nulls, or a
     two-dimensional bearing. The quad path with about 300 dollars of
     hardware, and the reason the code was written N-ready.
+
+## 10. Second night's execution order (2026-09-02, 02:00 →)
+
+The user has the keychain prompt clicked, the bridge is up, and tuning
+anywhere is authorised ("you have the radio"). Order, judged by the first
+night's pace; nothing is pushed.
+
+1. Gate: `core/finder.py` — live per-bin spatial rows (`/diversity/spatial`)
+   and the conversation finder (`/diversity/finder`): rings of both loops'
+   spectra, syllabic-modulation voice detector, candidates ranked with the
+   pair's phase, coherence and predicted gain. Tests. Restart the gate.
+2. AetherSDR (agent): BAND page in the Diversity window — spatial waterfall
+   (hue = phase, saturation = coherence, brightness = level), FINDER table
+   with click-to-tune, new test binary `diversity_band_test`.
+3. Gate: noise profile (mains-locked periodicity, comb spacing, impulse
+   rate) in the status, and the noise-sense NLMS canceller (`mode=sense`,
+   loop B as the noise antenna).
+4. Beacon sweep: NCDXF/IARU table, the applet parks the slice on a beacon
+   frequency for one 3-minute cycle, the gate reports per-slot SNR on A and
+   B, phase, coherence and the lowest power step heard; results page.
+5. `tools/diversity_replay.py`: run a capture through any combiner
+   configuration, write A/B/OUT WAVs per over.
+6. Stretch: stereo monitor (needs the audio stream to be stereo), voice and
+   transmitter fingerprint columns in the station memory.
