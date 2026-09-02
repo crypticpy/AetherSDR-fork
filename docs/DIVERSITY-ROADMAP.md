@@ -249,3 +249,71 @@ Standing rules: no pushes; signed commits per unit; every gate green before
 a commit; restart the gate or AetherSDR only when a unit needs it; the
 certificate question stays parked; never probe the SDRplay service by
 trial-and-error device opens.
+
+## 9. Beyond parity: fifteen material steps
+
+Ranked by what they would do for a listener, not by ease. Each carries the
+physics it depends on and the way it can disappoint.
+
+1. **Per-bin weights.** One complex weight per passband bin instead of one
+   for the whole channel. Tonight's report measured a phase slope with a
+   p90 of 16°/kHz, so a wideband weight is 20° wrong at the edges of an
+   SSB passband; per-bin weights fix that and, because each bin has its own
+   degree of freedom, a beam on the voice can coexist with a null on a
+   heterodyne at 1.2 kHz. Cost: overlap-add STFT on the audio path.
+2. **Pile-up separation.** The memory already holds a steering vector per
+   talker. With two talkers on frequency, the 2×2 inverse of those vectors
+   unmixes them into two audio streams: "the DX" and "the caller". Routed
+   to two AetherSDR slices or left/right. Quality depends on how far apart
+   the two are spatially; same phase and level means no separation.
+3. **Spatial stereo monitor.** Place each talker in the stereo field by
+   inter-loop phase and let the listener's own cocktail-party effect do the
+   rest. Nearly free once (2) exists; a big perceived win for pile-ups.
+4. **Noise-sense mode.** Loop B as a noise antenna and a sample-by-sample
+   NLMS canceller that tracks drifting mains and switching-supply noise,
+   the digital and automatic version of an MFJ-1026. 20 to 40 dB on a
+   coherent local source is realistic; nothing on sky noise.
+5. **Impulse subtraction, not blanking.** A lightning crash or a local
+   impulse has a spatial signature; project it out instead of punching a
+   hole in the audio. Harder than it sounds when the impulse saturates.
+6. **Talkers name themselves.** AetherSDR already has speech recognition.
+   A phonetic-alphabet parser on the transcript catches the callsign, the
+   applet writes it to the gate's memory, and a lookup adds location.
+   Accuracy is the risk; confirm before writing rather than guess.
+7. **Spatial waterfall.** A panadapter row where hue is inter-loop phase
+   and brightness is coherence. Stations from different directions show in
+   different colours across the whole band; a local noise source is one
+   flat colour. The gate computes the per-bin numbers already.
+8. **Bearing mode.** A geometry wizard (loop spacing, orientation, a
+   calibration on a station of known bearing) turns phase plus level ratio
+   into a compass bearing with the 180° ambiguity drawn. Orthogonal loops
+   on one mast give Watson-Watt direction finding. The scope becomes a
+   rose with talkers plotted on it.
+9. **Propagation gauge per talker.** Envelope correlation between loops,
+   fade rate and phase spread tell multipath from single-mode and predict
+   the diversity gain before the combiner earns it. Honest science: this
+   is exactly when two antennas help and when they cannot.
+10. **Follow the DX across a split.** A locked station keeps its spatial
+    signature after a QSY; scan a few kHz for it and offer "heard at
+    +2.1 kHz, click to tune". The gate cannot tune, so the offer lives in
+    the window.
+11. **AUTO mode.** A scene classifier (coherence, talk activity, steady
+    carrier, focus) picks null, track, idle-null or manual and explains
+    its choice in EVENTS. The default for someone who never opens the
+    window.
+12. **Station book.** Talkers across sessions in SQLite: signature per
+    band, callsign, bearing, best hours, SNR history. Answers "when do I
+    hear this one best".
+13. **Transmitter and voice fingerprint.** Carrier offset, audio
+    bandwidth, pitch and cadence statistics alongside the spatial
+    signature, so two stations at the same phase are told apart and a
+    station that moved antennas is still the same talker.
+14. **Capture to replay lab.** Run captured pairs through any combiner
+    configuration offline, export A, B and OUT audio per over, and keep a
+    regression bench. Also the before/after clips for the fork's README
+    and any sponsor conversation.
+15. **Four coherent channels.** Two RSPduos on a shared reference clock
+    (the RSPduo has reference in and out) give four tuners; GCC-PHAT
+    aligns the start. Three degrees of freedom: a beam and two nulls, or a
+    two-dimensional bearing. The quad path with about 300 dollars of
+    hardware, and the reason the code was written N-ready.
