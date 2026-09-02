@@ -15,6 +15,7 @@
 #include "gui/AetherGateApplet.h"
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -297,6 +298,78 @@ inline const QByteArray kDiversityFinder = R"({"available": true,
     ]})";
 
 inline const QByteArray kDiversityFinderUnavailable = R"({"available": false})";
+
+// --- SITE page -----------------------------------------------------------
+//
+// The same live payload as kDiversityFull with the two keys the SITE page and
+// the per-bin checkbox read: a 60 Hz grid with a 120 Hz comb, a fence-like
+// impulse rate, two periodic lines that are not mains harmonics, and the
+// subband refinement switched on.
+inline const QByteArray kDiversityStatusWithSite = R"({"available": true, "channels": 2,
+    "mode": "track", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
+    "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
+    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 42,
+    "nb": {"enabled": true, "threshold_db": 18.5, "blanked_pct": 3.2},
+    "rn_source": "guard", "noise_coherence": 0.42,
+    "subband": {"enabled": true, "bins": 33, "extra_db": 0.0},
+    "noise_profile": {"mains_hz": 60.0, "hum_db": 13.7, "harmonics": 2,
+                      "impulses_per_s": 14.8, "impulse_db": 12.5,
+                      "periodic": [{"hz": 182.1, "db": 18.6},
+                                   {"hz": 431.0, "db": 9.2}],
+                      "seconds": 2.0},
+    "capture": {"active": false, "path": null}})";
+
+// A gate that is up but has not profiled yet, with the refinement switched
+// off. noise_profile null is "not measured", NOT "a silent site".
+inline const QByteArray kDiversityStatusSiteNull = R"({"available": true, "channels": 2,
+    "mode": "track", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
+    "lag_samples": 3, "aligned": false, "corr_peak": null,
+    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 1,
+    "subband": {"enabled": false, "bins": 0, "extra_db": 0.0},
+    "noise_profile": null,
+    "capture": {"active": false, "path": null}})";
+
+// Every result the beacon watch reports carries a wall-clock stamp, and the
+// age column is the only cell in the window whose text depends on the local
+// clock -- so the payload is built at run time rather than frozen into a
+// literal that would be "3 years ago" by the time anybody read the test.
+QByteArray makeDiversityBeacons(double heardAgeS = 125.0, double bandHz = 14100000.0)
+{
+    const double at = double(QDateTime::currentSecsSinceEpoch()) - heardAgeS;
+    QByteArray body = R"({"available": true, "band_hz": )";
+    body += QByteArray::number(bandHz, 'f', 1);
+    body += R"(, "slot": 12,
+    "now": {"call": "4X6TU", "location": "Tel Aviv, Israel", "seconds_left": 9.4},
+    "results": [
+      {"call": "KH6RS", "location": "Maui, Hawaii", "band_hz": )";
+    body += QByteArray::number(bandHz, 'f', 1);
+    body += R"(, "at": )";
+    body += QByteArray::number(at, 'f', 1);
+    body += R"(, "heard": true, "snr_db": -3.3, "offset_hz": 0.0, "snr_a": -5.5,
+       "snr_b": -1.1, "phase_deg": -14.7, "coherence": 0.07, "gain_db": 2.0,
+       "steps_db": [-3.3, -11.6, -12.8, -15.7], "steps_heard": 1,
+       "lowest_w": 100.0},
+      {"call": "OH2B", "location": "Lohja, Finland", "band_hz": )";
+    body += QByteArray::number(bandHz, 'f', 1);
+    body += R"(, "at": )";
+    body += QByteArray::number(at, 'f', 1);
+    body += R"(, "heard": false, "steps_heard": 0},
+      {"call": "ZL6B", "location": "Masterton, New Zealand", "band_hz": 21150000.0,
+       "at": )";
+    body += QByteArray::number(at, 'f', 1);
+    body += R"(, "heard": true, "snr_db": 4.0, "steps_heard": 4, "lowest_w": 0.1}
+    ], "last": null})";
+    return body;
+}
+
+inline const QByteArray kDiversityBeacons = makeDiversityBeacons();
+
+// A gate watching, with no beacon frequency inside the span: an idle watch is
+// a fact about where you are tuned, not an empty log.
+inline const QByteArray kDiversityBeaconsNoBand = R"({"available": true,
+    "band_hz": null, "slot": 12, "now": null, "results": [], "last": null})";
+
+inline const QByteArray kDiversityBeaconsUnavailable = R"({"available": false})";
 
 QJsonObject asObject(const QByteArray& body)
 {

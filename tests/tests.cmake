@@ -2878,13 +2878,16 @@ add_executable(aether_gate_applet_test
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
     src/gui/DiversitySpatialWaterfall.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
     src/gui/DiversityWindowPanels.cpp
     src/gui/ClientCompKnob.cpp
@@ -2913,13 +2916,16 @@ add_executable(diversity_window_test
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
     src/gui/DiversitySpatialWaterfall.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
     src/gui/DiversityWindowPanels.cpp
     src/gui/ClientCompKnob.cpp
@@ -2949,13 +2955,16 @@ add_executable(diversity_band_test
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
     src/gui/DiversitySpatialWaterfall.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
     src/gui/DiversityWindowPanels.cpp
     src/gui/ClientCompKnob.cpp
@@ -2970,6 +2979,46 @@ target_link_libraries(diversity_band_test PRIVATE
 set_target_properties(diversity_band_test PROPERTIES AUTOMOC ON)
 add_test(NAME diversity_band_test COMMAND diversity_band_test)
 set_tests_properties(diversity_band_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The Diversity window's SITE page: the NOISE PROFILE panel, the BEACONS watch
+# and its own gate route (/diversity/beacons at 1 Hz), plus the per-bin weights
+# checkbox the SLICE page grew alongside it. A fourth binary rather than more
+# cases in diversity_band_test for the reason that file is separate from
+# diversity_window_test: both are at the 800-line budget AGENTS.md asks for, and
+# every window case needs the same fresh, process-wide AppSettings start.
+# Socket-free the same way -- the applet under it takes the injected
+# QNetworkAccessManager.
+add_executable(diversity_site_test
+    tests/diversity_site_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_site_test PRIVATE src tests)
+target_link_libraries(diversity_site_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_site_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_site_test COMMAND diversity_site_test)
+set_tests_properties(diversity_site_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(meter_applet_capability_test

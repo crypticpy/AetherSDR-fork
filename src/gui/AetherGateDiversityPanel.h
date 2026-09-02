@@ -81,6 +81,11 @@ public:
     void applySpatial(const QJsonObject& spatial);
     void applyFinder(const QJsonObject& finder);
 
+    // The SITE page's payload, forwarded the same way. Fed by the same
+    // DiversityBandPoller, which fetches /diversity/beacons only while
+    // wantsSitePoll() holds.
+    void applyBeacons(const QJsonObject& beacons);
+
     // present/absent — mirrors AetherGateApplet::setPresent(): false hides
     // the panel and resets every readout that must not outlive a reconnect
     // to a different (or older) gate at the same address.
@@ -106,6 +111,13 @@ public:
     // draw on, so AetherGateApplet gates its band poller on this and on the
     // bandPollChanged() signal below.
     bool wantsBandPoll() const;
+
+    // True only while the pop-out window is on screen AND showing its SITE
+    // page. /diversity/beacons answers about a three-minute rota and is worth
+    // nothing to a page nobody is looking at, so it is gated exactly the way
+    // the two BAND routes are -- and announced by the same bandPollChanged()
+    // signal, which is about the visible PAGE rather than about one route.
+    bool wantsSitePoll() const;
 
     // Test/introspection accessor for the pop-out window -- null until the
     // "Open Diversity window" button has been pressed once (or the persisted

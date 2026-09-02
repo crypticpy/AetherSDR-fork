@@ -279,6 +279,11 @@ bool AetherGateDiversityPanel::wantsBandPoll() const
     return m_window && m_window->isVisible() && m_window->bandPageVisible();
 }
 
+bool AetherGateDiversityPanel::wantsSitePoll() const
+{
+    return m_window && m_window->isVisible() && m_window->sitePageVisible();
+}
+
 void AetherGateDiversityPanel::setPresent(bool present)
 {
     m_present = present;
@@ -367,6 +372,12 @@ void AetherGateDiversityPanel::applyFinder(const QJsonObject& finder)
 {
     if (m_window)
         m_window->applyFinder(finder);
+}
+
+void AetherGateDiversityPanel::applyBeacons(const QJsonObject& beacons)
+{
+    if (m_window)
+        m_window->applyBeacons(beacons);
 }
 
 void AetherGateDiversityPanel::applyCaptureResult(bool ok, const QString& pathOrError)

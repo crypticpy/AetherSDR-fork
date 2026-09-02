@@ -515,6 +515,13 @@ QWidget* DiversityWindow::buildAntennasPanel()
     ThemeManager::instance().applyStyleSheet(m_balanceVerdict,
                                              QString::fromLatin1(kVerdictStyle));
     body->addWidget(m_balanceVerdict);
+
+    // The per-bin refinement switch belongs with the weight, not with the
+    // noise map: it changes what "the weight" MEANS -- one answer for the
+    // channel, or one per bin of it -- which is what every readout above it is
+    // about. Built in DiversityWindowSite.cpp beside the rest of the subband
+    // story; this panel is only where it is shown.
+    body->addWidget(buildSubbandRow(frame));
     body->addStretch(1);
     return frame;
 }

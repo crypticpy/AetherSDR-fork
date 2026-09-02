@@ -111,10 +111,17 @@ void DiversityWindow::buildPageSwitch(QWidget* row)
            "signal arrives from, and the conversations the gate has found on "
            "it in the last ten minutes. Click anything on this page to tune "
            "there."));
+    m_pageSiteButton = makeButton(
+        tr("SITE"), QStringLiteral("diversityWindowPageSite"),
+        tr("Show the site page"),
+        tr("Your station rather than the band: what kind of noise this address "
+           "makes -- mains hum, impulses, single lines -- and what the world's "
+           "beacon network measures your antennas to be worth."));
     m_pageSliceButton->setChecked(true);
 
-    connect(m_pageSliceButton, &QToolButton::clicked, this, [this] { showPage(false); });
-    connect(m_pageBandButton, &QToolButton::clicked, this, [this] { showPage(true); });
+    connect(m_pageSliceButton, &QToolButton::clicked, this, [this] { showPage(0); });
+    connect(m_pageBandButton, &QToolButton::clicked, this, [this] { showPage(1); });
+    connect(m_pageSiteButton, &QToolButton::clicked, this, [this] { showPage(2); });
     layout->addSpacing(10);
 }
 
@@ -198,20 +205,25 @@ bool DiversityWindow::bandPageVisible() const
     return m_pages && m_pageBandButton && m_pageBandButton->isChecked();
 }
 
-void DiversityWindow::showPage(bool band)
+void DiversityWindow::showPage(int page)
 {
     if (!m_pages)
         return;
     {
         const QSignalBlocker blockSlice(m_pageSliceButton);
         const QSignalBlocker blockBand(m_pageBandButton);
-        m_pageSliceButton->setChecked(!band);
-        m_pageBandButton->setChecked(band);
+        const QSignalBlocker blockSite(m_pageSiteButton);
+        m_pageSliceButton->setChecked(page == 0);
+        m_pageBandButton->setChecked(page == 1);
+        m_pageSiteButton->setChecked(page == 2);
     }
-    m_pages->setCurrentIndex(band ? 1 : 0);
+    m_pages->setCurrentIndex(page);
     // The applet polls /diversity/spatial and /diversity/finder only while
-    // this page is on screen -- a page nobody is looking at costs no requests.
-    emit bandPageChanged(band && isVisible());
+    // BAND is on screen, and /diversity/beacons only while SITE is -- a page
+    // nobody is looking at costs no requests. One signal for every page
+    // switch: the handler reads both bandPageVisible() and sitePageVisible()
+    // back off the window.
+    emit bandPageChanged(bandPageVisible() && isVisible());
 }
 
 void DiversityWindow::tuneTo(double hz)

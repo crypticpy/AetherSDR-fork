@@ -189,6 +189,7 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     m_pages->setObjectName(QStringLiteral("diversityWindowPages"));
     m_pages->addWidget(scroll);
     m_pages->addWidget(buildBandPage());
+    m_pages->addWidget(buildSitePage());
     root->addWidget(m_pages, 1);
 
     m_statusStrip = new QLabel(tr("gate not answering"), this);
@@ -508,6 +509,10 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
             m_nbKnob->setValue(float(nb.value(QStringLiteral("threshold_db")).toDouble()));
     }
 
+    // The SITE page's noise profile and the SLICE page's per-bin checkbox both
+    // ride on this one status object -- see DiversityWindowSite.cpp.
+    applySite(d);
+
     if (d.contains(QStringLiteral("sources"))) {
         DiversityWidgets::applySources(m_sourcesList,
                                        d.value(QStringLiteral("sources")).toArray());
@@ -740,6 +745,7 @@ void DiversityWindow::setPresent(bool present)
 void DiversityWindow::clearReadouts()
 {
     clearBandReadouts();
+    clearSiteReadouts();
     m_scope->clear();
     m_timeline->clear();
     m_mapStrip->setMap({});

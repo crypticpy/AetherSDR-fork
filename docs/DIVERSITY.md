@@ -76,10 +76,12 @@ sidebar with the setting `AetherGateDiversityPanel_ShowScope`.
 Open it from the sidebar button. Its geometry and visibility persist; it
 reopens on the next run if it was open at exit.
 
-**SLICE / BAND.** The two buttons at the left of the chain row switch
-pages. SLICE, described below, is about the frequency you are tuned to.
-BAND is about the whole span the gate can see, and is where you go to
-decide where to be tuned.
+**SLICE / BAND / SITE.** The three buttons at the left of the chain row
+switch pages. SLICE, described below, is about the frequency you are tuned
+to. BAND is about the whole span the gate can see, and is where you go to
+decide where to be tuned. SITE is about neither: it is about your station —
+what kind of noise this address makes, and what the world's beacon network
+measures your antennas to be worth.
 
 **Chain row.** MODE (off / manual / null / track), HEAR (combined, A, B —
 what goes to the audio), *Hear A only* (press-and-hold A/B comparison that
@@ -118,6 +120,16 @@ active in manual mode), and BALANCE: A minus B, noise coherence, passband
 flatness and slope, and a verdict line. A loop that has been several dB
 down for ten minutes produces a warning from the gate here: check that
 loop, its preamp and feedline before blaming the combiner.
+
+**Per-bin weights** sits under that verdict, because it is a setting about
+the weight rather than about a page. Two loops give one degree of freedom
+*at one frequency*; across a 2.7 kHz channel the best answer differs from
+one end to the other, and a single weight is the average of them. Tick the
+box and the gate solves a weight per bin instead. The figure beside it —
+`33 bins · +0.4 dB` — is how many bins the last solve refined and what that
+earned over the single-weight answer; on one clean source it is worth about
+nothing and says so, and a gate too old to report it shows `—`. The talker
+is held distortionless either way.
 
 **NOISE.** The two-channel impulse blanker (NB button, threshold knob), the
 PAN selector (what the panadapter shows: A, B, combined, or the nulled
@@ -158,6 +170,50 @@ near zero and says so. **Tune** (or a double-click on the row) goes there.
 A gate that is too old to serve these two routes, or that has not built a
 map yet, leaves the waterfall empty with *waiting for the gate*; missing
 numbers render as `—` rather than as zeros.
+
+## The SITE page
+
+Both other pages are about signals that happen to be there right now, so
+neither can answer the two questions you actually ask when the receiver
+sounds worse than it did last week.
+
+**NOISE PROFILE.** What kind of noise this address makes, as opposed to how
+much of it there is. The gate measures the *shape* of the noise floor once
+a second, and the top line is the verdict: `60 Hz grid: 120 Hz hum 13.7 dB,
+2 harmonics`, or `no mains-locked hum`. A 100 or 120 Hz comb is a
+rectifier — a supply, an LED driver, a dimmer, a charger — so walk the
+house and unplug them one at a time. The impulse line (`15 /s at 12.5 dB`,
+or `none`) is the blanker's own quarry: electric fences, vehicle ignition,
+arcing insulators, power-line telecoms. The lines below that are the
+strongest peaks that are *not* mains harmonics, which is usually a switching
+supply or a cheap oscillator that you can hunt with a portable. The strip on
+the right is the last 120 seconds: bars are impulses per second, the line is
+hum in dB, so you can see an appliance switch on. A noise figure tells you
+none of this; these are sentences you can act on.
+
+**BEACONS.** The NCDXF/IARU International Beacon Project: eighteen known
+transmitters sharing one frequency on a three-minute rota, listed here in
+transmission order with the one on the air now lit. Because the
+transmitters and the paths are known, what you read is a measurement of
+*your* station — the antennas, the feedline, the noise floor — rather than
+a report about somebody else's. Each beacon sends its call and then one
+second of dashes at 100, 10, 1 and 0.1 W; the **Steps** cell fills one dot
+per step you heard, and the lowest step heard is the band's real reach.
+Beside it: SNR in a 500 Hz bandwidth, each loop on its own, the arrival
+phase and coherence, the diversity gain the pair earned, and how long ago
+it was heard.
+
+The page shows only the beacons for the frequency in the gate's span; the
+other bands' results are kept but not drawn, so switching bands does not
+lose them. With no beacon frequency in the span it says so and names the
+five: 14.100, 18.110, 21.150, 24.930 and 28.200 MHz. Beacon phase is worth
+more than it looks — it is the only phase in this window whose right answer
+is already known, which is what a future geometry solve has to calibrate
+itself against.
+
+The whole page is polled only while it is on screen, and a gate too old to
+serve the beacon route says `beacon watch: not available from this gate`.
+Missing numbers render as `—` rather than as zeros.
 
 ## A working session
 

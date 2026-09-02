@@ -41,12 +41,15 @@
 // in the sidebar and vice versa: both are views of the same polled state,
 // neither echoes locally.
 //
-// It has two pages, switched by the SLICE/BAND buttons at the left of the
-// chain row. SLICE is the window described above -- everything about the
+// It has three pages, switched by the SLICE/BAND/SITE buttons at the left of
+// the chain row. SLICE is the window described above -- everything about the
 // frequency you are tuned to. BAND is about the SPAN: the spatial waterfall
 // and the conversation FINDER, both click-to-tune, built on the gate's
 // /diversity/spatial and /diversity/finder routes and polled only while that
-// page is on screen (see DiversityWindowBand.cpp).
+// page is on screen (see DiversityWindowBand.cpp). SITE is about neither: it
+// is about the STATION -- what kind of noise this address makes, and what the
+// beacon project measures your antennas to be worth (see
+// DiversityWindowSite.cpp).
 //
 // Layout of the SLICE page, top to bottom:
 //   * chain row  -- SLICE/BAND, MODE (off/manual/null/track), HEAR
@@ -70,6 +73,7 @@
 #include <QUrlQuery>
 
 class QButtonGroup;
+class QCheckBox;
 class QCloseEvent;
 class QHideEvent;
 class QShowEvent;
@@ -92,7 +96,9 @@ namespace AetherSDR {
 
 class AetherGateDiversityPanel;
 class ClientCompKnob;
+class DiversityBeaconPanel;
 class DiversityFinderPanel;
+class DiversityNoiseProfilePanel;
 class DiversityMapStrip;
 class DiversityScope;
 class DiversitySpatialWaterfall;
@@ -128,11 +134,22 @@ public:
     void applySpatial(const QJsonObject& spatial);
     void applyFinder(const QJsonObject& finder);
 
+    // The SITE page's own payload, same contract again: one
+    // /diversity/beacons answer, fed only while that page is on screen -- see
+    // sitePageVisible(). (The page's other half, the noise profile, rides on
+    // the /diversity status object every page already gets.)
+    void applyBeacons(const QJsonObject& beacons);
+
     // True while the window is showing BAND rather than SLICE.
     // AetherGateDiversityPanel::wantsBandPoll() combines it with the window's
     // own visibility, and AetherGateApplet polls /diversity/spatial and
     // /diversity/finder only when both hold.
     bool bandPageVisible() const;
+
+    // True while the window is showing SITE. AetherGateDiversityPanel::
+    // wantsSitePoll() combines it with the window's own visibility, and
+    // AetherGateApplet polls /diversity/beacons only when both hold.
+    bool sitePageVisible() const;
 
     // Mirrors AetherGateApplet's own presence flag: false clears every
     // readout and greys the status strip, but leaves the window open -- the
@@ -153,8 +170,10 @@ signals:
     // waterfall or a FINDER row leaves through AetherGateDiversityPanel to
     // AetherGateApplet, which tunes AetherSDR's own slice. Absolute Hz.
     void requestTune(double hz);
-    // The BAND page came on screen, or went off it (a page switch or the
-    // window closing). Carries whether the two BAND routes should be polled.
+    // The visible page changed, or the window opened or closed. Carries
+    // whether the two BAND routes should be polled; the SITE page's own route
+    // is read back off sitePageVisible() by the same handler, so one signal
+    // covers every page switch.
     void bandPageChanged(bool bandVisible);
 
 protected:
@@ -176,7 +195,20 @@ private:
     // the BAND page itself. Both defined in DiversityWindowBand.cpp.
     void     buildPageSwitch(QWidget* row);
     QWidget* buildBandPage();
-    void     showPage(bool band);
+    // The SITE page and the two members that feed it, defined in
+    // DiversityWindowSite.cpp.
+    QWidget* buildSitePage();
+    // The per-bin weights control, built into the SLICE page's ANTENNAS panel
+    // and defined beside the rest of the subband story rather than beside the
+    // panel it is added to.
+    QWidget* buildSubbandRow(QWidget* parent);
+    // The two keys of the /diversity status object the SITE page reads
+    // (noise_profile) and the SLICE page's checkbox reflects (subband). One
+    // call from applyDiversity(); nothing else in this window touches either.
+    void     applySite(const QJsonObject& d);
+    void     clearSiteReadouts();
+    // Index into m_pages: 0 SLICE, 1 BAND, 2 SITE.
+    void     showPage(int page);
     // A click on the waterfall or a FINDER row: emits requestTune() and, when
     // the combiner is not already tracking, asks for mode=track.
     void     tuneTo(double hz);
@@ -229,8 +261,18 @@ private:
     QStackedWidget* m_pages{nullptr};
     QToolButton*    m_pageSliceButton{nullptr};
     QToolButton*    m_pageBandButton{nullptr};
+    QToolButton*    m_pageSiteButton{nullptr};
     DiversitySpatialWaterfall* m_waterfall{nullptr};
     DiversityFinderPanel*      m_finder{nullptr};
+
+    // --- site ------------------------------------------------------------
+    DiversityNoiseProfilePanel* m_noiseProfile{nullptr};
+    DiversityBeaconPanel*       m_beacons{nullptr};
+    // The per-bin weights control lives on the SLICE page (ANTENNAS), because
+    // it is a control over the weight the rest of that page is about; the SITE
+    // page states the same subband numbers as a sentence.
+    QCheckBox*                  m_subbandCheck{nullptr};
+    QLabel*                     m_subbandValue{nullptr};
 
     // --- chain row --------------------------------------------------------
     QButtonGroup* m_modeGroup{nullptr};

@@ -14,9 +14,14 @@ namespace {
 // 4 Hz: one waterfall row per tick.
 constexpr int kTickMs = 250;
 
+// The SITE page has no 4 Hz route on it. Ticking four times a second to make
+// one request would be a wakeup budget spent on nothing.
+constexpr int kSiteTickMs = 1000;
+
 // /diversity/finder summarises ten minutes and is answered from a ring the
-// gate updates slowly -- 1 Hz is already faster than it can change.
-constexpr int kFinderEveryTicks = 4;
+// gate updates slowly -- 1 Hz is already faster than it can change, and so is
+// /diversity/beacons, whose schedule turns once every three minutes.
+constexpr int kSlowEveryTicks = 4;
 
 // Bounded like every other gate request (tools/check_network_timeouts.py): a
 // half-open socket must become an error, not a reply that never arrives. Well
@@ -57,36 +62,43 @@ void DiversityBandPoller::setBaseUrl(const QString& base)
     restart();
 }
 
-void DiversityBandPoller::setEnabled(bool on)
+void DiversityBandPoller::setPages(bool bandVisible, bool siteVisible)
 {
-    if (m_enabled == on)
+    if (m_bandEnabled == bandVisible && m_siteEnabled == siteVisible)
         return;
-    m_enabled = on;
+    m_bandEnabled = bandVisible;
+    m_siteEnabled = siteVisible;
     restart();
 }
 
 void DiversityBandPoller::restart()
 {
-    if (!m_enabled || m_base.isEmpty() || !m_net) {
+    if ((!m_bandEnabled && !m_siteEnabled) || m_base.isEmpty() || !m_net) {
         m_timer->stop();
         return;
     }
-    // Start from tick zero so the first poll fetches BOTH routes: the page has
-    // just become visible and has nothing on it.
+    // Start from tick zero so the first poll fetches EVERY route the visible
+    // page needs: it has just become visible and has nothing on it.
     m_tick = 0;
-    m_timer->start(kTickMs);
+    m_timer->start(m_bandEnabled ? kTickMs : kSiteTickMs);
     poll();
 }
 
 void DiversityBandPoller::poll()
 {
-    if (!m_enabled || m_base.isEmpty() || !m_net)
+    if ((!m_bandEnabled && !m_siteEnabled) || m_base.isEmpty() || !m_net)
         return;
-    const bool wantFinder = (m_tick % kFinderEveryTicks) == 0;
+    // While only SITE is up the timer is already at 1 Hz, so every tick is a
+    // slow tick; while BAND is up it runs at 4 Hz and one in four is.
+    const bool slowTick = !m_bandEnabled || (m_tick % kSlowEveryTicks) == 0;
     ++m_tick;
-    fetchSpatial();
-    if (wantFinder)
-        fetchFinder();
+    if (m_bandEnabled) {
+        fetchSpatial();
+        if (slowTick)
+            fetchFinder();
+    }
+    if (m_siteEnabled && slowTick)
+        fetchBeacons();
 }
 
 void DiversityBandPoller::fetchSpatial()
@@ -126,6 +138,26 @@ void DiversityBandPoller::fetchFinder()
         if (reply->error() == QNetworkReply::NoError)
             parseObject(reply->readAll(), &obj);
         emit finderReceived(obj);
+    });
+}
+
+void DiversityBandPoller::fetchBeacons()
+{
+    if (m_beaconsInFlight)
+        return;
+    m_beaconsInFlight = true;
+    QNetworkRequest req{QUrl(m_base + QStringLiteral("/diversity/beacons"))};
+    req.setTransferTimeout(kTransferTimeoutMs);
+    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                     QNetworkRequest::AlwaysNetwork);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        m_beaconsInFlight = false;
+        QJsonObject obj;
+        if (reply->error() == QNetworkReply::NoError)
+            parseObject(reply->readAll(), &obj);
+        emit beaconsReceived(obj);
     });
 }
 
