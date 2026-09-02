@@ -237,9 +237,9 @@ void connectGate(AetherGateApplet& a, FakeGate& net, const QByteArray& diversity
     settle();
 }
 
-QToolButton* openButton(AetherGateApplet& a)
+QPushButton* openButton(AetherGateApplet& a)
 {
-    return a.findChild<QToolButton*>(QStringLiteral("gateDiversityOpenWindowButton"));
+    return a.findChild<QPushButton*>(QStringLiteral("gateDiversityOpenWindowButton"));
 }
 
 // (a) The window is built lazily from the sidebar button, needs no transport

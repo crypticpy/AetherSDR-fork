@@ -256,7 +256,11 @@ void DiversityScope::paintWeightPlot(QPainter& p, const QRectF& rectArea) const
     // Grid: outer ring at the +20 dB edge, inner ring at 0 dB -- a fixed
     // frame of reference the dot and trail move inside of, not something
     // that itself changes with the data.
-    p.setPen(QPen(tm.color(this, QStringLiteral("color.spectrum.grid")), 1));
+    // Rings in the secondary text colour, not the spectrum grid: the grid
+    // token is tuned to sit under a bright trace and vanished on the dial.
+    QColor ring = tm.color(this, QStringLiteral("color.text.secondary"));
+    ring.setAlphaF(0.55);
+    p.setPen(QPen(ring, 1));
     p.setBrush(Qt::NoBrush);
     p.drawEllipse(center, R, R);
     p.drawEllipse(center, R * 0.5, R * 0.5);

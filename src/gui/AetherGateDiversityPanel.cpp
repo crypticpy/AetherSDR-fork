@@ -57,12 +57,14 @@ static const char* kRowLabelStyle =
 // own job, under DiversityWindowGeometry.
 static const char* kWindowVisibleKey = "DiversityWindowVisible";
 
-// The "Open window" accessory on the Combine header row: styled off the
-// caption's own token rather than as a button competing with it.
+// The one control that must read as a control at a glance: a real,
+// full-width button above the sections rather than a link on a caption.
 static const char* kOpenWindowStyle =
-    "QToolButton { color: {{color.accent}}; font-size: 10px; font-weight: bold; "
-    "padding: 4px 4px 1px 4px; border: none; }"
-    "QToolButton:hover { color: {{color.accent.bright}}; }";
+    "QPushButton { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold; "
+    "padding: 5px 8px; border: 1px solid {{color.accent}}; border-radius: 4px; "
+    "background: transparent; }"
+    "QPushButton:hover { background: {{color.background.1}}; }"
+    "QPushButton:pressed { background: {{color.background.3}}; }";
 
 static const char* kDiversityHeaderStyle =
     "QToolButton { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold; "
@@ -85,6 +87,21 @@ AetherGateDiversityPanel::AetherGateDiversityPanel(QWidget* parent)
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(0, 6, 0, 0);
     root->setSpacing(4);
+
+    // The window's entry point, first thing in the section and full width so
+    // it is obviously a button, and reachable with every block collapsed.
+    m_openWindowButton = new QPushButton(tr("Open Diversity window"), this);
+    m_openWindowButton->setObjectName(QStringLiteral("gateDiversityOpenWindowButton"));
+    m_openWindowButton->setAccessibleName(tr("Open the diversity window"));
+    m_openWindowButton->setToolTip(tr("The same controls in a full window: a large "
+                                       "scope, per-antenna meters and the remembered "
+                                       "stations."));
+    m_openWindowButton->setCursor(Qt::PointingHandCursor);
+    ThemeManager::instance().applyStyleSheet(m_openWindowButton,
+                                             QString::fromLatin1(kOpenWindowStyle));
+    connect(m_openWindowButton, &QPushButton::clicked, this,
+            &AetherGateDiversityPanel::toggleWindow);
+    root->addWidget(m_openWindowButton);
 
     // === Combine ============================================================
     auto* combineContent = new QWidget(this);
@@ -152,23 +169,8 @@ AetherGateDiversityPanel::AetherGateDiversityPanel(QWidget* parent)
     m_scope = new DiversityScope(combineContent);
     combineForm->addRow(m_scope);
 
-    // The window's only entry point -- on the Combine HEADER row, so it stays
-    // reachable with every section collapsed.
-    m_openWindowButton = new QToolButton(this);
-    m_openWindowButton->setObjectName(QStringLiteral("gateDiversityOpenWindowButton"));
-    m_openWindowButton->setText(tr("Open window"));
-    m_openWindowButton->setAccessibleName(tr("Open the diversity window"));
-    m_openWindowButton->setAutoRaise(true);
-    m_openWindowButton->setToolTip(tr("Open the full Diversity window — the same "
-                                       "controls, with a large scope, per-antenna "
-                                       "meters and the remembered-station list."));
-    ThemeManager::instance().applyStyleSheet(m_openWindowButton,
-                                             QString::fromLatin1(kOpenWindowStyle));
-    connect(m_openWindowButton, &QToolButton::clicked, this,
-            &AetherGateDiversityPanel::toggleWindow);
-
     addCollapsibleSection(root, tr("Combine"), QStringLiteral("Combine"), QStringLiteral("Combine"),
-                           /*defaultExpanded=*/true, combineContent, m_openWindowButton);
+                           /*defaultExpanded=*/true, combineContent);
 
     // === Listen ===============================================================
     auto* listenContent = new QWidget(this);
@@ -441,8 +443,7 @@ QToolButton* AetherGateDiversityPanel::addCollapsibleSection(QVBoxLayout* root,
                                                                const QString& objectNameSuffix,
                                                                const QString& settingsKey,
                                                                bool defaultExpanded,
-                                                               QWidget* content,
-                                                               QWidget* headerAccessory)
+                                                               QWidget* content)
 {
     auto* header = new QToolButton(this);
     header->setObjectName(QStringLiteral("gateDiversity%1Header").arg(objectNameSuffix));
@@ -477,17 +478,7 @@ QToolButton* AetherGateDiversityPanel::addCollapsibleSection(QVBoxLayout* root,
                                                   : QStringLiteral("False"));
     });
 
-    if (headerAccessory) {
-        auto* headerRow = new QWidget(this);
-        auto* headerLayout = new QHBoxLayout(headerRow);
-        headerLayout->setContentsMargins(0, 0, 0, 0);
-        headerLayout->setSpacing(4);
-        headerLayout->addWidget(header, 1);
-        headerLayout->addWidget(headerAccessory);
-        root->addWidget(headerRow);
-    } else {
-        root->addWidget(header);
-    }
+    root->addWidget(header);
     root->addWidget(content);
     return header;
 }

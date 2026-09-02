@@ -133,14 +133,10 @@ private:
     // and persist its own open state in AppSettings, then adds both to
     // `root`. Returns the header so callers that need to read it back
     // (Noise, for wantsMapPoll()) can keep a pointer.
-    // `headerAccessory`, when given, is placed to the RIGHT of the header
-    // button on the header's own row -- for the one control ("Open window")
-    // that has to stay reachable with the section collapsed.
     QToolButton* addCollapsibleSection(QVBoxLayout* root, const QString& caption,
                                         const QString& objectNameSuffix,
                                         const QString& settingsKey, bool defaultExpanded,
-                                        QWidget* content,
-                                        QWidget* headerAccessory = nullptr);
+                                        QWidget* content);
     // Shows the pop-out window (building it on first use) or hides it, and
     // persists which of the two under DiversityWindowVisible.
     void toggleWindow();
@@ -155,7 +151,7 @@ private:
     QTimer*          m_phaseDebounce{nullptr};   // ~150ms so a drag sends once
     QTimer*          m_ratioDebounce{nullptr};
     DiversityScope*  m_scope{nullptr};
-    QToolButton*     m_openWindowButton{nullptr};
+    QPushButton*     m_openWindowButton{nullptr};
 
     // --- Listen -------------------------------------------------------------
     QComboBox*   m_source{nullptr};
