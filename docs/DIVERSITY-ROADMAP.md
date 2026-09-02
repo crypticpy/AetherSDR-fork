@@ -356,7 +356,9 @@ panel's filter width/shift, NB, ANF, APF and manual notch do nothing —
 the gate has no `set_filter_width_hz` and the SSB passband is a fixed
 63-tap 2700 Hz FIR. Everything below starts from a real filter.
 
-1. **Gate filter core** (`core/filter.py`, `/filter` + `/filter/set`): a
+1. **Done** (gate `2dbcf10`, `ed841d2`: the app's `filt <slice> <lo> <hi>`
+   command was never parsed either — now it is, and slice status carries
+   `filter_lo`/`filter_hi`). **Gate filter core** (`core/filter.py`, `/filter` + `/filter/set`): a
    per-slice passband that obeys the app's low/high cut (twin PBT),
    SHARP/SOFT shape (tap count + window), a gate-side roofing bandpass
    around the slice ahead of AGC and NB plus the RSP's 200 kHz analogue IF
@@ -364,18 +366,29 @@ the gate has no `set_filter_width_hz` and the SSB passband is a fixed
    auto notch from carrier detection, NB on the single-loop path, CONTOUR
    and APF. What the FTDX101MP / IC-7300 MK2 do, done in DSP where the
    hardware's equivalent is analogue bandwidth and gain.
-2. **Auto filter / auto EQ**: passband fitted to the station's rig edges
+2. **Done** inside the same core (`auto=1`, `auto_eq=1`; `auto.source` says
+   print or spectrum). **Auto filter / auto EQ**: passband fitted to the station's rig edges
    from the voice print (held across overs, refit when the other side
    talks), per-frame occupied-bandwidth fallback for unprinted stations;
    EQ from the print's tilt and centroid.
 3. **FILTER page** in the Diversity window: passband graphic with
    draggable edges over the live passband spectrum, shape, roofing, AGC,
    notch list, NB, contour/APF, AUTO and AUTO EQ.
-4. **Noise profile, acted on**: each finding (mains comb, impulses,
+4. **Gate done** (`137e396`: `noise_profile.kinds[]`, one row per finding
+   with `window_s` and the one control-port `action` — NULL only when the
+   noise is directional enough, BLANK with a recommended threshold, NOTCH
+   for an ANF tone — or `why` nothing applies; one blanker on the pair
+   instead of two). SITE page rows: pending.
+   **Noise profile, acted on**: each finding (mains comb, impulses,
    discrete lines) is a row with what it is, the window it was measured
    over, and a button — blank it, notch it, feed it to the per-bin
    combiner.
-5. **Beacons, acted on**: Beacon Check (park one cycle on the band's
+5. **Gate done** (`137e396`: beacon locators, `/diversity/set?grid=` for
+   the station — blank until the user gives it — bearing/distance per
+   result, results persisted in `~/.aether-gate/beacons.json` with a
+   running record per beacon and band, `propagation[]` per band,
+   `pattern[]` B−A by bearing). Beacon Check and the SITE page: pending.
+   **Beacons, acted on**: Beacon Check (park one cycle on the band's
    beacon, return), a per-beacon sample store with bearing and distance
    from the site (grid square is a gate setting), per-band propagation
    gauge, A-versus-B by bearing as the two loops' pattern map.
