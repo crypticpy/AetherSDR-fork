@@ -344,5 +344,7 @@ night's pace; nothing is pushed.
    configuration, write A/B/OUT WAVs per over.
 6. Stretch: **stereo monitor done** (gate `bed8002`: `source=stereo`, A
    left, B right; the same commit fixed HEAR, which had been changing the
-   panadapter rather than the audio). Voice and transmitter fingerprint
-   columns in the station memory: not started.
+   panadapter rather than the audio). **Voice and rig print done** (gate
+   `0b0dd4c`: `core/voiceprint.py`, `voice` on each memory entry; app
+   `5c53d708`: the TALKERS **TX** column is the rig's upper audio edge and
+   the row's hover is the whole print).
