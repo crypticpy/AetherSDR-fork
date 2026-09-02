@@ -181,10 +181,27 @@ The gate's HTTP control port (default 8731) serves:
 
 - `GET /diversity` — the status object (mode, weight, SNRs, talker,
   memory, focus, passband, noise coherence, blanker, sources, loops,
-  capture).
-- `GET /diversity/set?mode=&source=&phase=&ratio=&nb=&nb_db=&pan=&null_source=&focus=`
-  — any subset; `focus=<id>` pins, `focus=off` releases.
+  capture, `subband` {enabled, bins, extra_db}: the per-bin refinement of
+  the tracked weight, `noise_profile` {mains_hz, hum_db, harmonics,
+  impulses_per_s, impulse_db, periodic[], seconds}: what kind of noise
+  this is).
+- `GET /diversity/set?mode=&source=&phase=&ratio=&nb=&nb_db=&pan=&null_source=&focus=&subband=`
+  — any subset; `focus=<id>` pins, `focus=off` releases; `subband=on|off`
+  (default on: in null/track every passband bin gets its own weight
+  wherever the learned noise has a direction, the talker held
+  distortionless).
 - `GET /diversity/map` — the spatial noise map with `passband_hz`.
+- `GET /diversity/spatial` — live per-bin phase/coherence/level rows (the
+  BAND page's waterfall); `GET /diversity/finder` — ranked conversations
+  across the span with activity per point (the BAND page's table).
+- `GET /diversity/beacons` — the NCDXF/IARU beacon watch: which beacon is
+  on the band's beacon frequency now (from UTC), and per beacon heard the
+  SNR in 500 Hz, each loop's SNR, the pair's phase and coherence, the
+  power steps heard (100/10/1/0.1 W) and the MRC gain. Idle unless a beacon
+  frequency (14.100, 18.110, 21.150, 24.930, 28.200) is inside the span.
+- `python -m aether_gate.replay CAPTURE.npz` (in the gate) — the replay
+  lab: a capture through the live combiner path as A / B / wideband /
+  per-bin WAVs at one gain, plus `summary.json`.
 - `GET /diversity/memory/name?id=&name=` — label a talker (empty clears).
 - `GET /diversity/memory/clear`, `GET /diversity/align`,
   `GET /diversity/capture?seconds=`.
