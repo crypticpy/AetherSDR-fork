@@ -70,7 +70,6 @@ int g_failed = 0;
         }                                                                            \
     } while (0)
 
-
 // AppSettings is one process-wide cache, and the window's own visibility is
 // persisted in it -- so every case starts from a known closed state rather
 // than from whatever the previous case left behind.
@@ -269,7 +268,7 @@ void testPhaseKnobDisabledInTrackModeAndNotWrittenByAPoll()
 // (e) The window's noise panel shows the same map strip much larger, so the
 // map poll has to keep running while the window is open even when the
 // sidebar's own Noise block is collapsed.
-void testMapPollRunsWhileWindowVisibleWithSidebarNoiseCollapsed()
+void testMapPollRunsOnlyWhileWindowVisible()
 {
     closedToStart();
     FakeGate net;
@@ -277,10 +276,6 @@ void testMapPollRunsWhileWindowVisibleWithSidebarNoiseCollapsed()
     net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, makeDiversityMap(8)};
     connectGate(a, net, kDiversityFull);
 
-    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
-    CHECK(noise != nullptr);
-    if (noise)
-        noise->setChecked(false);
     settle();
     CHECK(!a.diversityPanel()->wantsMapPoll());
 
@@ -296,7 +291,7 @@ void testMapPollRunsWhileWindowVisibleWithSidebarNoiseCollapsed()
     tick(a);
     CHECK(net.count(QStringLiteral("/diversity/map")) > collapsed);
 
-    // Closing it again with Noise still collapsed stops the poll once more.
+    // Closing it again stops the poll once more.
     openButton(a)->click();
     settle();
     CHECK(!a.diversityPanel()->wantsMapPoll());
@@ -347,7 +342,6 @@ void testGateGoingAwayClearsTheWindowsReadouts()
     CHECK(w->isVisible());
     closedToStart();
 }
-
 
 // (g) Who is talking. The gate names one memory entry as live; that row is
 // lit, its id cell gets the same filled dot the dial's marker gets, and the
@@ -736,11 +730,9 @@ void testOldGatePayloadRendersWithoutInventingAnything()
     closedToStart();
 }
 
-
-// (m) The layout budget. Every panel in this window has a minimum size, and
-// the sum of them has to fit 1120x860 or the operator meets a scrollbar the
-// first time he opens it. That is a real constraint on every future addition
-// here, so it is a test rather than a comment.
+// (m) The layout budget: every panel has a minimum size and their sum has to
+// fit 1120x860, or the operator meets a scrollbar the first time the window
+// opens. A test rather than a comment because every addition here pays it.
 void testNothingScrollsAtTheInitialSize()
 {
     closedToStart();
@@ -767,6 +759,16 @@ void testNothingScrollsAtTheInitialSize()
     CHECK(scroll->widget()->minimumSizeHint().height() <= scroll->viewport()->height());
     CHECK(!scroll->verticalScrollBar()->isVisible());
     CHECK(!scroll->horizontalScrollBar()->isVisible());
+
+    // The LOCKED banner is an extra line in TALKERS; it has to fit too.
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
+                                                kDiversityFocusNulling};
+    tick(a);
+    settle();
+    w->grab();
+    CHECK(scroll->widget()->minimumSizeHint().height() <= scroll->viewport()->height());
+    CHECK(!scroll->verticalScrollBar()->isVisible());
+    CHECK(!scroll->horizontalScrollBar()->isVisible());
     closedToStart();
 }
 
@@ -781,7 +783,7 @@ int main(int argc, char** argv)
     testFullAndNullPayloadsApplyAndTheScopeAgrees();
     testWindowModeButtonSendsTheSameQueryAsTheSidebarCombo();
     testPhaseKnobDisabledInTrackModeAndNotWrittenByAPoll();
-    testMapPollRunsWhileWindowVisibleWithSidebarNoiseCollapsed();
+    testMapPollRunsOnlyWhileWindowVisible();
     testGateGoingAwayClearsTheWindowsReadouts();
     testLiveTalkerLightsItsRowAndHeader();
     testNamingATalkerWritesThroughAndSurvivesAPoll();

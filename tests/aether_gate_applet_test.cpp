@@ -11,6 +11,7 @@
 // clamp a device's value to a guessed range.
 
 #include "TestSettingsProfile.h"
+#include "core/AppSettings.h"
 #include "gui/AetherGateApplet.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/DiversityScope.h"
@@ -24,18 +25,16 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPushButton>
 #include <QSignalSpy>
-#include <QSlider>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QStringList>
 #include <QTest>
 #include <QTimer>
-#include <QToolButton>
 #include <QUrl>
 
 #include <algorithm>
@@ -44,7 +43,7 @@
 #include <cstring>
 
 using AetherSDR::AetherGateApplet;
-using AetherSDR::AetherGateDiversityPanel;
+using AetherSDR::AppSettings;
 using AetherSDR::DiversityScope;
 
 namespace {
@@ -235,13 +234,34 @@ const QByteArray kDiversityV2 = R"({"available": true, "channels": 2,
     "rn_source": "guard", "talk_mod": 0.62,
     "capture": {"active": false, "path": null}})";
 
-// Same as kDiversityV2 but with a capture in flight -- the button/label must
-// read the gate's own live state, not whatever the trigger response said.
-const QByteArray kDiversityV2Capturing = R"({"available": true, "channels": 2,
-    "mode": "manual", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
-    "weight": [0.7, 0.1], "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
+// A v3 gate: stable talker ids, an operator name for one of them, and a live
+// talker -- everything the slimmed sidebar's status line is built from.
+const QByteArray kDiversityTalkerAl = R"({"available": true, "channels": 2,
+    "mode": "track", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
+    "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
     "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 42, "slice_id": 0,
-    "capture": {"active": true, "path": null}})";
+    "memory": [
+      {"id": 1, "name": null, "phase_deg": 141.0, "ratio_db": -2.1, "age_s": 5.0,
+       "hits": 12},
+      {"id": 2, "name": "Al", "phase_deg": 10.0, "ratio_db": 1.0, "age_s": 3.0,
+       "hits": 3}
+    ],
+    "talker": {"id": 2, "since_s": 14.0},
+    "capture": {"active": false, "path": null}})";
+
+// The same gate with the UNNAMED talker (#1) on the air instead.
+const QByteArray kDiversityTalkerUnnamed = R"({"available": true, "channels": 2,
+    "mode": "track", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
+    "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
+    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 43, "slice_id": 0,
+    "memory": [
+      {"id": 1, "name": null, "phase_deg": 141.0, "ratio_db": -2.1, "age_s": 5.0,
+       "hits": 12},
+      {"id": 2, "name": "Al", "phase_deg": 10.0, "ratio_db": 1.0, "age_s": 3.0,
+       "hits": 3}
+    ],
+    "talker": {"id": 1, "since_s": 2.0},
+    "capture": {"active": false, "path": null}})";
 
 // A /diversity/map answer with `points` coherence samples and one source.
 QByteArray makeDiversityMap(int points)
@@ -261,34 +281,6 @@ QByteArray makeDiversityMap(int points)
 }
 
 const QByteArray kDiversityMapError = R"({"error": "no map yet"})";
-
-// Same 2 sources as kDiversityV2 but with the SECOND one (7.030-7.040 MHz)
-// dropped -- for the shrinking-array test below.
-const QByteArray kDiversityV2ShrunkSources = R"({"available": true, "channels": 2,
-    "mode": "manual", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
-    "weight": [0.7, 0.1], "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
-    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 43, "slice_id": 0,
-    "sources": [
-      {"lo_hz": 3512000.0, "hi_hz": 3560000.0, "phase_deg": 141.0, "ratio_db": -2.1,
-       "coherence": 0.82, "level_db": -40.0}
-    ]})";
-
-// capture.active == false with a real (non-null) "path" -- the last
-// SUCCESSFUL capture's own result, as opposed to kDiversityV2's null one.
-const QByteArray kDiversityV2WithOldCapturePath = R"({"available": true, "channels": 2,
-    "mode": "manual", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
-    "weight": [0.7, 0.1], "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
-    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 42, "slice_id": 0,
-    "capture": {"active": false, "path": "/tmp/old_capture.wav"}})";
-
-// "nb" as a bare bool rather than the {"enabled", "threshold_db"} object --
-// toObject() on this silently returns {}, which without a guard would read
-// as "blanker off, threshold 0" and stomp both nb widgets.
-const QByteArray kDiversityV2MalformedNb = R"({"available": true, "channels": 2,
-    "mode": "manual", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
-    "weight": [0.7, 0.1], "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
-    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 42, "slice_id": 0,
-    "nb": true})";
 
 // ---------------------------------------------------------------------------
 
@@ -530,10 +522,13 @@ void testDownEdgeDropsPresenceAndReprobesOnReturn()
     CHECK(spy.count() == 3 && spy.at(2).at(0).toBool());
 }
 
-// No /diversity route (an old gate) or "available": false (a gate whose
-// device isn't a dual-tuner) both mean no diversity section — not a silently
-// empty one.
-void testDiversityHiddenWhenUnavailableOrMissing()
+// The sidebar section is a door, not the instrument (docs/DIVERSITY-ROADMAP.md
+// §3): it stays hidden until a /diversity poll says "available": true, and it
+// hides again the moment that stops being true -- no /diversity route (an old
+// gate), "available": false (a gate whose device isn't a dual-tuner), a
+// non-JSON body, or the gate going away entirely. Hidden, not emptied: an
+// empty box still costs a caption and a gap in a 250px column.
+void testDiversityHiddenUntilAvailableThenHiddenAgain()
 {
     FakeGate net;
     net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
@@ -544,341 +539,178 @@ void testDiversityHiddenWhenUnavailableOrMissing()
     settle();
     settle();
 
+    auto* box = a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"));
     CHECK(a.gatePresent());     // /diversity 404ing must not affect presence
-    CHECK(a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"))->isHidden());
+    CHECK(box && box->isHidden());
 
     net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityUnavailable};
     tick(a);
-    CHECK(a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"))->isHidden());
+    CHECK(box && box->isHidden());
+
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
+    tick(a);
+    CHECK(box && !box->isHidden());
+
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityUnavailable};
+    tick(a);
+    CHECK(box && box->isHidden());
+
+    // Available again, and then the gate itself goes away: setPresent(false)
+    // hides the section too, rather than leaving the last gate's readout on
+    // screen for a radio that is no longer answering.
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
+    tick(a);
+    CHECK(box && !box->isHidden());
+
+    a.setRadioAddress(QString());
+    CHECK(!a.gatePresent());
+    CHECK(box && box->isHidden());
+    auto* status = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
+    CHECK(status && status->text() == QStringLiteral("—"));
 }
 
-// Manual is the only mode that takes a phase/ratio setpoint; Track (and Null,
-// Off) solve/hold their own, so editing either there would write a value the
-// gate ignores.
-void testDiversityManualEnablesPhaseRatioOtherModesDisable()
+// The whole sidebar readout in one line: the mode, who is talking (id, plus
+// the operator's name for that id when memory carries one), and what the
+// combiner is buying over the BETTER loop -- kDiversityTalkerAl's snr_db is
+// a=12.3, b=9.8, out=15.1, so the gain is 15.1 - 12.3 = +2.8 dB, not
+// 15.1 - 9.8.
+void testDiversityStatusLineCarriesModeTalkerAndGain()
 {
     FakeGate net;
     net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
     net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityTalkerAl};
     AetherGateApplet a(nullptr, &net);
 
     a.setRadioAddress(QStringLiteral("10.0.0.5"));
     settle();
     settle();
 
-    CHECK(!a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"))->isHidden());
-    auto* phase = a.findChild<QSlider*>(QStringLiteral("gateDiversityPhaseSlider"));
-    auto* ratio = a.findChild<QDoubleSpinBox*>(QStringLiteral("gateDiversityRatioSpin"));
-    CHECK(phase && phase->isEnabled() && phase->value() == 45);
-    CHECK(ratio && ratio->isEnabled() && ratio->value() == -2.5);
+    auto* status = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
+    CHECK(status && status->text() == QStringLiteral("track · #2 Al · +2.8 dB"));
+
+    // The same gate with the UNNAMED talker on the air: the id alone, never
+    // an invented label.
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
+                                                 kDiversityTalkerUnnamed};
+    tick(a);
+    CHECK(status && status->text() == QStringLiteral("track · #1 · +2.8 dB"));
+}
+
+// "off" is the whole line when the combiner is off -- there is no talker to
+// attribute and no gain to claim -- and a leg the gate did not measure is an
+// em dash, never an invented 0.0 dB (kDiversityTrack's snr_db legs are all
+// null and it carries no talker).
+void testDiversityStatusLineSaysOffAndEmDashesWhatWasNotMeasured()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityOff};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+
+    auto* status = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
+    CHECK(status && status->text() == QStringLiteral("off"));
 
     net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityTrack};
     tick(a);
-    CHECK(!phase->isEnabled());
-    CHECK(!ratio->isEnabled());
+    CHECK(status && status->text() == QStringLiteral("track · —"));
 }
 
-// Operator complaint item 1: "in null/track mode the phase slider ... must
-// be disabled AND not written from polls at all -- keep the operator's last
-// manual value". kDiversityTrack's own phase_deg (10) must NOT land on the
-// slider once Track disables it -- it must keep showing 45, the last value a
-// Manual poll put there, not "bounce" to whatever Track is internally
-// solving for.
-void testDiversityTrackModePollLeavesPhaseSliderUntouchedAndDisabled()
+// The status label's minimum width covers the longest line its FIXED parts
+// can build, so switching between them never resizes the label -- and its
+// horizontal policy is Ignored, so a long operator name clips instead of
+// widening the whole sidebar column.
+void testDiversityStatusLabelWidthIsFixedAgainstTheWorstCasePhrase()
 {
     FakeGate net;
     net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
     net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityTalkerAl};
     AetherGateApplet a(nullptr, &net);
 
     a.setRadioAddress(QStringLiteral("10.0.0.5"));
     settle();
     settle();
 
-    auto* phase = a.findChild<QSlider*>(QStringLiteral("gateDiversityPhaseSlider"));
-    CHECK(phase && phase->value() == 45);
-
-    // kDiversityTrack reports phase_deg 10 -- a different value -- while in
-    // Track mode.
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityTrack};
-    tick(a);
-    CHECK(!phase->isEnabled());
-    CHECK(phase->value() == 45);   // untouched, not snapped to Track's 10
-}
-
-// Operator complaint item 1, Manual-mode half: a poll may move the slider
-// only when the operator is not mid-debounce (this harness's unshown window
-// makes hasFocus() always false -- see phone_tx_filter_numeric_entry_test.cpp
-// -- so only the debounce-active guard is testable here). A drag starts the
-// ~150ms debounce timer at once; a poll landing before it elapses must leave
-// the slider showing the operator's own in-progress drag value rather than
-// snapping to whatever the gate reported a moment before the drag's own
-// write has even gone out.
-void testDiversityManualModePollSkipsSliderWhileDebounceActive()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
-    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityManual};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-
-    auto* phase = a.findChild<QSlider*>(QStringLiteral("gateDiversityPhaseSlider"));
-    CHECK(phase && phase->value() == 45);
-
-    phase->setValue(100);          // starts the ~150ms debounce
-    // A poll lands with a THIRD value while the debounce is still running.
-    const QByteArray thirdValue = R"({"available": true, "channels": 2,
-        "mode": "manual", "source": "combined", "phase_deg": 77.0, "ratio_db": -2.5,
-        "weight": [0.7, 0.1], "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
-        "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 42, "slice_id": 0})";
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, thirdValue};
-    tick(a);                       // settle()'s 20ms is well inside the 150ms debounce
-    CHECK(phase->value() == 100);  // still the operator's drag, not 77
-
-    QTest::qWait(200);             // past the debounce -- fires the debounced write
-    settle();
-    tick(a);                       // debounce no longer active: the poll may write now
-    CHECK(phase->value() == 77);
-}
-
-// DELIBERATE BEHAVIOUR CHANGE (operator complaint: the status line's live
-// numbers -- lag, aligned, peak, SNR, rn, mod -- reflowed the rows under it
-// on nearly every poll, which read as the UI "glitching out"). All of that
-// now lives in DiversityScope's fixed-size paint instead; the status line is
-// down to a short, fixed set of words. kDiversityTrack has no "realigning"
-// key and "aligned": false, so the label is exactly "not aligned" -- one of
-// the three fixed phrases formatDiversityStatus() can produce, never a
-// string that grows with a live number.
-void testDiversityStatusLineIsAFixedShortPhraseNotLiveNumbers()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityTrack};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-
-    auto* label = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
-    CHECK(label && label->text() == QStringLiteral("not aligned"));
-    CHECK(label && !label->text().contains(QStringLiteral("SNR")));
-    CHECK(label && !label->text().contains(QStringLiteral("lag")));
-    // A fixed minimum width sized to the longest of the fixed phrases, so
-    // switching between them never resizes the label.
-    CHECK(label && label->minimumWidth() > 0);
-}
-
-// The status label's minimum width must cover the longest phrase it can
-// actually show -- "aligned · lag <n>" with a worst-case 5-digit signed lag
-// -- not just the three example phrases it happens to be constructed with.
-void testDiversityStatusLabelMinimumWidthCoversWorstCaseLag()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
-    auto* label = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
-    CHECK(label);
+    auto* status = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
+    CHECK(status != nullptr);
+    if (!status)
+        return;
     const int worst =
-        label->fontMetrics().horizontalAdvance(QStringLiteral("aligned · lag −99999"));
-    CHECK(label->minimumWidth() >= worst);
+        status->fontMetrics().horizontalAdvance(QStringLiteral("manual · #9999 · −99.9 dB"));
+    CHECK(status->minimumWidth() >= worst);
+    CHECK(status->sizePolicy().horizontalPolicy() == QSizePolicy::Ignored);
 }
 
-// A phase-slider drag must debounce to one write carrying phase= alone, not
-// ratio= riding along on the same request.
-void testDiversityPhaseChangeSendsPhaseOnly()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
-    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityManual};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-
-    auto* phase = a.findChild<QSlider*>(QStringLiteral("gateDiversityPhaseSlider"));
-    CHECK(phase && phase->isEnabled());
-    phase->setValue(200);
-    QTest::qWait(250);           // past the ~150ms debounce
-    settle();
-
-    CHECK(net.count(QStringLiteral("/diversity/set")) == 1);
-    CHECK(net.log.contains(QStringLiteral("/diversity/set?phase=200")));
-}
-
-// Every v2 field is independently optional -- a gate that carries all of
-// them at once parses each into its own widget.
-void testDiversityV2FieldsParseIntoWidgets()
+// The one control left in the sidebar. Selecting a mode reaches the gate as a
+// plain /diversity/set?mode=<value>, and a poll writes the gate's own mode
+// back into the combo without echoing a write.
+void testDiversityModeComboChangeSendsModeQueryAndPollWritesBack()
 {
     FakeGate net;
     net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
     net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
     net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
+    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityV2};
     AetherGateApplet a(nullptr, &net);
 
     a.setRadioAddress(QStringLiteral("10.0.0.5"));
     settle();
     settle();
-    settle();
-
-    CHECK(a.gatePresent());
-    CHECK(!a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"))->isHidden());
-
-    auto* nbCheck = a.findChild<QCheckBox*>(QStringLiteral("gateDiversityNbCheck"));
-    auto* nbSpin = a.findChild<QDoubleSpinBox*>(QStringLiteral("gateDiversityNbSpin"));
-    CHECK(nbCheck && nbCheck->isChecked());
-    CHECK(nbSpin && nbSpin->value() == 18.5);
-
-    auto* pan = a.findChild<QComboBox*>(QStringLiteral("gateDiversityPanCombo"));
-    CHECK(pan && pan->currentData().toString() == QStringLiteral("nulled"));
-
-    // Row text is now the short form (freq + coherence, sized to fit the
-    // 250px sidebar); the old full-detail text (phase/ratio too) moved to
-    // the item's tooltip -- see testDiversitySourcesListShortTextWithTooltip
-    // for the dedicated coverage of that split.
-    auto* sources = a.findChild<QListWidget*>(QStringLiteral("gateDiversitySourcesList"));
-    CHECK(sources && sources->count() == 2);
-    CHECK(sources->item(0)->text() == QStringLiteral("3.512–3.560 MHz   coh 0.82"));
-    CHECK(sources->item(1)->text() == QStringLiteral("7.030–7.040 MHz   coh 0.55"));
-
-    auto* memory = a.findChild<QLabel*>(QStringLiteral("gateDiversityMemoryLabel"));
-    CHECK(memory && memory->text() == QStringLiteral("memory: 2 talkers"));
-
-    auto* captureButton = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCaptureButton"));
-    auto* captureLabel = a.findChild<QLabel*>(QStringLiteral("gateDiversityCaptureLabel"));
-    CHECK(captureButton && captureButton->isEnabled());       // capture.active == false
-    CHECK(captureLabel && captureLabel->text() == QStringLiteral("—"));  // path == null
-
-    // rn_source/talk_mod moved to DiversityScope's bottom text lines (see
-    // testDiversityStatusLineIsAFixedShortPhraseNotLiveNumbers) -- the status
-    // label itself is now a short fixed phrase, which since #5372's review
-    // fixes also carries the lag once aligned (kDiversityV2's lag_samples is
-    // 3).
-    auto* status = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
-    CHECK(status && status->text() == QStringLiteral("aligned · lag 3"));
-
-    // kDiversityV2's snr_db is a=12.3, b=9.8, out=15.1 -> gain = 15.1 - 12.3.
-    auto* scope = a.findChild<DiversityScope*>(QStringLiteral("gateDiversityScope"));
-    CHECK(scope && std::abs(scope->lastGainDb() - 2.8) < 1e-9);
-}
-
-// The sidebar redesign moved a source row's full detail (lo/hi, phase,
-// ratio) into the item's tooltip and left only the short freq+coherence text
-// visible, specifically so gateDiversitySourcesList never needs a horizontal
-// scrollbar at the sidebar's 250px width.
-void testDiversitySourcesListShortTextWithTooltipAndNoHScrollbar()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
-    auto* sources = a.findChild<QListWidget*>(QStringLiteral("gateDiversitySourcesList"));
-    CHECK(sources && sources->count() == 2);
-    CHECK(sources->horizontalScrollBarPolicy() == Qt::ScrollBarAlwaysOff);
-
-    CHECK(sources->item(0)->text() == QStringLiteral("3.512–3.560 MHz   coh 0.82"));
-    CHECK(sources->item(0)->toolTip()
-          == QStringLiteral("3.512–3.560 MHz · coh 0.82 · 141° · −2.1 dB"));
-    CHECK(sources->item(1)->text() == QStringLiteral("7.030–7.040 MHz   coh 0.55"));
-    CHECK(sources->item(1)->toolTip()
-          == QStringLiteral("7.030–7.040 MHz · coh 0.55 · 10° · 1.0 dB"));
-}
-
-// The checkbox itself carries no visible text any more (the row label says
-// "Blanker" instead) -- it must still name itself to a screen reader.
-void testDiversityNbCheckboxHasAccessibleNameAndNoVisibleText()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
-    auto* nbCheck = a.findChild<QCheckBox*>(QStringLiteral("gateDiversityNbCheck"));
-    CHECK(nbCheck && nbCheck->text().isEmpty());
-    CHECK(nbCheck && nbCheck->accessibleName() == QStringLiteral("Noise blanker"));
-}
-
-// An older gate's /diversity carries none of the v2 keys -- every new widget
-// must sit exactly where its constructor left it, not at some invented
-// "off"/"cleared" state the applet made up.
-void testOldDiversityPayloadLeavesV2WidgetsAtDefaults()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
     CHECK(a.gatePresent());
 
-    auto* nbCheck = a.findChild<QCheckBox*>(QStringLiteral("gateDiversityNbCheck"));
-    auto* nbSpin = a.findChild<QDoubleSpinBox*>(QStringLiteral("gateDiversityNbSpin"));
-    CHECK(nbCheck && !nbCheck->isChecked());
-    CHECK(nbSpin && nbSpin->value() == 0.0);
+    // kDiversityV2 arrives with mode=manual -- the poll wrote that back.
+    auto* mode = a.findChild<QComboBox*>(QStringLiteral("gateDiversityModeCombo"));
+    CHECK(mode && mode->currentData().toString() == QStringLiteral("manual"));
+    CHECK(mode && mode->accessibleName() == QStringLiteral("Diversity combining mode"));
 
-    auto* pan = a.findChild<QComboBox*>(QStringLiteral("gateDiversityPanCombo"));
-    CHECK(pan && pan->currentIndex() == 0);        // untouched constructor default ("A")
+    const int writes = net.count(QStringLiteral("/diversity/set"));
+    mode->setCurrentIndex(mode->findData(QStringLiteral("null")));
+    settle();
+    CHECK(net.log.contains(QStringLiteral("/diversity/set?mode=null")));
+    // Exactly one write: the read-back must not echo a second one.
+    CHECK(net.count(QStringLiteral("/diversity/set")) == writes + 1);
+}
 
-    auto* sources = a.findChild<QListWidget*>(QStringLiteral("gateDiversitySourcesList"));
-    CHECK(sources && sources->count() == 0);
+// The compact scope is opt-in: AetherGateDiversityPanel_ShowScope (default
+// off) is the only thing that shows it, and there is deliberately no UI to
+// flip it. It is built and fed either way, so turning the key on shows a
+// scope that is already current rather than an empty one.
+void testDiversityScopeHiddenUnlessShowScopeKeyIsSet()
+{
+    const QString key = QStringLiteral("AetherGateDiversityPanel_ShowScope");
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
 
-    auto* memory = a.findChild<QLabel*>(QStringLiteral("gateDiversityMemoryLabel"));
-    CHECK(memory && memory->text() == QStringLiteral("memory: 0 talkers"));
+    AppSettings::instance().setValue(key, QStringLiteral("False"));
+    {
+        AetherGateApplet a(nullptr, &net);
+        a.setRadioAddress(QStringLiteral("10.0.0.5"));
+        settle();
+        settle();
+        auto* scope = a.findChild<DiversityScope*>(QStringLiteral("gateDiversityScope"));
+        CHECK(scope && scope->isHidden());
+        // Fed all the same: kDiversityV2's gain is 15.1 - max(12.3, 9.8).
+        CHECK(scope && std::abs(scope->lastGainDb() - 2.8) < 1e-9);
+    }
 
-    auto* captureButton = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCaptureButton"));
-    auto* captureLabel = a.findChild<QLabel*>(QStringLiteral("gateDiversityCaptureLabel"));
-    CHECK(captureButton && captureButton->isEnabled());
-    CHECK(captureLabel && captureLabel->text() == QStringLiteral("—"));
-
-    auto* status = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
-    CHECK(status && !status->text().contains(QStringLiteral("rn ")));
-    CHECK(status && !status->text().contains(QStringLiteral("mod ")));
-
-    // No /diversity/map route configured either -- an old gate 404s it, and
-    // that must not crash or affect presence any more than /diversity itself
-    // 404ing does.
-    CHECK(a.findChild<QWidget*>(QStringLiteral("gateDiversityMapStrip")) != nullptr);
+    AppSettings::instance().setValue(key, QStringLiteral("True"));
+    {
+        AetherGateApplet a(nullptr, &net);
+        a.setRadioAddress(QStringLiteral("10.0.0.5"));
+        settle();
+        settle();
+        auto* scope = a.findChild<DiversityScope*>(QStringLiteral("gateDiversityScope"));
+        CHECK(scope && !scope->isHidden());
+    }
+    AppSettings::instance().setValue(key, QStringLiteral("False"));
 }
 
 // DiversityScope in isolation: a payload with every snr_db leg null must not
@@ -907,22 +739,24 @@ void testDiversityScopeAcceptsNullsAndFullPayloadWithoutCrashingAndComputesGain(
     CHECK(std::isnan(scope.lastGainDb()));
 }
 
-// The redesign's hard requirement: at the sidebar's 250px width and the
-// default font, DiversityScope's two bottom text lines (talk/moves/mem,
-// noise/coh/nb) must fit without eliding -- grab() forces a real paintEvent()
-// against the resized widget so bottomLinesElided() reflects an actual
-// QFontMetrics measurement, not a guess.
+// The glance-view's hard requirement, unchanged by the slimming: when
+// ShowScope IS on, at the sidebar's 250px width and the default font
+// DiversityScope's two bottom text lines (talk/moves/mem, noise/coh/nb) must
+// fit without eliding -- grab() forces a real paintEvent() against the
+// resized widget so bottomLinesElided() reflects an actual QFontMetrics
+// measurement, not a guess.
 void testDiversityScopeBottomLinesFitAt250pxWithoutEliding()
 {
+    const QString key = QStringLiteral("AetherGateDiversityPanel_ShowScope");
+    AppSettings::instance().setValue(key, QStringLiteral("True"));
+
     FakeGate net;
     net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
     net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
     net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
     AetherGateApplet a(nullptr, &net);
 
     a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
     settle();
     settle();
 
@@ -931,326 +765,73 @@ void testDiversityScopeBottomLinesFitAt250pxWithoutEliding()
 
     auto* box = a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"));
     CHECK(box);
-    box->grab();
+    if (box)
+        box->grab();
 
     auto* scope = a.findChild<DiversityScope*>(QStringLiteral("gateDiversityScope"));
     CHECK(scope && !scope->bottomLinesElided());
+
+    AppSettings::instance().setValue(key, QStringLiteral("False"));
 }
 
-// nb/nb_db/pan/null_source/capture/memory-clear each produce their own exact
-// query string, on the same /diversity/set (or dedicated) route the rest of
-// the section already writes through.
-void testDiversityV2QueryStrings()
+// The map moved to the window's noise panel with everything else, so
+// /diversity/map is polled only while that window is on screen: a closed
+// window costs no map polling at all, and opening one starts it immediately
+// rather than waiting out a stale cadence count.
+void testMapPollRunsOnlyWhileTheWindowIsVisible()
 {
+    AppSettings::instance().setValue(QStringLiteral("DiversityWindowVisible"),
+                                     QStringLiteral("False"));
     FakeGate net;
     net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
     net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
     net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/capture")] = {
-        QNetworkReply::NoError, R"({"ok": true, "path": "/tmp/capture.wav"})"};
-    net.routes[QStringLiteral("/diversity/memory/clear")] = {QNetworkReply::NoError,
-                                                              R"({"ok": true})"};
+    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, makeDiversityMap(8)};
     AetherGateApplet a(nullptr, &net);
 
     a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
     settle();
     settle();
     CHECK(a.gatePresent());
 
-    // nb arrived checked (kDiversityV2's "enabled": true) -- toggling it off
-    // sends nb=off.
-    auto* nbCheck = a.findChild<QCheckBox*>(QStringLiteral("gateDiversityNbCheck"));
-    CHECK(nbCheck && nbCheck->isChecked());
-    nbCheck->setChecked(false);
-    settle();
-    CHECK(net.log.contains(QStringLiteral("/diversity/set?nb=off")));
-
-    auto* nbSpin = a.findChild<QDoubleSpinBox*>(QStringLiteral("gateDiversityNbSpin"));
-    nbSpin->setValue(22.0);
-    QTest::qWait(250);             // past the ~150ms debounce
-    settle();
-    CHECK(net.log.contains(QStringLiteral("/diversity/set?nb_db=22.0")));
-
-    auto* pan = a.findChild<QComboBox*>(QStringLiteral("gateDiversityPanCombo"));
-    pan->setCurrentIndex(pan->findData(QStringLiteral("combined")));
-    settle();
-    CHECK(net.log.contains(QStringLiteral("/diversity/set?pan=combined")));
-
-    auto* sources = a.findChild<QListWidget*>(QStringLiteral("gateDiversitySourcesList"));
-    auto* nullButton = a.findChild<QPushButton*>(QStringLiteral("gateDiversityNullSourceButton"));
-    CHECK(sources && sources->count() == 2 && nullButton && !nullButton->isEnabled());
-    sources->setCurrentRow(1);
-    CHECK(nullButton->isEnabled());
-    nullButton->click();
-    settle();
-    CHECK(net.log.contains(QStringLiteral("/diversity/set?null_source=1")));
-
-    auto* captureButton = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCaptureButton"));
-    captureButton->click();
-    settle();
-    CHECK(net.log.contains(QStringLiteral("/diversity/capture?seconds=10")));
-    // Elided to the file BASENAME (the sidebar has no room for a full path),
-    // with the full path moved to the label's tooltip.
-    auto* captureLabel = a.findChild<QLabel*>(QStringLiteral("gateDiversityCaptureLabel"));
-    CHECK(captureLabel && captureLabel->text() == QStringLiteral("capture.wav"));
-    CHECK(captureLabel && captureLabel->toolTip() == QStringLiteral("/tmp/capture.wav"));
-
-    auto* memoryClear =
-        a.findChild<QPushButton*>(QStringLiteral("gateDiversityMemoryClearButton"));
-    memoryClear->click();
-    settle();
-    CHECK(net.log.contains(QStringLiteral("/diversity/memory/clear")));
-}
-
-// "Hear A only" must be impossible to press when the gate is already off --
-// there would be no previous mode to resume to.
-void testCompareButtonDisabledWhenModeAlreadyOff()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityOff};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-
-    auto* compare = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCompareButton"));
-    CHECK(compare && !compare->isEnabled());
-}
-
-// Qt's Q_SIGNALS macro makes pressed()/released() ordinary callable member
-// functions (confirmed against qabstractbutton.h), so invoking them directly
-// drives the compare hold deterministically without fighting this offscreen
-// harness's mouse-event simulation. Press must send mode=off exactly once;
-// release must send exactly one mode=<the mode from before the press>.
-void testCompareButtonPressReleaseSendsOffThenPreviousModeExactlyOnce()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityTrack};
-    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityTrack};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-
-    auto* compare = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCompareButton"));
-    CHECK(compare && compare->isEnabled());   // mode is "track", not "off"
-
-    compare->pressed();
-    settle();
-    CHECK(net.count(QStringLiteral("/diversity/set?mode=off")) == 1);
-
-    compare->released();
-    settle();
-    CHECK(net.count(QStringLiteral("/diversity/set?mode=track")) == 1);
-    CHECK(net.count(QStringLiteral("/diversity/set?mode=off")) == 1);   // still exactly one
-}
-
-// setPresent(false) is one of the four ways the compare hold can end (see
-// restoreDiversityCompareMode()'s header comment) -- a radio that drops out
-// mid-hold must not leave the gate stuck in "off" just because nobody
-// released the button. Three consecutive /status misses is what flips
-// gatePresent() to false (testBlipRecoversWithoutHelp's own pattern); the
-// resume must fire exactly once from that transition, and the scope must
-// clear alongside it.
-void testSetPresentFalseWhilePressedRestoresModeOnceAndClearsScope()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityV2};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-    CHECK(a.gatePresent());
-
-    auto* compare = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCompareButton"));
-    CHECK(compare && compare->isEnabled());
-    auto* scope = a.findChild<DiversityScope*>(QStringLiteral("gateDiversityScope"));
-    CHECK(scope && !std::isnan(scope->lastGainDb()));   // kDiversityV2's gain = 2.8
-
-    compare->pressed();
-    settle();
-    CHECK(net.count(QStringLiteral("/diversity/set?mode=off")) == 1);
-
-    net.down = true;
+    CHECK(!a.diversityPanel()->wantsMapPoll());
+    const int closed = net.count(QStringLiteral("/diversity/map"));
     tick(a);
     tick(a);
+    CHECK(net.count(QStringLiteral("/diversity/map")) == closed);
+
+    auto* open = a.findChild<QPushButton*>(QStringLiteral("gateDiversityOpenWindowButton"));
+    CHECK(open != nullptr);
+    if (!open)
+        return;
+    open->click();
+    settle();
+    CHECK(a.diversityPanel()->wantsMapPoll());
     tick(a);
-    CHECK(!a.gatePresent());
-    CHECK(net.count(QStringLiteral("/diversity/set?mode=manual")) == 1);
-    CHECK(scope && std::isnan(scope->lastGainDb()));
+    CHECK(net.count(QStringLiteral("/diversity/map")) == closed + 1);
 
-    tick(a);   // a 4th miss while already absent must not resend the restore
-    CHECK(net.count(QStringLiteral("/diversity/set?mode=manual")) == 1);
-}
-
-// capture.active is the gate's OWN live state (not our click), so the label
-// and button follow it even on a poll where the operator did nothing.
-void testDiversityCaptureActiveShowsRecordingAndDisablesButton()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2Capturing};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
-    auto* captureLabel = a.findChild<QLabel*>(QStringLiteral("gateDiversityCaptureLabel"));
-    auto* captureButton = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCaptureButton"));
-    CHECK(captureLabel && captureLabel->text() == QStringLiteral("recording…"));
-    CHECK(captureButton && !captureButton->isEnabled());
-}
-
-// The four collapsible section headers open the way the operator asked for:
-// Combine/Listen visible so the controls used most stay one click away,
-// Noise/Memory & capture collapsed since they are consulted less often. This
-// MUST run before any test that toggles a header — AppSettings is a single
-// process-wide cache shared by every test in this binary (TestSettingsProfile
-// constructs it once, before QApplication in main()), so a toggle anywhere
-// else would leave its persisted state visible here too.
-void testDiversityHeaderDefaultOpenStates()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-    CHECK(a.gatePresent());
-
-    auto* combine = a.findChild<QToolButton*>(QStringLiteral("gateDiversityCombineHeader"));
-    auto* listen = a.findChild<QToolButton*>(QStringLiteral("gateDiversityListenHeader"));
-    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
-    auto* memoryCapture =
-        a.findChild<QToolButton*>(QStringLiteral("gateDiversityMemoryCaptureHeader"));
-    CHECK(combine && combine->isChecked());
-    CHECK(listen && listen->isChecked());
-    CHECK(noise && !noise->isChecked());
-    CHECK(memoryCapture && !memoryCapture->isChecked());
-}
-
-// Each header's accessible name is its caption, unchanged by moving the
-// widgets a level deeper under AetherGateDiversityPanel — a screen reader
-// user needs "Noise", not some internal object name.
-void testDiversityHeaderAccessibleNamesMatchCaptions()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-    CHECK(a.gatePresent());
-
-    auto* combine = a.findChild<QToolButton*>(QStringLiteral("gateDiversityCombineHeader"));
-    auto* listen = a.findChild<QToolButton*>(QStringLiteral("gateDiversityListenHeader"));
-    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
-    auto* memoryCapture =
-        a.findChild<QToolButton*>(QStringLiteral("gateDiversityMemoryCaptureHeader"));
-    CHECK(combine && combine->accessibleName() == QStringLiteral("Combine"));
-    CHECK(listen && listen->accessibleName() == QStringLiteral("Listen"));
-    CHECK(noise && noise->accessibleName() == QStringLiteral("Noise"));
-    CHECK(memoryCapture && memoryCapture->accessibleName() == QStringLiteral("Memory & capture"));
-}
-
-// Selecting a mode from the combo — as opposed to the compare hold's own
-// forced mode=off/resume, covered by testCompareButtonPressReleaseSends...
-// below — still reaches the gate as a plain /diversity/set?mode=<value>
-// query, unchanged by the panel's extraction into its own widget.
-void testDiversityModeComboChangeSendsModeQuery()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityV2};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-    CHECK(a.gatePresent());
-
-    // kDiversityV2 arrives with mode=manual — selecting Null is a real change.
-    auto* mode = a.findChild<QComboBox*>(QStringLiteral("gateDiversityModeCombo"));
-    CHECK(mode != nullptr);
-    mode->setCurrentIndex(mode->findData(QStringLiteral("null")));
-    settle();
-    CHECK(net.log.contains(QStringLiteral("/diversity/set?mode=null")));
-}
-
-// The map strip takes a full 256-point coherence array without crashing, and
-// an {"error"} reply (no map yet) clears it just as cleanly -- same
-// non-critical-to-presence contract as every other diversity route.
-void testDiversityMapStripAcceptsFullArrayAndErrorWithoutCrashing()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
+    // A 256-point coherence array and an {"error"} reply (no map yet) both
+    // land cleanly -- same non-critical-to-presence contract as /diversity
+    // itself.
     net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError,
                                                      makeDiversityMap(256)};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
-    CHECK(a.gatePresent());
-    CHECK(a.findChild<QWidget*>(QStringLiteral("gateDiversityMapStrip")) != nullptr);
-
-    // The Noise section (which holds the map strip) collapses by default —
-    // wantsMapPoll() ANDs that in, so nothing is fetched until it is
-    // expanded. Force a known collapsed state first and let one poll cycle
-    // reset the cadence, regardless of whatever an earlier test left
-    // persisted (AppSettings is one process-wide cache shared by every test
-    // in this binary) — see
-    // testCollapsingNoiseHeaderStopsMapPollAndExpandingRestoresIt for the
-    // collapsed-state behaviour itself.
-    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
-    CHECK(noise != nullptr);
-    noise->setChecked(false);
     tick(a);
-    const int baseline = net.count(QStringLiteral("/diversity/map"));
-
-    noise->setChecked(true);
     tick(a);
-    CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 1);
-
-    // Switch to an {"error"} reply for the next throttled fetch
-    // (kDiversityMapRefreshPolls == 2 ticks) and confirm it lands cleanly.
     net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
     tick(a);
     tick(a);
-    settle();
-    CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 2);
     CHECK(a.gatePresent());
+
+    open->click();          // closed again -- the poll stops
+    settle();
+    CHECK(!a.diversityPanel()->wantsMapPoll());
+    const int reclosed = net.count(QStringLiteral("/diversity/map"));
+    tick(a);
+    tick(a);
+    CHECK(net.count(QStringLiteral("/diversity/map")) == reclosed);
+
+    AppSettings::instance().setValue(QStringLiteral("DiversityWindowVisible"),
+                                     QStringLiteral("False"));
 }
 
 // The /diversity/map throttle lives in the TIMER-DRIVEN poll path only.
@@ -1261,6 +842,8 @@ void testDiversityMapStripAcceptsFullArrayAndErrorWithoutCrashing()
 // throttle used to live inside applyDiversity() itself, so edits counted).
 void testDiversityMapCadenceIsPollDrivenNotEditDriven()
 {
+    AppSettings::instance().setValue(QStringLiteral("DiversityWindowVisible"),
+                                     QStringLiteral("False"));
     FakeGate net;
     net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
     net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
@@ -1272,30 +855,25 @@ void testDiversityMapCadenceIsPollDrivenNotEditDriven()
     a.setRadioAddress(QStringLiteral("10.0.0.5"));
     settle();
     settle();
-    settle();
     CHECK(a.gatePresent());
 
-    // Force a known collapsed state and let one poll cycle reset the map's
-    // cadence, regardless of whatever an earlier test left persisted —
-    // AppSettings is one process-wide cache shared by every test in this
-    // binary. baseline is captured AFTER that reset, so what follows holds
-    // no matter how many fetches happened before this test ever ran.
-    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
-    CHECK(noise != nullptr);
-    noise->setChecked(false);
-    tick(a);
+    auto* open = a.findChild<QPushButton*>(QStringLiteral("gateDiversityOpenWindowButton"));
+    CHECK(open != nullptr);
+    if (!open)
+        return;
     const int baseline = net.count(QStringLiteral("/diversity/map"));
-
-    noise->setChecked(true);
+    open->click();
+    settle();
     tick(a);
-    CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 1);   // fetched once, up front
+    CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 1);   // fetched up front
 
     // Five full onDiversityRequestSet() round trips, each running
     // applyDiversity() on its own read-back -- none of these may advance the
     // map's cadence.
-    auto* pan = a.findChild<QComboBox*>(QStringLiteral("gateDiversityPanCombo"));
-    for (int i = 0; i < 5; ++i) {
-        pan->setCurrentIndex((pan->currentIndex() + 1) % pan->count());
+    auto* mode = a.findChild<QComboBox*>(QStringLiteral("gateDiversityModeCombo"));
+    CHECK(mode != nullptr);
+    for (int i = 0; mode && i < 5; ++i) {
+        mode->setCurrentIndex((mode->currentIndex() + 1) % mode->count());
         settle();
     }
     CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 1);
@@ -1306,56 +884,11 @@ void testDiversityMapCadenceIsPollDrivenNotEditDriven()
     CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 1);
     tick(a);
     CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 2);
-}
 
-// Collapsing the Noise section (which holds the map strip) must stop
-// /diversity/map polling — the same "costs no polling" contract a hidden
-// panel already had, now also true of a collapsed section within a visible
-// one — and expanding it again must resume the fetch, immediately (the
-// cadence resets while collapsed rather than waiting out a stale count; see
-// pollDiversity()'s own comment on m_mapFetched).
-void testCollapsingNoiseHeaderStopsMapPollAndExpandingRestoresIt()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, makeDiversityMap(8)};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    open->click();
     settle();
-    settle();
-    settle();
-    CHECK(a.gatePresent());
-
-    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
-    CHECK(noise != nullptr);
-
-    // Force a known collapsed state regardless of whatever an earlier test
-    // left persisted — AppSettings is one process-wide cache shared by every
-    // test in this binary.
-    noise->setChecked(false);
-    settle();
-    CHECK(!a.diversityPanel()->wantsMapPoll());
-    const int fetchedWhileCollapsed = net.count(QStringLiteral("/diversity/map"));
-    tick(a);
-    tick(a);
-    CHECK(net.count(QStringLiteral("/diversity/map")) == fetchedWhileCollapsed);
-
-    noise->setChecked(true);
-    settle();
-    CHECK(a.diversityPanel()->wantsMapPoll());
-    tick(a);   // cadence was reset while collapsed -- fetches immediately
-    CHECK(net.count(QStringLiteral("/diversity/map")) == fetchedWhileCollapsed + 1);
-
-    noise->setChecked(false);
-    settle();
-    CHECK(!a.diversityPanel()->wantsMapPoll());
-    const int fetchedAfterReCollapse = net.count(QStringLiteral("/diversity/map"));
-    tick(a);
-    tick(a);
-    CHECK(net.count(QStringLiteral("/diversity/map")) == fetchedAfterReCollapse);
+    AppSettings::instance().setValue(QStringLiteral("DiversityWindowVisible"),
+                                     QStringLiteral("False"));
 }
 
 // /diversity and /diversity/map failing repeatedly must never count toward
@@ -1372,7 +905,6 @@ void testDiversityAndMapErrorsNeverAffectPresence()
     a.setRadioAddress(QStringLiteral("10.0.0.5"));
     settle();
     settle();
-    settle();
     CHECK(a.gatePresent());
 
     net.routes[QStringLiteral("/diversity")] = {QNetworkReply::ConnectionRefusedError, {}};
@@ -1382,138 +914,6 @@ void testDiversityAndMapErrorsNeverAffectPresence()
 
     CHECK(a.gatePresent());
     CHECK(a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"))->isHidden());
-}
-
-// A source the operator selected can vanish from the array between polls
-// (the gate stopped hearing it). The Null button must never silently
-// re-target the SURVIVING-but-different source at that row -- it must
-// disable instead, since nothing on screen still names what was selected.
-void testShrinkingSourcesNeverRetargetsNullToADifferentSource()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
-    auto* sources = a.findChild<QListWidget*>(QStringLiteral("gateDiversitySourcesList"));
-    auto* nullButton = a.findChild<QPushButton*>(QStringLiteral("gateDiversityNullSourceButton"));
-    CHECK(sources && sources->count() == 2);
-    sources->setCurrentRow(1);                 // the 7.030-7.040 MHz source
-    CHECK(nullButton->isEnabled());
-
-    // The gate's next answer drops that source entirely, leaving only the
-    // OTHER (3.512-3.560 MHz) one at row 0.
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2ShrunkSources};
-    tick(a);
-
-    CHECK(sources->count() == 1);
-    CHECK(!nullButton->isEnabled());
-    CHECK(sources->currentRow() == -1);
-}
-
-// setPresent(false) must clear every v2 row/label that could otherwise
-// outlive a reconnect to a DIFFERENT (older) gate at the same address.
-void testPresentFalseThenV1GateLeavesSourcesEmptyAndNullDisabled()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
-    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
-    auto* sources = a.findChild<QListWidget*>(QStringLiteral("gateDiversitySourcesList"));
-    auto* nullButton = a.findChild<QPushButton*>(QStringLiteral("gateDiversityNullSourceButton"));
-    sources->setCurrentRow(0);
-    CHECK(sources->count() == 2);
-    CHECK(nullButton->isEnabled());
-
-    a.setRadioAddress(QString());               // present -> false
-    CHECK(!a.gatePresent());
-    CHECK(sources->count() == 0);
-    CHECK(!nullButton->isEnabled());
-
-    // Reconnect to an OLDER gate: /diversity carries none of the v2 keys.
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
-    CHECK(a.gatePresent());
-    CHECK(sources->count() == 0);
-    CHECK(!nullButton->isEnabled());
-}
-
-// An {"error": ...} reply from THIS request must survive the very next poll,
-// even when that poll's own capture.path is a real (non-empty) "last
-// successful capture" that would otherwise silently paper over the error.
-void testCaptureErrorTextSurvivesNextPoll()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
-                                                kDiversityV2WithOldCapturePath};
-    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
-    net.routes[QStringLiteral("/diversity/capture")] = {
-        QNetworkReply::NoError, R"({"error": "already recording"})"};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
-    auto* captureLabel = a.findChild<QLabel*>(QStringLiteral("gateDiversityCaptureLabel"));
-    CHECK(captureLabel->text() == QStringLiteral("old_capture.wav"));
-    CHECK(captureLabel->toolTip() == QStringLiteral("/tmp/old_capture.wav"));
-
-    auto* captureButton = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCaptureButton"));
-    captureButton->click();
-    settle();
-    CHECK(captureLabel->text() == QStringLiteral("already recording"));
-
-    // The next poll still reports the SAME stale successful path -- it must
-    // not silently replace the error this request itself just reported.
-    tick(a);
-    CHECK(captureLabel->text() == QStringLiteral("already recording"));
-}
-
-// "nb": true is not an object; only apply its fields when it is one, so a
-// malformed payload leaves both nb widgets exactly where they were rather
-// than reading toObject()'s silent {} as "blanker off, threshold 0".
-void testMalformedNonObjectNbLeavesWidgetsUntouched()
-{
-    FakeGate net;
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2MalformedNb};
-    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
-    AetherGateApplet a(nullptr, &net);
-
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-
-    CHECK(a.gatePresent());
-    auto* nbCheck = a.findChild<QCheckBox*>(QStringLiteral("gateDiversityNbCheck"));
-    auto* nbSpin = a.findChild<QDoubleSpinBox*>(QStringLiteral("gateDiversityNbSpin"));
-    CHECK(nbCheck && !nbCheck->isChecked());
-    CHECK(nbSpin && nbSpin->value() == 0.0);
 }
 
 } // namespace
@@ -1531,35 +931,17 @@ int main(int argc, char** argv)
     testBlipRecoversWithoutHelp();
     testVisibleCadence();
     testDownEdgeDropsPresenceAndReprobesOnReturn();
-    testDiversityHiddenWhenUnavailableOrMissing();
-    testDiversityManualEnablesPhaseRatioOtherModesDisable();
-    testDiversityTrackModePollLeavesPhaseSliderUntouchedAndDisabled();
-    testDiversityManualModePollSkipsSliderWhileDebounceActive();
-    testDiversityStatusLineIsAFixedShortPhraseNotLiveNumbers();
-    testDiversityStatusLabelMinimumWidthCoversWorstCaseLag();
-    testDiversityPhaseChangeSendsPhaseOnly();
-    testDiversityV2FieldsParseIntoWidgets();
-    testDiversitySourcesListShortTextWithTooltipAndNoHScrollbar();
-    testDiversityNbCheckboxHasAccessibleNameAndNoVisibleText();
-    testOldDiversityPayloadLeavesV2WidgetsAtDefaults();
+    testDiversityHiddenUntilAvailableThenHiddenAgain();
+    testDiversityStatusLineCarriesModeTalkerAndGain();
+    testDiversityStatusLineSaysOffAndEmDashesWhatWasNotMeasured();
+    testDiversityStatusLabelWidthIsFixedAgainstTheWorstCasePhrase();
+    testDiversityModeComboChangeSendsModeQueryAndPollWritesBack();
+    testDiversityScopeHiddenUnlessShowScopeKeyIsSet();
     testDiversityScopeAcceptsNullsAndFullPayloadWithoutCrashingAndComputesGain();
     testDiversityScopeBottomLinesFitAt250pxWithoutEliding();
-    testDiversityV2QueryStrings();
-    testCompareButtonDisabledWhenModeAlreadyOff();
-    testCompareButtonPressReleaseSendsOffThenPreviousModeExactlyOnce();
-    testSetPresentFalseWhilePressedRestoresModeOnceAndClearsScope();
-    testDiversityCaptureActiveShowsRecordingAndDisablesButton();
-    testDiversityHeaderDefaultOpenStates();     // must run before any header toggle below
-    testDiversityHeaderAccessibleNamesMatchCaptions();
-    testDiversityModeComboChangeSendsModeQuery();
-    testDiversityMapStripAcceptsFullArrayAndErrorWithoutCrashing();
+    testMapPollRunsOnlyWhileTheWindowIsVisible();
     testDiversityMapCadenceIsPollDrivenNotEditDriven();
-    testCollapsingNoiseHeaderStopsMapPollAndExpandingRestoresIt();
     testDiversityAndMapErrorsNeverAffectPresence();
-    testShrinkingSourcesNeverRetargetsNullToADifferentSource();
-    testPresentFalseThenV1GateLeavesSourcesEmptyAndNullDisabled();
-    testCaptureErrorTextSurvivesNextPoll();
-    testMalformedNonObjectNbLeavesWidgetsUntouched();
 
     std::printf("\n%d aether gate applet test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

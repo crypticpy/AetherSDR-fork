@@ -607,12 +607,15 @@ QWidget* DiversityWindow::buildNoisePanel()
     m_mapStrip->setAccessibleDescription(m_mapStrip->toolTip());
     body->addWidget(m_mapStrip);
 
-    // Wrapped rather than fixed-width: it is the widest string in the panel,
-    // and pinning the column to it would cost the talkers table two columns.
+    // Broken over two lines by hand rather than word-wrapped: it is the
+    // widest string in the panel, and pinning the column to it would cost the
+    // talkers table two columns -- but a wrapped label makes the whole grid
+    // height-for-width, and the scroll area then sizes the grid to its
+    // preferred height instead of its minimum, which is what puts a
+    // scrollbar on a window that fits.
     auto* mapCaption = new QLabel(
-        tr("inter-loop coherence per bin — high: one local source, low: sky noise"),
+        tr("inter-loop coherence per bin\nhigh: one local source · low: sky noise"),
         frame);
-    mapCaption->setWordWrap(true);
     ThemeManager::instance().applyStyleSheet(mapCaption,
                                              QString::fromLatin1(kCaptionStyle));
     mapCaption->setObjectName(QStringLiteral("diversityWindowMapCaptionLabel"));

@@ -216,19 +216,24 @@ DiversityWindow* DiversityWindow::createFor(AetherGateDiversityPanel* panel)
     return window;
 }
 
+void DiversityWindow::endCompareHold()
+{
+    // Never leave the gate parked in "off" because the window went away or
+    // the gate dropped mid-hold: an unconditional resume, every time.
+    if (!m_compareDown)
+        return;
+    m_compareDown = false;
+    if (!m_compareResumeMode.isEmpty()) {
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("mode"), m_compareResumeMode);
+        emit requestCompareRestore(q);
+    }
+    m_compareResumeMode.clear();
+}
+
 void DiversityWindow::closeEvent(QCloseEvent* event)
 {
-    // Never leave the gate parked in "off" because the window went away
-    // mid-hold -- the same unconditional resume the sidebar panel does.
-    if (m_compareDown) {
-        m_compareDown = false;
-        if (!m_compareResumeMode.isEmpty()) {
-            QUrlQuery q;
-            q.addQueryItem(QStringLiteral("mode"), m_compareResumeMode);
-            emit requestCompareRestore(q);
-        }
-        m_compareResumeMode.clear();
-    }
+    endCompareHold();
     AppSettings::instance().setValue(QStringLiteral("DiversityWindowVisible"),
                                      QStringLiteral("False"));
     PersistentDialog::closeEvent(event);
@@ -708,6 +713,7 @@ void DiversityWindow::setPresent(bool present)
     m_phaseDebounce->stop();
     m_ratioDebounce->stop();
     m_nbDebounce->stop();
+    endCompareHold();
     clearReadouts();
     m_statusStrip->setText(tr("gate not answering"));
     DiversityWidgets::setLive(m_statusStrip, false);

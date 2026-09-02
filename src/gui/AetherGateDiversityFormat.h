@@ -15,22 +15,6 @@ class QJsonObject;
 namespace AetherSDR {
 namespace DiversityFormat {
 
-// The status line USED to carry lag/aligned/peak/SNR/rn/mod -- every one of
-// those changes on nearly every poll, which is what the operator's "the
-// little phase thing is bouncing all around ... it glitches out the
-// interface" complaint was actually about. What is left is a SHORT, FIXED
-// set of phrases -- "aligned · lag <n>", "not aligned", "realigning…" -- so
-// the label's width still varies a little between those three, but never
-// continuously the way a live dB or sample count did.
-QString status(const QJsonObject& diversity);
-
-// The worst-case width status() can produce, used only to size
-// gateDiversityStatusLabel's minimum width -- not itself ever shown. A
-// 5-digit lag (plus its sign) is generous: 4158 samples is what a real
-// RSPduo misalignment looks like (see rspduo-diversity-design's ring-offset
-// note), so this is headroom, not a realistic value.
-QString statusWorstCasePhrase();
-
 // "7.111–7.114 MHz   coh 0.57" (or, when lo/hi are within 500 Hz of each
 // other, "7.111 MHz   coh 0.57" at their centre) -- one /diversity "sources"
 // entry as a gateDiversitySourcesList row's visible text. Phase/ratio moved

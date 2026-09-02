@@ -56,11 +56,11 @@ const char* kEventListStyle =
 // that adds or drops a remembered talker scrolls the table, never resizes the
 // panel around it. Height comes from the layout (the table shares the scope's
 // stretch row), never from the row count.
-constexpr int kTalkerColumnWidths[] = {34, 92, 50, 56, 38, 48, 48};
+constexpr int kTalkerColumnWidths[] = {40, 86, 50, 56, 38, 48, 48};
 constexpr int kTalkerColumnCount =
     int(sizeof(kTalkerColumnWidths) / sizeof(kTalkerColumnWidths[0]));
 constexpr int kTalkerRowHeight = 22;
-constexpr int kTalkerTableMinHeight = 140;
+constexpr int kTalkerTableMinHeight = 100;
 // Sum of the widths above plus the vertical scrollbar and the frame. Set as
 // the table's own minimum so the column it lives in can never be squeezed to
 // the point of hiding "Heard" and "First" -- a talker list with the ages cut
@@ -372,7 +372,8 @@ QWidget* DiversityWindow::buildTalkersPanel()
     m_focusLine = DiversityWidgets::makeFieldLabel(QString(), frame);
     m_focusLine->setObjectName(QStringLiteral("diversityWindowFocusLabel"));
     m_focusLine->setAccessibleName(tr("Station lock status"));
-    m_focusLine->setWordWrap(true);
+    // Not word-wrapped: see the NOISE caption for why no label in this grid
+    // may be. The phrase is short and fixed-shape.
     m_focusLine->setToolTip(
         tr("Which station the combiner is locked on, how many of their overs "
            "it has steered, how many other overs it has nulled meanwhile, and "

@@ -12,8 +12,8 @@ namespace DiversityFormat {
 namespace {
 
 // -20.0 reads as "-20.0", which is the ASCII hyphen the rest of this file's
-// numeric formatting already uses -- except the per-source row and the
-// status label's lag, which are short and dense enough on screen that the
+// numeric formatting already uses -- except the
+// per-source row, which is short and dense enough on screen that the
 // true minus sign earns its keep the way it already does in
 // AetherClockApplet/ClientCompKnob's dB strings.
 QString formatSignedDb(double v)
@@ -23,31 +23,7 @@ QString formatSignedDb(double v)
     return QString::number(v, 'f', 1);
 }
 
-// Same true-minus-sign convention as formatSignedDb, for an integer (the
-// status label's lag_samples).
-QString formatSignedInt(int v)
-{
-    if (v < 0)
-        return QStringLiteral("−%1").arg(-v);
-    return QString::number(v);
-}
-
 } // namespace
-
-QString status(const QJsonObject& d)
-{
-    if (d.value(QStringLiteral("realigning")).toBool())
-        return QObject::tr("realigning…");
-    if (!d.value(QStringLiteral("aligned")).toBool())
-        return QObject::tr("not aligned");
-    const int lag = int(std::lround(d.value(QStringLiteral("lag_samples")).toDouble()));
-    return QObject::tr("aligned · lag %1").arg(formatSignedInt(lag));
-}
-
-QString statusWorstCasePhrase()
-{
-    return QStringLiteral("aligned · lag −99999");
-}
 
 QString sourceListText(const QJsonObject& s)
 {

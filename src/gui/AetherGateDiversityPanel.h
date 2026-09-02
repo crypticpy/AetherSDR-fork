@@ -4,53 +4,48 @@
 #include <QUrlQuery>
 #include <QWidget>
 
-class QCheckBox;
 class QComboBox;
-class QDoubleSpinBox;
-class QEvent;
-class QJsonArray;
 class QJsonObject;
 class QLabel;
-class QListWidget;
 class QPushButton;
-class QSlider;
-class QSpinBox;
-class QTimer;
-class QToolButton;
-class QVBoxLayout;
 
 namespace AetherSDR {
 
-// Same include-surface discipline AetherGateApplet.h already keeps for
-// these two: nothing outside the .cpp that builds one needs the full type.
-class DiversityMapStrip;
+// Same include-surface discipline AetherGateApplet.h already keeps: nothing
+// outside the .cpp that builds one needs the full type.
 class DiversityScope;
-// The pop-out Diversity window this panel's "Open window" button toggles.
-// Built on first use and then kept; see toggleWindow().
+// The pop-out Diversity window this panel's "Open Diversity window" button
+// toggles. Built on first use and then kept; see toggleWindow().
 class DiversityWindow;
 
-// AetherGateDiversityPanel — the RSPduo dual-tuner-combining section of
-// AetherGateApplet, split into its own widget because AetherGateApplet.cpp
-// had grown past ~1600 lines carrying this section alone (AGENTS.md: "files
-// must not grow like this").
+// AetherGateDiversityPanel — the sidebar's ENTRY POINT to the RSPduo
+// dual-tuner combiner, and nothing more.
 //
-// This widget owns every diversity CONTROL and its presentation: the
-// mode/phase/ratio/source combos, the read-only DiversityScope, the
-// noise-blanker/pan/map/sources/memory/capture rows, and the four
-// collapsible section headers (Combine/Listen/Noise/Memory & capture) the
-// operator asked for ("the UIUX could be nicer ... maybe there should be
-// some subsections"). It owns NO network transport: AetherGateApplet keeps
-// the QNetworkAccessManager (and stays the only file the network-timeout
-// ratchet in tools/check_network_timeouts.py has to reason about for the
-// gate section). Every write this panel wants to make is a signal;
-// AetherGateApplet turns each into the matching GET and feeds the read-back
-// back in through applyDiversity().
+// It used to be the whole instrument: mode/phase/ratio/source combos, a
+// scope, the blanker, the pan selector, the noise map, the sources list, the
+// memory and capture rows, all folded into four collapsible blocks so they
+// would fit a ~250px column at all. Every one of those has moved to
+// DiversityWindow, which has the width to show them honestly
+// (docs/DIVERSITY-ROADMAP.md §3: "the sidebar is a status line and a door;
+// the window is the instrument"). What is left here is exactly that:
 //
-// objectNames and accessible names are unchanged from before the
-// extraction — tests/aether_gate_applet_test.cpp finds every one of them by
-// name via AetherGateApplet::findChild(), which is recursive, so moving the
-// widgets one level deeper under this panel does not change what a test can
-// find.
+//   * one status line   -- "track · #3 Bob · +1.4 dB", or "off".
+//   * the mode selector -- the one control worth reaching without opening
+//                          anything.
+//   * "Open Diversity window" -- the door.
+//
+// The compact DiversityScope is still built and still fed, but is shown only
+// when the AetherGateDiversityPanel_ShowScope AppSettings key says so
+// (default off). There is deliberately no UI to flip it: it exists for the
+// operator who wants a glance-view in the sidebar, not as a second place to
+// decide the layout from.
+//
+// It owns NO network transport: AetherGateApplet keeps the
+// QNetworkAccessManager (and stays the only file the network-timeout ratchet
+// in tools/check_network_timeouts.py has to reason about for the gate
+// section). Every write this panel — or the window behind it — wants to make
+// is a signal; AetherGateApplet turns each into the matching GET and feeds
+// the read-back back in through applyDiversity().
 class AetherGateDiversityPanel : public QWidget {
     Q_OBJECT
 public:
@@ -59,51 +54,49 @@ public:
     // Applied on every /diversity poll AND every write's read-back — same
     // contract AetherGateApplet::applyDiversity() always had. isJson==false,
     // or an "available": false payload, both mean "nothing to show": the
-    // panel hides itself and clears the scope. Every v2 field is
-    // independently optional on the wire; a missing or malformed one leaves
-    // its widget at whatever it already showed rather than inventing a
-    // value.
+    // whole panel widget hides itself (it is not merely emptied) and the
+    // scope clears. Until the first "available": true poll it stays hidden.
+    // Every field is independently optional on the wire; a missing or
+    // malformed one leaves its widget at whatever it already showed rather
+    // than inventing a value.
     void applyDiversity(const QJsonObject& diversity, bool isJson);
 
-    // Feeds one /diversity/map answer into the map strip. An empty/error
-    // object clears it — DiversityMapStrip's own setMap() decides what
-    // "nothing to draw" looks like.
+    // Feeds one /diversity/map answer through to the window, which is the
+    // only view of the map left — the sidebar's own strip moved with the
+    // rest. Kept on the panel because the applet's poll wiring goes through
+    // it; see wantsMapPoll() for when that poll runs at all.
     void applyMap(const QJsonObject& map);
 
     // A capture request's own reply: ok==true with a (possibly empty) file
     // path on success, ok==false with the text to show instead (a network
-    // failure, a non-JSON body, or the gate's own {"error": ...}). Mirrors
-    // the old sendDiversityCapture()'s three failure branches plus its
-    // success path, now split so only the network part stays in the applet.
+    // failure, a non-JSON body, or the gate's own {"error": ...}). The
+    // window owns the capture button and its result label, so this is now
+    // pure forwarding.
     void applyCaptureResult(bool ok, const QString& pathOrError);
 
-    // present/absent — mirrors AetherGateApplet::setPresent(): false resets
-    // every row/label/widget that must not outlive a reconnect to a
-    // different (or older) gate at the same address, and unconditionally
-    // ends the "Hear A only" hold (restoreCompareHold() below) so the gate
-    // is never left stuck in "off" just because nobody released the button.
+    // present/absent — mirrors AetherGateApplet::setPresent(): false hides
+    // the panel and resets every readout that must not outlive a reconnect
+    // to a different (or older) gate at the same address.
     void setPresent(bool present);
 
-    // Ends the "Hear A only" compare hold if (and only if) it is currently
-    // down — idempotent, so every one of the paths that can end it (the
-    // button's own released(), FocusOut/Hide via this widget's eventFilter,
-    // AetherGateApplet::setRadioAddress() before it reassigns the address,
-    // and setPresent(false) above) can call this unconditionally without
-    // coordinating with each other. Emits requestCompareRestore() with the
-    // mode to resume when there is one to send.
+    // The "Hear A only" compare hold moved to the window along with the
+    // button that arms it, and the window ends its own hold in its
+    // closeEvent(). Nothing in the sidebar can be holding one any more, so
+    // this is a no-op — kept because AetherGateApplet calls it
+    // unconditionally from setRadioAddress() and because the hold is the
+    // kind of state a future sidebar control could reintroduce.
     void restoreCompareHold();
 
-    // True when the map is on screen SOMEWHERE: either this panel is visible
-    // with its Noise section (which holds the map strip) expanded, or the
-    // pop-out window -- whose own noise panel shows the same strip much
-    // larger -- is open. AetherGateApplet gates its /diversity/map poll on
-    // this, so a collapsed Noise block with the window shut costs no polling
-    // and an open window keeps the map live even then.
+    // True only while the pop-out window is on screen: its noise panel is
+    // the only thing that draws the map now, so a closed window costs no
+    // /diversity/map polling at all. AetherGateApplet gates its map poll on
+    // this.
     bool wantsMapPoll() const;
 
     // Test/introspection accessor for the pop-out window -- null until the
-    // "Open window" button has been pressed once. The window is a top-level
-    // of its own, so findChild() from the applet cannot reach it.
+    // "Open Diversity window" button has been pressed once (or the persisted
+    // DiversityWindowVisible reopened it). The window is a top-level of its
+    // own, so findChild() from the applet cannot reach it.
     // Out of line: QPointer<T>'s conversion to T* needs the complete type,
     // and this header is included by files that only forward-declare it.
     DiversityWindow* window() const;
@@ -112,9 +105,11 @@ signals:
     // -> GET /diversity/set, guarded by the applet's own presence check —
     // same contract the old sendDiversitySet() enforced internally.
     void requestSet(QUrlQuery query);
-    // -> GET /diversity/set for the compare-hold's forced resume. NOT
-    // gated on presence — see restoreCompareHold()'s comment on why the old
-    // restoreDiversityCompareMode() bypassed that guard on purpose.
+    // -> GET /diversity/set for the compare-hold's forced resume. NOT gated
+    // on presence — the gate must never be left parked in "off" just
+    // because the poll that would have re-enabled the write failed. Emitted
+    // by the window, which owns the hold, and routed out through here so
+    // every gate write still leaves by one door.
     void requestCompareRestore(QUrlQuery query);
     // -> GET /diversity/align
     void requestAlign();
@@ -122,72 +117,22 @@ signals:
     void requestCapture(int seconds);
     // -> GET /diversity/memory/clear
     void requestMemoryClear();
-    // -> GET /diversity/memory/name?id=<id>&name=<urlencoded>. Emitted only
-    // by the pop-out window -- the sidebar has no room for an editable name
-    // column -- but it is declared here with the rest because the window's
-    // writes all take the panel's route to the applet rather than a second
-    // one of their own. An empty name clears the gate's label.
+    // -> GET /diversity/memory/name?id=<id>&name=<urlencoded>. An empty name
+    // clears the gate's label.
     void requestMemoryName(int id, QString name);
 
-protected:
-    // Watches m_compareButton for FocusOut/Hide — see restoreCompareHold()'s
-    // comment.
-    bool eventFilter(QObject* obj, QEvent* event) override;
-
 private:
-    // Builds one caption's QToolButton header wired to show/hide `content`
-    // and persist its own open state in AppSettings, then adds both to
-    // `root`. Returns the header so callers that need to read it back
-    // (Noise, for wantsMapPoll()) can keep a pointer.
-    QToolButton* addCollapsibleSection(QVBoxLayout* root, const QString& caption,
-                                        const QString& objectNameSuffix,
-                                        const QString& settingsKey, bool defaultExpanded,
-                                        QWidget* content);
     // Shows the pop-out window (building it on first use) or hides it, and
     // persists which of the two under DiversityWindowVisible.
     void toggleWindow();
-    void applySources(const QJsonArray& sources);
-    void setCaptureResultLabel(const QString& path);
 
-    // --- Combine ----------------------------------------------------------
-    QComboBox*      m_mode{nullptr};
-    QSlider*         m_phase{nullptr};
-    QLabel*          m_phaseValue{nullptr};
-    QDoubleSpinBox*  m_ratio{nullptr};
-    QTimer*          m_phaseDebounce{nullptr};   // ~150ms so a drag sends once
-    QTimer*          m_ratioDebounce{nullptr};
-    DiversityScope*  m_scope{nullptr};
-    QPushButton*     m_openWindowButton{nullptr};
-
-    // --- Listen -------------------------------------------------------------
-    QComboBox*   m_source{nullptr};
-    QPushButton* m_realign{nullptr};
     QLabel*      m_statusLine{nullptr};
-
-    // "Hear A only" — a press-and-hold A/B compare that never leaves the
-    // gate stuck off: m_compareDown is true only between a confirmed press
-    // and the (exactly one) restore that follows it — see
-    // restoreCompareHold()'s comment.
-    QPushButton* m_compareButton{nullptr};
-    QString      m_compareResumeMode;
-    bool         m_compareDown{false};
-
-    // --- Noise --------------------------------------------------------------
-    QCheckBox*         m_nbCheck{nullptr};
-    QDoubleSpinBox*    m_nbSpin{nullptr};
-    QTimer*            m_nbDebounce{nullptr};
-    QComboBox*         m_panCombo{nullptr};
-    DiversityMapStrip* m_mapStrip{nullptr};
-    QListWidget*       m_sourcesList{nullptr};
-    QPushButton*       m_nullSourceButton{nullptr};
-    QToolButton*       m_noiseHeader{nullptr};   // wantsMapPoll() reads its checked state
-
-    // --- Memory & capture -----------------------------------------------
-    QLabel*      m_memoryLabel{nullptr};
-    QPushButton* m_memoryClearButton{nullptr};
-    QSpinBox*    m_captureSpin{nullptr};
-    QPushButton* m_captureButton{nullptr};
-    QLabel*      m_captureLabel{nullptr};
+    QComboBox*   m_mode{nullptr};
+    QPushButton* m_openWindowButton{nullptr};
+    // Built and fed unconditionally; shown only when
+    // AetherGateDiversityPanel_ShowScope is set. A hidden widget does not
+    // paint, so feeding it costs nothing but the setState() call itself.
+    DiversityScope* m_scope{nullptr};
 
     // The pop-out window, or null until it has been opened once. QPointer
     // rather than a raw pointer: it is a top-level widget the operator can
@@ -200,20 +145,9 @@ private:
     // fight the operator closing it.
     bool m_windowRestored{false};
 
-    QString m_lastMode;             // clears m_captureLocalResult on a mode change
-    // Set by applyCaptureResult(false, ...); while set, applyDiversity()'s
-    // capture.active==false branch must not overwrite the label with the
-    // poll's (possibly stale) "path" — see applyCaptureResult()'s header
-    // comment.
-    bool m_captureLocalResult{false};
-
-    // Guards onComparePressed()/the capture button's click handler — both
-    // used to be gated on AetherGateApplet::m_present directly; this panel
-    // is fed the same flag through setPresent() since it now owns both
-    // handlers. present==true implies the applet's baseUrl() is non-empty
-    // (setPresent(true) only ever follows a real reply), so this one flag
-    // is the same guard the applet's combined "baseUrl().isEmpty() ||
-    // !m_present" check used to be.
+    // present==true implies the applet's baseUrl() is non-empty
+    // (setPresent(true) only ever follows a real reply); the window is told
+    // the same flag so its own controls can guard on it.
     bool m_present{false};
 };
 

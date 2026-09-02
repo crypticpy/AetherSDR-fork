@@ -165,6 +165,7 @@ private:
 
     // Stamps and prepends lines to the EVENTS list, capped.
     void addEventLines(const QStringList& lines);
+    void endCompareHold();
 
     void clearReadouts();
     // True while the operator is holding/editing `knob` or its debounce has a

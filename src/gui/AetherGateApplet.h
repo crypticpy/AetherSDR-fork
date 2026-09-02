@@ -156,9 +156,10 @@ private:
     AetherGateDiversityPanel* m_diversityPanel{nullptr};
     // /diversity/map cadence — network-polling state, so it stays here
     // rather than on the panel (which owns presentation, not the transport).
-    // Reset whenever m_diversityPanel->wantsMapPoll() goes false (panel
-    // hidden, or the Noise section collapsed) so the next time it goes true
-    // the map is fetched immediately rather than waiting out a stale count.
+    // Reset whenever m_diversityPanel->wantsMapPoll() goes false (the
+    // pop-out Diversity window closed, which is the only view of the map)
+    // so the next time it goes true the map is fetched immediately rather
+    // than waiting out a stale count.
     bool m_mapFetched{false};
     int  m_pollsSinceMap{0};
 };

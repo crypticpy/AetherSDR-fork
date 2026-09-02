@@ -753,12 +753,12 @@ void AetherGateApplet::pollDiversity()
         // for onDiversityRequestSet()/onDiversityRequestAlign(), and an
         // operator edit must not itself advance (or reset) this cadence.
         //
-        // wantsMapPoll() ANDs in both "the panel itself is visible" (it is
-        // polled — deliberately — before it, or any ancestor, is ever shown,
-        // per setRadioAddress()'s "probe even while hidden") and "the Noise
-        // section is expanded": a collapsed Noise block costs no polling,
-        // same as a hidden panel. Reset to zero whenever it goes false so the
-        // next time it goes true the map is fetched immediately rather than
+        // wantsMapPoll() is true only while the pop-out Diversity window is
+        // on screen: since the sidebar was slimmed to a status line and a
+        // door (docs/DIVERSITY-ROADMAP.md §3) the window's noise panel is
+        // the only thing that draws the map, so a closed window costs no map
+        // polling at all. Reset to zero whenever it goes false so the next
+        // time it goes true the map is fetched immediately rather than
         // waiting out a stale count — see m_mapFetched's own header comment.
         if (m_diversityPanel->wantsMapPoll()) {
             if (!m_mapFetched || ++m_pollsSinceMap >= kDiversityMapRefreshPolls) {
