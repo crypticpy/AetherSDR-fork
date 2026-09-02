@@ -978,6 +978,7 @@ set(GUI_SOURCES
     src/gui/KiwiSdrApplet.cpp
     src/gui/AetherGateApplet.cpp
     src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
     src/gui/KiwiPublicReceiverPicker.cpp
     src/gui/FavoritesPickerDialog.cpp
     src/gui/RxApplet.cpp

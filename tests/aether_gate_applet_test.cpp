@@ -12,12 +12,15 @@
 
 #include "TestSettingsProfile.h"
 #include "gui/AetherGateApplet.h"
+#include "gui/DiversityScope.h"
 
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -34,10 +37,12 @@
 #include <QUrl>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
 using AetherSDR::AetherGateApplet;
+using AetherSDR::DiversityScope;
 
 namespace {
 
@@ -196,6 +201,13 @@ const QByteArray kDiversityManual = R"({"available": true, "channels": 2,
 
 const QByteArray kDiversityTrack = R"({"available": true, "channels": 2,
     "mode": "track", "source": "combined", "phase_deg": 10.0, "ratio_db": 0.0,
+    "weight": [1.0, 0.0], "lag_samples": 0, "aligned": false, "corr_peak": 0.0,
+    "snr_db": {"a": null, "b": null, "out": null}, "updates": 0, "slice_id": 0})";
+
+// Mode already "off" -- the one state the "Hear A only" compare hold must
+// never be armable from (there would be nothing to resume TO).
+const QByteArray kDiversityOff = R"({"available": true, "channels": 2,
+    "mode": "off", "source": "combined", "phase_deg": 0.0, "ratio_db": 0.0,
     "weight": [1.0, 0.0], "lag_samples": 0, "aligned": false, "corr_peak": 0.0,
     "snr_db": {"a": null, "b": null, "out": null}, "updates": 0, "slice_id": 0})";
 
@@ -564,9 +576,84 @@ void testDiversityManualEnablesPhaseRatioOtherModesDisable()
     CHECK(!ratio->isEnabled());
 }
 
-// snr_db's a/b/out members are individually nullable — the status line must
-// show a dash for each, not "0.0" (which reads as a real, terrible reading).
-void testDiversityStatusLineRendersNullSnrAsDashes()
+// Operator complaint item 1: "in null/track mode the phase slider ... must
+// be disabled AND not written from polls at all -- keep the operator's last
+// manual value". kDiversityTrack's own phase_deg (10) must NOT land on the
+// slider once Track disables it -- it must keep showing 45, the last value a
+// Manual poll put there, not "bounce" to whatever Track is internally
+// solving for.
+void testDiversityTrackModePollLeavesPhaseSliderUntouchedAndDisabled()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+
+    auto* phase = a.findChild<QSlider*>(QStringLiteral("gateDiversityPhaseSlider"));
+    CHECK(phase && phase->value() == 45);
+
+    // kDiversityTrack reports phase_deg 10 -- a different value -- while in
+    // Track mode.
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityTrack};
+    tick(a);
+    CHECK(!phase->isEnabled());
+    CHECK(phase->value() == 45);   // untouched, not snapped to Track's 10
+}
+
+// Operator complaint item 1, Manual-mode half: a poll may move the slider
+// only when the operator is not mid-debounce (this harness's unshown window
+// makes hasFocus() always false -- see phone_tx_filter_numeric_entry_test.cpp
+// -- so only the debounce-active guard is testable here). A drag starts the
+// ~150ms debounce timer at once; a poll landing before it elapses must leave
+// the slider showing the operator's own in-progress drag value rather than
+// snapping to whatever the gate reported a moment before the drag's own
+// write has even gone out.
+void testDiversityManualModePollSkipsSliderWhileDebounceActive()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
+    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityManual};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+
+    auto* phase = a.findChild<QSlider*>(QStringLiteral("gateDiversityPhaseSlider"));
+    CHECK(phase && phase->value() == 45);
+
+    phase->setValue(100);          // starts the ~150ms debounce
+    // A poll lands with a THIRD value while the debounce is still running.
+    const QByteArray thirdValue = R"({"available": true, "channels": 2,
+        "mode": "manual", "source": "combined", "phase_deg": 77.0, "ratio_db": -2.5,
+        "weight": [0.7, 0.1], "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
+        "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 42, "slice_id": 0})";
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, thirdValue};
+    tick(a);                       // settle()'s 20ms is well inside the 150ms debounce
+    CHECK(phase->value() == 100);  // still the operator's drag, not 77
+
+    QTest::qWait(200);             // past the debounce -- fires the debounced write
+    settle();
+    tick(a);                       // debounce no longer active: the poll may write now
+    CHECK(phase->value() == 77);
+}
+
+// DELIBERATE BEHAVIOUR CHANGE (operator complaint: the status line's live
+// numbers -- lag, aligned, peak, SNR, rn, mod -- reflowed the rows under it
+// on nearly every poll, which read as the UI "glitching out"). All of that
+// now lives in DiversityScope's fixed-size paint instead; the status line is
+// down to a short, fixed set of words. kDiversityTrack has no "realigning"
+// key and "aligned": false, so the label is exactly "not aligned" -- one of
+// the three fixed phrases formatDiversityStatus() can produce, never a
+// string that grows with a live number.
+void testDiversityStatusLineIsAFixedShortPhraseNotLiveNumbers()
 {
     FakeGate net;
     net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
@@ -578,10 +665,13 @@ void testDiversityStatusLineRendersNullSnrAsDashes()
     settle();
     settle();
 
-    const QString text =
-        a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"))->text();
-    CHECK(text.contains(QStringLiteral("SNR —/—/— dB")));
-    CHECK(text.contains(QStringLiteral("lag 0 samples")));
+    auto* label = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
+    CHECK(label && label->text() == QStringLiteral("not aligned"));
+    CHECK(label && !label->text().contains(QStringLiteral("SNR")));
+    CHECK(label && !label->text().contains(QStringLiteral("lag")));
+    // A fixed minimum width sized to the longest of the fixed phrases, so
+    // switching between them never resizes the label.
+    CHECK(label && label->minimumWidth() > 0);
 }
 
 // A phase-slider drag must debounce to one write carrying phase= alone, not
@@ -651,9 +741,15 @@ void testDiversityV2FieldsParseIntoWidgets()
     CHECK(captureButton && captureButton->isEnabled());       // capture.active == false
     CHECK(captureLabel && captureLabel->text() == QStringLiteral("—"));  // path == null
 
+    // rn_source/talk_mod moved to DiversityScope's bottom text row (see
+    // testDiversityStatusLineIsAFixedShortPhraseNotLiveNumbers) -- the status
+    // label itself is now a short fixed phrase.
     auto* status = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
-    CHECK(status && status->text().contains(QStringLiteral("rn guard")));
-    CHECK(status->text().contains(QStringLiteral("mod 0.62")));
+    CHECK(status && status->text() == QStringLiteral("aligned"));
+
+    // kDiversityV2's snr_db is a=12.3, b=9.8, out=15.1 -> gain = 15.1 - 12.3.
+    auto* scope = a.findChild<DiversityScope*>(QStringLiteral("gateDiversityScope"));
+    CHECK(scope && std::abs(scope->lastGainDb() - 2.8) < 1e-9);
 }
 
 // An older gate's /diversity carries none of the v2 keys -- every new widget
@@ -701,6 +797,32 @@ void testOldDiversityPayloadLeavesV2WidgetsAtDefaults()
     // that must not crash or affect presence any more than /diversity itself
     // 404ing does.
     CHECK(a.findChild<QWidget*>(QStringLiteral("gateDiversityMapStrip")) != nullptr);
+}
+
+// DiversityScope in isolation: a payload with every snr_db leg null must not
+// crash and must report NaN gain; a payload with all three legs present
+// computes out - max(a, b); a full v2 payload (every optional field at once)
+// must not crash either; clear() resets the gain back to NaN.
+void testDiversityScopeAcceptsNullsAndFullPayloadWithoutCrashingAndComputesGain()
+{
+    DiversityScope scope;
+
+    const QJsonObject nulls = QJsonDocument::fromJson(kDiversityTrack).object();
+    scope.setState(nulls);
+    CHECK(std::isnan(scope.lastGainDb()));
+
+    const QByteArray gainPayload = R"({"available": true, "mode": "manual",
+        "phase_deg": 12.0, "ratio_db": 1.0, "snr_db": {"a": 3.0, "b": 5.0, "out": 7.5},
+        "aligned": true, "lag_samples": 0, "corr_peak": 0.5, "updates": 1})";
+    scope.setState(QJsonDocument::fromJson(gainPayload).object());
+    CHECK(std::abs(scope.lastGainDb() - 2.5) < 1e-9);   // 7.5 - max(3.0, 5.0)
+
+    const QJsonObject full = QJsonDocument::fromJson(kDiversityV2).object();
+    scope.setState(full);   // every optional v2 field at once -- must not crash
+    CHECK(std::abs(scope.lastGainDb() - 2.8) < 1e-9);   // 15.1 - max(12.3, 9.8)
+
+    scope.clear();
+    CHECK(std::isnan(scope.lastGainDb()));
 }
 
 // nb/nb_db/pan/null_source/capture/memory-clear each produce their own exact
@@ -765,6 +887,98 @@ void testDiversityV2QueryStrings()
     memoryClear->click();
     settle();
     CHECK(net.log.contains(QStringLiteral("/diversity/memory/clear")));
+}
+
+// "Hear A only" must be impossible to press when the gate is already off --
+// there would be no previous mode to resume to.
+void testCompareButtonDisabledWhenModeAlreadyOff()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityOff};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+
+    auto* compare = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCompareButton"));
+    CHECK(compare && !compare->isEnabled());
+}
+
+// Qt's Q_SIGNALS macro makes pressed()/released() ordinary callable member
+// functions (confirmed against qabstractbutton.h), so invoking them directly
+// drives the compare hold deterministically without fighting this offscreen
+// harness's mouse-event simulation. Press must send mode=off exactly once;
+// release must send exactly one mode=<the mode from before the press>.
+void testCompareButtonPressReleaseSendsOffThenPreviousModeExactlyOnce()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityTrack};
+    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityTrack};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+
+    auto* compare = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCompareButton"));
+    CHECK(compare && compare->isEnabled());   // mode is "track", not "off"
+
+    compare->pressed();
+    settle();
+    CHECK(net.count(QStringLiteral("/diversity/set?mode=off")) == 1);
+
+    compare->released();
+    settle();
+    CHECK(net.count(QStringLiteral("/diversity/set?mode=track")) == 1);
+    CHECK(net.count(QStringLiteral("/diversity/set?mode=off")) == 1);   // still exactly one
+}
+
+// setPresent(false) is one of the four ways the compare hold can end (see
+// restoreDiversityCompareMode()'s header comment) -- a radio that drops out
+// mid-hold must not leave the gate stuck in "off" just because nobody
+// released the button. Three consecutive /status misses is what flips
+// gatePresent() to false (testBlipRecoversWithoutHelp's own pattern); the
+// resume must fire exactly once from that transition, and the scope must
+// clear alongside it.
+void testSetPresentFalseWhilePressedRestoresModeOnceAndClearsScope()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
+    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityV2};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+    settle();
+    CHECK(a.gatePresent());
+
+    auto* compare = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCompareButton"));
+    CHECK(compare && compare->isEnabled());
+    auto* scope = a.findChild<DiversityScope*>(QStringLiteral("gateDiversityScope"));
+    CHECK(scope && !std::isnan(scope->lastGainDb()));   // kDiversityV2's gain = 2.8
+
+    compare->pressed();
+    settle();
+    CHECK(net.count(QStringLiteral("/diversity/set?mode=off")) == 1);
+
+    net.down = true;
+    tick(a);
+    tick(a);
+    tick(a);
+    CHECK(!a.gatePresent());
+    CHECK(net.count(QStringLiteral("/diversity/set?mode=manual")) == 1);
+    CHECK(scope && std::isnan(scope->lastGainDb()));
+
+    tick(a);   // a 4th miss while already absent must not resend the restore
+    CHECK(net.count(QStringLiteral("/diversity/set?mode=manual")) == 1);
 }
 
 // capture.active is the gate's OWN live state (not our click), so the label
@@ -1034,11 +1248,17 @@ int main(int argc, char** argv)
     testDownEdgeDropsPresenceAndReprobesOnReturn();
     testDiversityHiddenWhenUnavailableOrMissing();
     testDiversityManualEnablesPhaseRatioOtherModesDisable();
-    testDiversityStatusLineRendersNullSnrAsDashes();
+    testDiversityTrackModePollLeavesPhaseSliderUntouchedAndDisabled();
+    testDiversityManualModePollSkipsSliderWhileDebounceActive();
+    testDiversityStatusLineIsAFixedShortPhraseNotLiveNumbers();
     testDiversityPhaseChangeSendsPhaseOnly();
     testDiversityV2FieldsParseIntoWidgets();
     testOldDiversityPayloadLeavesV2WidgetsAtDefaults();
+    testDiversityScopeAcceptsNullsAndFullPayloadWithoutCrashingAndComputesGain();
     testDiversityV2QueryStrings();
+    testCompareButtonDisabledWhenModeAlreadyOff();
+    testCompareButtonPressReleaseSendsOffThenPreviousModeExactlyOnce();
+    testSetPresentFalseWhilePressedRestoresModeOnceAndClearsScope();
     testDiversityCaptureActiveShowsRecordingAndDisablesButton();
     testDiversityMapStripAcceptsFullArrayAndErrorWithoutCrashing();
     testDiversityMapCadenceIsPollDrivenNotEditDriven();

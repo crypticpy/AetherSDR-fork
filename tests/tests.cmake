@@ -2876,6 +2876,7 @@ add_executable(aether_gate_applet_test
     tests/aether_gate_applet_test.cpp
     src/gui/AetherGateApplet.cpp
     src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
 )
 target_include_directories(aether_gate_applet_test PRIVATE src tests)
 target_link_libraries(aether_gate_applet_test PRIVATE

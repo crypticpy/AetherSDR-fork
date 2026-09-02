@@ -1,0 +1,119 @@
+#pragma once
+
+// DiversityScope -- a read-only visualisation of one /diversity poll, built to
+// answer the operator complaint that drove this file: individual widgets
+// (the phase slider, the ratio spin, the growing status line) were being
+// rewritten out from under the operator's cursor on every poll, which reads
+// as the UI "glitching out", and gave no way to tell whether Track mode was
+// actually doing anything.
+//
+// This widget owns none of that churn. It never receives focus, is never
+// written TO by the operator, and repaints in place -- nothing here can grow
+// or shrink the row it sits in, so a poll landing mid-glance never reflows
+// anything around it. AetherGateApplet::applyDiversity() feeds it every poll
+// (and every write's read-back) through setState(); setPresent(false) and an
+// "available": false payload both route to clear().
+//
+// Three regions, painted top-to-bottom / left-to-right, all inside this
+// widget's own rect:
+//   - left: a polar plot of the live weight (radius = ratio_db over its
+//     -20..+20 dB range, angle = phase_deg) -- the current weight as a filled
+//     dot, a fading trail of the last ~30 samples, and memory entries as
+//     small hollow markers, so a Track solve that keeps landing near the same
+//     spot is visibly converging rather than invisibly "doing something".
+//   - middle: three fixed-scale SNR bars (A / B / OUT, -10..+30 dB) plus a
+//     "gain +X.X dB" readout (out - max(a, b)), coloured in the accent token
+//     only when that gain is worth having (>= +1 dB) -- the answer to "is
+//     track doing anything" at a glance, without reading three numbers.
+//   - bottom: one fixed-layout monospace text row carrying everything that
+//     used to live in the status line's ever-changing tail (lag, aligned,
+//     peak, SNR, rn source, talk_mod) plus what v2 added (talking, updates,
+//     nb blanked %, memory count, capture) -- one row, elided rather than
+//     wrapped, so its own height never changes either.
+
+#include <QWidget>
+#include <QString>
+#include <QVector>
+
+#include <limits>
+
+class QJsonObject;
+class QPaintEvent;
+class QPainter;
+class QRectF;
+
+namespace AetherSDR {
+
+class DiversityScope : public QWidget {
+    Q_OBJECT
+public:
+    explicit DiversityScope(QWidget* parent = nullptr);
+
+    // Feeds one /diversity payload in. Every field is read defensively --
+    // exactly the same "each v2 key is independently optional, and a missing
+    // or malformed one leaves the affected part of the paint at its last (or
+    // default) state rather than being invented" contract
+    // AetherGateApplet::applyDiversity() already keeps for the widgets it
+    // owns directly. Never crashes on a payload with nulls, missing keys, or
+    // an empty object.
+    void setState(const QJsonObject& diversity);
+
+    // Clears the trail, memory markers, bars and text row -- called when the
+    // gate is no longer present, or /diversity stops reporting available.
+    void clear();
+
+    // out - max(a, b) in dB from the last setState() with all three SNR legs
+    // present; NaN when any leg was null/missing. Exposed because the scope
+    // is otherwise a black box from outside (raw QPainter, no child widgets)
+    // -- tests have no other way to check what the gain readout would show.
+    double lastGainDb() const { return m_gainDb; }
+
+protected:
+    void paintEvent(QPaintEvent* e) override;
+
+private:
+    struct WeightSample {
+        double phaseDeg;
+        double ratioDb;
+    };
+
+    void paintWeightPlot(QPainter& p, const QRectF& rectArea) const;
+    void paintSnrBars(QPainter& p, const QRectF& rectArea) const;
+    void paintTextRow(QPainter& p, const QRectF& rectArea) const;
+    QString buildTextRow() const;
+
+    QVector<WeightSample> m_trail;      // ring buffer, oldest first, capped
+    QVector<WeightSample> m_memory;
+
+    bool   m_haveWeight{false};
+    double m_phaseDeg{0.0};
+    double m_ratioDb{0.0};
+
+    bool   m_snrAValid{false};
+    bool   m_snrBValid{false};
+    bool   m_snrOutValid{false};
+    double m_snrA{0.0};
+    double m_snrB{0.0};
+    double m_snrOut{0.0};
+    double m_gainDb{std::numeric_limits<double>::quiet_NaN()};   // NaN until all three legs valid
+
+    QString m_mode;
+    bool    m_talking{false};
+    bool    m_haveTalkMod{false};
+    double  m_talkMod{0.0};
+    bool    m_haveRnSource{false};
+    bool    m_haveNoiseCoh{false};
+    double  m_noiseCoh{0.0};
+    QString m_rnSource;
+    int     m_updates{0};
+    bool    m_aligned{false};
+    int     m_lagSamples{0};
+    double  m_corrPeak{0.0};
+    bool    m_haveNb{false};
+    double  m_nbBlankedPct{0.0};
+    int     m_memoryCount{0};
+    bool    m_haveCapture{false};
+    bool    m_captureActive{false};
+};
+
+} // namespace AetherSDR

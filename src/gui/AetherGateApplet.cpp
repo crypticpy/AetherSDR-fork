@@ -2,11 +2,13 @@
 
 #include "core/ThemeManager.h"
 #include "gui/DiversityMapStrip.h"
+#include "gui/DiversityScope.h"
 #include "models/RadioModel.h"
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QEvent>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHideEvent>
@@ -179,42 +181,24 @@ int decimalsForStep(double step)
     return std::clamp(int(std::ceil(-std::log10(step))), 0, 6);
 }
 
-// snr_db's a/b/out members are individually float|null (no signal seen yet on
-// that leg) — render the dash the rest of the applet already uses for "no
-// value" (m_binWidth's placeholder) rather than a bare "0.0" that reads as a
-// measurement.
-QString snrText(const QJsonObject& snr, const char* key)
-{
-    const QJsonValue v = snr.value(QLatin1String(key));
-    if (v.isNull() || v.isUndefined())
-        return QStringLiteral("—");
-    return QString::number(v.toDouble(), 'f', 1);
-}
-
+// The status line USED to carry lag/aligned/peak/SNR/rn/mod -- every one of
+// those changes on nearly every poll, which is what the operator's "the
+// little phase thing is bouncing all around ... it glitches out the
+// interface" complaint was actually about: a QLabel that grows and shrinks
+// by a different amount every second reflows every row below it. All of that
+// now lives in DiversityScope's own fixed-size paint (its bottom text row
+// carries the same information, elided rather than reflowed) or its polar
+// plot/bars. What is left here is a SHORT, FIXED set of words -- "aligned",
+// "not aligned", "realigning…" -- so the label's width still varies a little
+// between those three, but never continuously the way a live dB or sample
+// count did. gateDiversityStatusLabel's fixed minimum width (see the
+// constructor) absorbs the rest.
 QString formatDiversityStatus(const QJsonObject& d)
 {
-    const int lag = d.value(QStringLiteral("lag_samples")).toInt();
-    const bool aligned = d.value(QStringLiteral("aligned")).toBool();
-    const double peak = d.value(QStringLiteral("corr_peak")).toDouble();
-    const QJsonObject snr = d.value(QStringLiteral("snr_db")).toObject();
-    QString text = QStringLiteral("lag %1 samples · %2 · peak %3 · SNR %4/%5/%6 dB")
-        .arg(lag)
-        .arg(aligned ? QObject::tr("aligned") : QObject::tr("not aligned"))
-        .arg(peak, 0, 'f', 2)
-        .arg(snrText(snr, "a"), snrText(snr, "b"), snrText(snr, "out"));
-
-    // Both v2-only and each independently optional (an old gate has neither,
-    // a new one that hasn't decoded a talker yet has rn_source with no
-    // talk_mod) — appended only when the gate actually said something. The
-    // raw string the gate sent, not remapped to a guessed label: the gate's
-    // vocabulary for this field is its own to extend, and silently folding
-    // an unrecognized value into "inband" would misreport it.
-    if (d.contains(QStringLiteral("rn_source")))
-        text += QStringLiteral(" · rn %1").arg(d.value(QStringLiteral("rn_source")).toString());
-    const QJsonValue mod = d.value(QStringLiteral("talk_mod"));
-    if (d.contains(QStringLiteral("talk_mod")) && !mod.isNull() && !mod.isUndefined())
-        text += QStringLiteral(" · mod %1").arg(mod.toDouble(), 0, 'f', 2);
-    return text;
+    if (d.value(QStringLiteral("realigning")).toBool())
+        return QObject::tr("realigning…");
+    return d.value(QStringLiteral("aligned")).toBool() ? QObject::tr("aligned")
+                                                        : QObject::tr("not aligned");
 }
 
 // -20.0 reads as "-20.0", which is the ASCII hyphen the rest of this file's
@@ -369,6 +353,15 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
     styleRowLabel(ratioLabel);
     divForm->addRow(ratioLabel, m_diversityRatio);
 
+    // --- read-only weight/SNR/status visualisation ------------------------
+    // Directly under mode/phase/ratio, per the operator complaint this PR is
+    // answering: everything that used to move under the cursor (the phase
+    // slider/ratio spin on a track/null poll, the status line's numbers) now
+    // either stays put (item 1, below) or paints inside this fixed-size
+    // widget instead of reflowing the rows around it.
+    m_diversityScope = new DiversityScope(m_diversityBox);
+    divForm->addRow(QString(), m_diversityScope);
+
     m_diversitySource = new QComboBox(m_diversityBox);
     m_diversitySource->setObjectName(QStringLiteral("gateDiversitySourceCombo"));
     m_diversitySource->addItem(tr("Combined"), QStringLiteral("combined"));
@@ -389,12 +382,44 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
     m_diversityRealign->setObjectName(QStringLiteral("gateDiversityRealignButton"));
     connect(m_diversityRealign, &QPushButton::clicked, this,
             &AetherGateApplet::sendDiversityAlign);
-    divForm->addRow(QString(), m_diversityRealign);
+
+    // --- "Hear A only" compare hold ---------------------------------------
+    // A press-and-hold, not a toggle: the operator wants a quick A/B ear
+    // check, not a mode they might forget they left engaged. pressed() and
+    // released() bracket exactly one off/resume pair; the eventFilter below
+    // and setPresent(false)/setRadioAddress() cover every other way the hold
+    // can end (focus loss, the widget being hidden, the gate itself going
+    // away) so the gate can never be left stuck in "off" — see
+    // restoreDiversityCompareMode()'s header comment.
+    m_diversityCompareButton = new QPushButton(tr("Hear A only"), m_diversityBox);
+    m_diversityCompareButton->setObjectName(QStringLiteral("gateDiversityCompareButton"));
+    m_diversityCompareButton->setAccessibleName(tr("Hear antenna A only while pressed"));
+    m_diversityCompareButton->setAutoRepeat(false);
+    m_diversityCompareButton->setEnabled(false);   // starts in "off" until a poll says otherwise
+    connect(m_diversityCompareButton, &QPushButton::pressed, this,
+            &AetherGateApplet::onDiversityComparePressed);
+    connect(m_diversityCompareButton, &QPushButton::released, this,
+            &AetherGateApplet::restoreDiversityCompareMode);
+    m_diversityCompareButton->installEventFilter(this);
+
+    auto* realignRow = new QWidget(m_diversityBox);
+    auto* realignRowLayout = new QHBoxLayout(realignRow);
+    realignRowLayout->setContentsMargins(0, 0, 0, 0);
+    realignRowLayout->addWidget(m_diversityRealign, 1);
+    realignRowLayout->addWidget(m_diversityCompareButton, 1);
+    divForm->addRow(QString(), realignRow);
 
     m_diversityStatusLine = new QLabel(QStringLiteral("—"), m_diversityBox);
     m_diversityStatusLine->setObjectName(QStringLiteral("gateDiversityStatusLabel"));
-    m_diversityStatusLine->setWordWrap(true);
+    // Fixed width, not word-wrap: formatDiversityStatus() now returns one of
+    // three short, fixed phrases (see its own comment) rather than a line
+    // that grows with live numbers, but even that small a set of widths
+    // still shifted the box next to it by a few px between "aligned" and
+    // "not aligned" -- a minimum width sized to the longest of the three
+    // absorbs that instead of the layout doing it.
     styleRowLabel(m_diversityStatusLine);
+    m_diversityStatusLine->setMinimumWidth(
+        m_diversityStatusLine->fontMetrics().horizontalAdvance(tr("realigning…")) + 4);
     divForm->addRow(QString(), m_diversityStatusLine);
 
     // --- v2: noise blanker ------------------------------------------------
@@ -584,6 +609,13 @@ void AetherGateApplet::setRadioAddress(const QString& ip)
     if (ip == m_ip)
         return;                       // already asking this one
 
+    // Fire the compare hold's resume BEFORE m_ip changes below: it builds its
+    // request from baseUrl(), which has to still name the gate the hold was
+    // started against, not whatever radio (or nothing) we are about to ask
+    // instead. Idempotent — see restoreDiversityCompareMode()'s own comment —
+    // so this is harmless when nothing is pressed.
+    restoreDiversityCompareMode();
+
     // A different address is a different radio: drop what we knew rather than
     // showing the previous gate's controls.
     m_ip = ip;
@@ -635,6 +667,21 @@ void AetherGateApplet::hideEvent(QHideEvent* e)
 {
     QWidget::hideEvent(e);
     scheduleTimer();
+}
+
+bool AetherGateApplet::eventFilter(QObject* obj, QEvent* event)
+{
+    // The compare button losing focus or being hidden out from under a held
+    // press are exactly as much "the hold ended" as its own released() —
+    // an operator who alt-tabs away, or a radio drop that hides the whole
+    // gateDiversityBox, must not leave the gate parked in "off" until they
+    // happen to click the button again. restoreDiversityCompareMode() is a
+    // no-op when nothing is pressed, so this never fires an extra request.
+    if (obj == m_diversityCompareButton
+        && (event->type() == QEvent::FocusOut || event->type() == QEvent::Hide)) {
+        restoreDiversityCompareMode();
+    }
+    return QWidget::eventFilter(obj, event);
 }
 
 void AetherGateApplet::get(const QString& path,
@@ -691,6 +738,14 @@ void AetherGateApplet::setPresent(bool present)
         m_mapFetched = false;
         m_pollsSinceMap = 0;
         m_diversityMapStrip->setMap({});
+        m_diversityScope->clear();
+        // Covers the OTHER way the hold can end (repeated poll failures with
+        // the address unchanged — setRadioAddress()'s own call covers the
+        // address-change path). baseUrl() still names this gate here since
+        // only setRadioAddress() ever mutates m_ip, so the resume request
+        // still goes to the right place even though m_present is already
+        // false by this line.
+        restoreDiversityCompareMode();
         // Every v2 widget that shows a PREVIOUS gate's data rather than just
         // a setpoint the operator can freely re-enter: without this, a
         // reconnect at the same address to an older (v1) gate would leave
@@ -1070,6 +1125,7 @@ void AetherGateApplet::applyDiversity(const QJsonObject& d, bool isJson)
     if (!available) {
         m_mapFetched = false;
         m_pollsSinceMap = 0;
+        m_diversityScope->clear();
         return;
     }
 
@@ -1081,7 +1137,13 @@ void AetherGateApplet::applyDiversity(const QJsonObject& d, bool isJson)
         m_lastDiversityMode = mode;
         m_captureLocalResult = false;
     }
-    {
+    // Written from a poll only when the combo is neither focused nor has its
+    // popup open — the same "don't move it while the operator is looking at
+    // it" contract phase/ratio already had, extended to the combo itself:
+    // an operator with the dropdown open deciding between Null and Track
+    // must not have it snap to whatever the gate currently reports out from
+    // under their cursor.
+    if (!m_diversityMode->hasFocus() && !m_diversityMode->view()->isVisible()) {
         const QSignalBlocker block(m_diversityMode);
         const int idx = m_diversityMode->findData(mode);
         if (idx >= 0)
@@ -1093,6 +1155,13 @@ void AetherGateApplet::applyDiversity(const QJsonObject& d, bool isJson)
     const bool manual = (mode == QLatin1String("manual"));
     m_diversityPhase->setEnabled(manual);
     m_diversityRatio->setEnabled(manual);
+    // While the compare hold has forced mode=off, leave the button itself
+    // alone: it is not "off" by the operator's choice, and disabling a
+    // pressed button can swallow the released() that is supposed to end the
+    // hold (see restoreDiversityCompareMode()'s comment on why every path
+    // matters).
+    if (!m_diversityCompareDown)
+        m_diversityCompareButton->setEnabled(mode != QLatin1String("off"));
 
     const QString source = d.value(QStringLiteral("source")).toString();
     {
@@ -1102,21 +1171,31 @@ void AetherGateApplet::applyDiversity(const QJsonObject& d, bool isJson)
             m_diversitySource->setCurrentIndex(idx);
     }
 
-    // Skip a control the operator is in the middle of dragging/editing — the
-    // same guard buildDeviceControls() uses for the settings it re-populates.
-    // hasFocus() alone misses the gap AFTER a drag/edit ends but BEFORE the
-    // debounced write lands: a poll's read-back landing in that gap would
-    // snap the control back to the pre-edit value it is about to overwrite
-    // anyway, which reads as the slider/spinbox stuttering under the cursor.
-    if (!m_diversityPhase->hasFocus() && !m_diversityPhaseDebounce->isActive()) {
-        const QSignalBlocker block(m_diversityPhase);
+    // In null/track mode, phase/ratio are disabled above and are NOT written
+    // here at all — they keep the operator's last manual value rather than
+    // silently tracking whatever Null/Track's own solve produced, which is
+    // exactly the "little phase thing... bouncing all around" this PR
+    // exists to stop. Manual is the only mode where a poll may move them,
+    // and even there only when: not focused/mid-debounce (dragging/editing
+    // guard, unchanged from before — hasFocus() alone misses the gap AFTER a
+    // drag ends but BEFORE the debounced write lands), AND the polled value
+    // actually differs from what is already showing (what the operator last
+    // sent, once converged) — so a poll confirming the operator's own
+    // setpoint is a silent no-op rather than a redundant repaint.
+    if (manual && !m_diversityPhase->hasFocus() && !m_diversityPhaseDebounce->isActive()) {
         const int phase = int(std::lround(d.value(QStringLiteral("phase_deg")).toDouble()));
-        m_diversityPhase->setValue(phase);
-        m_diversityPhaseValue->setText(QStringLiteral("%1°").arg(phase));
+        if (phase != m_diversityPhase->value()) {
+            const QSignalBlocker block(m_diversityPhase);
+            m_diversityPhase->setValue(phase);
+            m_diversityPhaseValue->setText(QStringLiteral("%1°").arg(phase));
+        }
     }
-    if (!m_diversityRatio->hasFocus() && !m_diversityRatioDebounce->isActive()) {
-        const QSignalBlocker block(m_diversityRatio);
-        m_diversityRatio->setValue(d.value(QStringLiteral("ratio_db")).toDouble());
+    if (manual && !m_diversityRatio->hasFocus() && !m_diversityRatioDebounce->isActive()) {
+        const double ratio = d.value(QStringLiteral("ratio_db")).toDouble();
+        if (std::abs(ratio - m_diversityRatio->value()) > 0.05) {
+            const QSignalBlocker block(m_diversityRatio);
+            m_diversityRatio->setValue(ratio);
+        }
     }
 
     // Everything below is v2-only and independently optional on the wire — an
@@ -1178,6 +1257,14 @@ void AetherGateApplet::applyDiversity(const QJsonObject& d, bool isJson)
     }
 
     m_diversityStatusLine->setText(formatDiversityStatus(d));
+
+    // Every poll (and every write's read-back) feeds the scope raw — it does
+    // its own defensive field-by-field reading, the same "each v2 key is
+    // independently optional" contract this function keeps for the widgets
+    // above, so an old gate's payload (none of the v2 keys) or a malformed
+    // one leaves it painting whatever it already had rather than crashing or
+    // inventing zeros.
+    m_diversityScope->setState(d);
 
     // /diversity/map's own fetch/throttle decision does NOT live here: this
     // function is also the read-back handler for sendDiversitySet() and
@@ -1285,6 +1372,64 @@ void AetherGateApplet::sendDiversityAlign()
     if (base.isEmpty() || !m_present)
         return;
     QNetworkRequest req{QUrl(base + QStringLiteral("/diversity/align"))};
+    req.setTransferTimeout(4000);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        QJsonObject obj;
+        const bool json = parseObject(reply->readAll(), &obj);
+        applyDiversity(obj, json);
+    });
+}
+
+// Starts the "Hear A only" hold: remember the mode to return to, then send
+// mode=off. m_diversityCompareButton is disabled whenever the polled mode is
+// already "off" (see applyDiversity()), so this can only run from a mode
+// that HAS a meaningful "previous" to resume — there is no case where
+// m_diversityCompareResumeMode ends up holding "off" itself.
+void AetherGateApplet::onDiversityComparePressed()
+{
+    if (!m_present)
+        return;
+    const int idx = m_diversityMode->currentIndex();
+    if (idx < 0)
+        return;
+    m_diversityCompareResumeMode = m_diversityMode->itemData(idx).toString();
+    m_diversityCompareDown = true;
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("mode"), QStringLiteral("off"));
+    sendDiversitySet(q);
+}
+
+// Ends the hold, exactly once, from wherever it ends: released(), the
+// eventFilter's FocusOut/Hide, a radio-address change, or the gate going
+// away. m_diversityCompareDown is the guard that makes every call after the
+// first a no-op, so every one of those call sites can invoke this
+// unconditionally without coordinating with each other.
+//
+// Deliberately NOT routed through sendDiversitySet(): that helper refuses to
+// send once m_present is false, but setPresent(false) itself needs this to
+// still go out (the gate must not be left stuck in "off" just because THIS
+// poll is what noticed it was gone) — so this builds its own request,
+// gated only on baseUrl() being non-empty the way sendDiversitySet's
+// internals are, minus the presence check.
+void AetherGateApplet::restoreDiversityCompareMode()
+{
+    if (!m_diversityCompareDown)
+        return;
+    m_diversityCompareDown = false;
+    const QString mode = m_diversityCompareResumeMode;
+    m_diversityCompareResumeMode.clear();
+    const QString base = baseUrl();
+    if (base.isEmpty() || mode.isEmpty())
+        return;
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("mode"), mode);
+    QUrl url(base + QStringLiteral("/diversity/set"));
+    url.setQuery(q);
+    QNetworkRequest req{url};
     req.setTransferTimeout(4000);
     QNetworkReply* reply = m_net->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {

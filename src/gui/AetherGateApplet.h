@@ -5,6 +5,7 @@
 #include <QWidget>
 
 class QCheckBox;
+class QEvent;
 class QJsonArray;
 class QJsonObject;
 class QComboBox;
@@ -30,6 +31,11 @@ class RadioModel;
 // device-control widgets already keep out of THIS header's include surface
 // (they are built as plain QWidget* and typed only where the .cpp needs to).
 class DiversityMapStrip;
+
+// Read-only weight/SNR/status visualisation, replacing the numbers that used
+// to live in the ever-changing status line -- see its own header comment.
+// Same include-surface discipline as DiversityMapStrip above.
+class DiversityScope;
 
 // GATE — Aether-gate device controls.
 //
@@ -78,6 +84,10 @@ signals:
 protected:
     void showEvent(QShowEvent* e) override;
     void hideEvent(QHideEvent* e) override;
+    // Watches m_diversityCompareButton for FocusOut/Hide -- the two ways the
+    // "Hear A only" hold can end besides its own released() signal (see
+    // restoreDiversityCompareMode()'s header comment).
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
     void poll();                                  // /status — cheap, on the timer
@@ -105,6 +115,16 @@ private:
     void applyDiversitySources(const QJsonArray& sources);
     void sendDiversitySet(const QUrlQuery& query);
     void sendDiversityAlign();
+
+    // "Hear A only" compare hold — see the header comment on
+    // m_diversityCompareButton. onDiversityComparePressed() records the mode
+    // to return to and sends mode=off; restoreDiversityCompareMode() sends
+    // that mode back and is safe to call from anywhere (released(), the
+    // eventFilter's FocusOut/Hide, setRadioAddress() and setPresent(false))
+    // because m_diversityCompareDown makes every call after the first a
+    // no-op — the gate must never be left stuck in "off".
+    void onDiversityComparePressed();
+    void restoreDiversityCompareMode();
 
     // v2 additions — same non-critical-to-presence contract as pollDiversity()
     // above: nothing here ever touches m_failures or setPresent().
@@ -150,6 +170,22 @@ private:
     QLabel*         m_diversityStatusLine{nullptr};
     QTimer*         m_diversityPhaseDebounce{nullptr};   // ~150ms so a drag sends once
     QTimer*         m_diversityRatioDebounce{nullptr};
+
+    // Read-only weight/SNR/status visualisation — see DiversityScope's own
+    // header comment for why the numbers that used to grow the status line
+    // now live here instead.
+    DiversityScope* m_diversityScope{nullptr};
+
+    // "Hear A only" — a press-and-hold A/B compare that never leaves the
+    // gate stuck off: m_diversityCompareDown is true only between a
+    // confirmed press and the (exactly one) restore that follows it, so
+    // every one of the four ways the hold can end (released(), FocusOut,
+    // Hide, setPresent(false)/a radio-address change) can call
+    // restoreDiversityCompareMode() unconditionally and only the first one
+    // actually sends anything.
+    QPushButton*    m_diversityCompareButton{nullptr};
+    QString         m_diversityCompareResumeMode;
+    bool            m_diversityCompareDown{false};
 
     // Diversity v2 — noise blanker, pan select, the noise map, the source
     // list + null-selected, memory, and a one-shot capture. Every field here
