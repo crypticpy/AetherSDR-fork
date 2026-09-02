@@ -5,21 +5,31 @@
 #include <QWidget>
 
 class QCheckBox;
+class QJsonArray;
 class QJsonObject;
 class QComboBox;
 class QDoubleSpinBox;
 class QFormLayout;
 class QLabel;
+class QListWidget;
 class QNetworkAccessManager;
 class QNetworkReply;
 class QPushButton;
 class QSlider;
+class QSpinBox;
 class QTimer;
 class QUrlQuery;
 
 namespace AetherSDR {
 
 class RadioModel;
+
+// Paints /diversity/map's coherence bars + source brackets. Defined in its
+// own DiversityMapStrip.{h,cpp}: nothing outside this applet consumes it, so
+// only the .cpp that builds one includes that header, the way the
+// device-control widgets already keep out of THIS header's include surface
+// (they are built as plain QWidget* and typed only where the .cpp needs to).
+class DiversityMapStrip;
 
 // GATE — Aether-gate device controls.
 //
@@ -92,8 +102,15 @@ private:
     // m_failures/setPresent(false).
     void pollDiversity();
     void applyDiversity(const QJsonObject& d, bool isJson);
+    void applyDiversitySources(const QJsonArray& sources);
     void sendDiversitySet(const QUrlQuery& query);
     void sendDiversityAlign();
+
+    // v2 additions — same non-critical-to-presence contract as pollDiversity()
+    // above: nothing here ever touches m_failures or setPresent().
+    void pollDiversityMap();          // /diversity/map, throttled off applyDiversity()
+    void sendDiversityCapture();
+    void sendDiversityMemoryClear();
 
     QPointer<RadioModel>   m_model;
     QNetworkAccessManager* m_net{nullptr};
@@ -133,6 +150,32 @@ private:
     QLabel*         m_diversityStatusLine{nullptr};
     QTimer*         m_diversityPhaseDebounce{nullptr};   // ~150ms so a drag sends once
     QTimer*         m_diversityRatioDebounce{nullptr};
+
+    // Diversity v2 — noise blanker, pan select, the noise map, the source
+    // list + null-selected, memory, and a one-shot capture. Every field here
+    // is optional on the wire (an older gate lacks all of it), so each is
+    // only touched in applyDiversity() when its key is actually present —
+    // absence leaves the widget at the default set in the constructor.
+    QCheckBox*      m_diversityNbCheck{nullptr};
+    QDoubleSpinBox* m_diversityNbSpin{nullptr};
+    QTimer*         m_diversityNbDebounce{nullptr};
+    QComboBox*      m_diversityPanCombo{nullptr};
+    DiversityMapStrip* m_diversityMapStrip{nullptr};
+    bool            m_mapFetched{false};
+    int             m_pollsSinceMap{0};
+    QListWidget*    m_diversitySourcesList{nullptr};
+    QPushButton*    m_diversityNullSourceButton{nullptr};
+    QLabel*         m_diversityMemoryLabel{nullptr};
+    QPushButton*    m_diversityMemoryClearButton{nullptr};
+    QSpinBox*       m_diversityCaptureSpin{nullptr};
+    QPushButton*    m_diversityCaptureButton{nullptr};
+    QLabel*         m_diversityCaptureLabel{nullptr};
+    QString         m_lastDiversityMode;      // clears m_captureLocalResult on a mode change
+    // Set by sendDiversityCapture()'s own reply (an error, or a body that
+    // failed to parse); while set, applyDiversity()'s capture.active==false
+    // branch must not overwrite the label with the poll's (possibly stale)
+    // "path" — see the header comment on sendDiversityCapture().
+    bool            m_captureLocalResult{false};
 };
 
 } // namespace AetherSDR
