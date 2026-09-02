@@ -12,11 +12,9 @@ class QComboBox;
 class QDoubleSpinBox;
 class QFormLayout;
 class QLabel;
-class QListWidget;
 class QNetworkAccessManager;
 class QNetworkReply;
 class QPushButton;
-class QSlider;
 class QSpinBox;
 class QTimer;
 class QUrlQuery;
@@ -25,17 +23,12 @@ namespace AetherSDR {
 
 class RadioModel;
 
-// Paints /diversity/map's coherence bars + source brackets. Defined in its
-// own DiversityMapStrip.{h,cpp}: nothing outside this applet consumes it, so
-// only the .cpp that builds one includes that header, the way the
-// device-control widgets already keep out of THIS header's include surface
-// (they are built as plain QWidget* and typed only where the .cpp needs to).
-class DiversityMapStrip;
-
-// Read-only weight/SNR/status visualisation, replacing the numbers that used
-// to live in the ever-changing status line -- see its own header comment.
-// Same include-surface discipline as DiversityMapStrip above.
-class DiversityScope;
+// The RSPduo dual-tuner-combining section -- everything diversity-related
+// used to live directly in this applet; it moved to its own widget when
+// AetherGateApplet.cpp outgrew ~1600 lines (see AetherGateDiversityPanel's
+// own header comment). This applet still owns the network transport: every
+// write the panel wants to make arrives here as a signal and leaves as a GET.
+class AetherGateDiversityPanel;
 
 // GATE — Aether-gate device controls.
 //
@@ -78,16 +71,19 @@ public:
     // to keep the button hidden for operators on a real Flex.
     bool gatePresent() const { return m_present; }
 
+    // Test/introspection accessor — the diversity section's widgets are all
+    // found by objectName through AetherGateDiversityPanel's own objectName
+    // ("gateDiversityBox"), which findChild() reaches recursively either
+    // way; this exists for the handful of behaviours (wantsMapPoll()) that
+    // are not a widget property.
+    AetherGateDiversityPanel* diversityPanel() const { return m_diversityPanel; }
+
 signals:
     void gatePresenceChanged(bool present);
 
 protected:
     void showEvent(QShowEvent* e) override;
     void hideEvent(QHideEvent* e) override;
-    // Watches m_diversityCompareButton for FocusOut/Hide -- the two ways the
-    // "Hear A only" hold can end besides its own released() signal (see
-    // restoreDiversityCompareMode()'s header comment).
-    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
     void poll();                                  // /status — cheap, on the timer
@@ -109,34 +105,23 @@ private:
     // see poll()), but NOT through get(): an old gate with no /diversity route
     // 404s, and that says nothing about whether the GATE itself answered, so a
     // diversity failure only hides the section rather than counting toward
-    // m_failures/setPresent(false).
+    // m_failures/setPresent(false). The JSON itself is parsed here and handed
+    // to m_diversityPanel; every write the panel wants to make comes back as
+    // one of the on*() slots below, which is where the actual GET lives.
     void pollDiversity();
-    void applyDiversity(const QJsonObject& d, bool isJson);
-    void applyDiversitySources(const QJsonArray& sources);
-    void sendDiversitySet(const QUrlQuery& query);
-    void sendDiversityAlign();
-
-    // "Hear A only" compare hold — see the header comment on
-    // m_diversityCompareButton. onDiversityComparePressed() records the mode
-    // to return to and sends mode=off; restoreDiversityCompareMode() sends
-    // that mode back and is safe to call from anywhere (released(), the
-    // eventFilter's FocusOut/Hide, setRadioAddress() and setPresent(false))
-    // because m_diversityCompareDown makes every call after the first a
-    // no-op — the gate must never be left stuck in "off".
-    void onDiversityComparePressed();
-    void restoreDiversityCompareMode();
 
     // v2 additions — same non-critical-to-presence contract as pollDiversity()
     // above: nothing here ever touches m_failures or setPresent().
-    void pollDiversityMap();          // /diversity/map, throttled off applyDiversity()
-    void sendDiversityCapture();
-    void sendDiversityMemoryClear();
+    void pollDiversityMap();          // /diversity/map, throttled off m_diversityPanel->wantsMapPoll()
 
-    // Shows a successful capture's file BASENAME in the label (the sidebar's
-    // 250px width has no room for a full path) with the full path in the
-    // label's tooltip. An empty path means "no successful capture yet" --
-    // the constructor's "—" default, restored by setPresent(false).
-    void setDiversityCaptureResultLabel(const QString& path);
+    // AetherGateDiversityPanel's signals, turned into the matching GET. See
+    // AetherGateDiversityPanel.h's own comment on each signal for the exact
+    // route and guard.
+    void onDiversityRequestSet(QUrlQuery query);
+    void onDiversityRequestCompareRestore(QUrlQuery query);
+    void onDiversityRequestAlign();
+    void onDiversityRequestCapture(int seconds);
+    void onDiversityRequestMemoryClear();
 
     QPointer<RadioModel>   m_model;
     QNetworkAccessManager* m_net{nullptr};
@@ -164,60 +149,17 @@ private:
     QHash<QString, QWidget*> m_settingWidgets;    // Soapy setting key -> control
     QString      m_controlsFingerprint;           // rebuild only when the SET changes
 
-    // Diversity — RSPduo dual-tuner combining. Hidden until /diversity reports
-    // "available": true.
-    QWidget*        m_diversityBox{nullptr};
-    QComboBox*      m_diversityMode{nullptr};
-    QSlider*        m_diversityPhase{nullptr};
-    QLabel*         m_diversityPhaseValue{nullptr};
-    QDoubleSpinBox* m_diversityRatio{nullptr};
-    QComboBox*      m_diversitySource{nullptr};
-    QPushButton*    m_diversityRealign{nullptr};
-    QLabel*         m_diversityStatusLine{nullptr};
-    QTimer*         m_diversityPhaseDebounce{nullptr};   // ~150ms so a drag sends once
-    QTimer*         m_diversityRatioDebounce{nullptr};
-
-    // Read-only weight/SNR/status visualisation — see DiversityScope's own
-    // header comment for why the numbers that used to grow the status line
-    // now live here instead.
-    DiversityScope* m_diversityScope{nullptr};
-
-    // "Hear A only" — a press-and-hold A/B compare that never leaves the
-    // gate stuck off: m_diversityCompareDown is true only between a
-    // confirmed press and the (exactly one) restore that follows it, so
-    // every one of the four ways the hold can end (released(), FocusOut,
-    // Hide, setPresent(false)/a radio-address change) can call
-    // restoreDiversityCompareMode() unconditionally and only the first one
-    // actually sends anything.
-    QPushButton*    m_diversityCompareButton{nullptr};
-    QString         m_diversityCompareResumeMode;
-    bool            m_diversityCompareDown{false};
-
-    // Diversity v2 — noise blanker, pan select, the noise map, the source
-    // list + null-selected, memory, and a one-shot capture. Every field here
-    // is optional on the wire (an older gate lacks all of it), so each is
-    // only touched in applyDiversity() when its key is actually present —
-    // absence leaves the widget at the default set in the constructor.
-    QCheckBox*      m_diversityNbCheck{nullptr};
-    QDoubleSpinBox* m_diversityNbSpin{nullptr};
-    QTimer*         m_diversityNbDebounce{nullptr};
-    QComboBox*      m_diversityPanCombo{nullptr};
-    DiversityMapStrip* m_diversityMapStrip{nullptr};
-    bool            m_mapFetched{false};
-    int             m_pollsSinceMap{0};
-    QListWidget*    m_diversitySourcesList{nullptr};
-    QPushButton*    m_diversityNullSourceButton{nullptr};
-    QLabel*         m_diversityMemoryLabel{nullptr};
-    QPushButton*    m_diversityMemoryClearButton{nullptr};
-    QSpinBox*       m_diversityCaptureSpin{nullptr};
-    QPushButton*    m_diversityCaptureButton{nullptr};
-    QLabel*         m_diversityCaptureLabel{nullptr};
-    QString         m_lastDiversityMode;      // clears m_captureLocalResult on a mode change
-    // Set by sendDiversityCapture()'s own reply (an error, or a body that
-    // failed to parse); while set, applyDiversity()'s capture.active==false
-    // branch must not overwrite the label with the poll's (possibly stale)
-    // "path" — see the header comment on sendDiversityCapture().
-    bool            m_captureLocalResult{false};
+    // Diversity — RSPduo dual-tuner combining. See AetherGateDiversityPanel's
+    // own header comment; this applet only feeds it JSON and turns its
+    // signals into GETs.
+    AetherGateDiversityPanel* m_diversityPanel{nullptr};
+    // /diversity/map cadence — network-polling state, so it stays here
+    // rather than on the panel (which owns presentation, not the transport).
+    // Reset whenever m_diversityPanel->wantsMapPoll() goes false (panel
+    // hidden, or the Noise section collapsed) so the next time it goes true
+    // the map is fetched immediately rather than waiting out a stale count.
+    bool m_mapFetched{false};
+    int  m_pollsSinceMap{0};
 };
 
 } // namespace AetherSDR

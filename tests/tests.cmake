@@ -2875,6 +2875,8 @@ set_tests_properties(health_applet_test PROPERTIES
 add_executable(aether_gate_applet_test
     tests/aether_gate_applet_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
 )

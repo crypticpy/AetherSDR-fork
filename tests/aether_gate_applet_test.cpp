@@ -12,6 +12,7 @@
 
 #include "TestSettingsProfile.h"
 #include "gui/AetherGateApplet.h"
+#include "gui/AetherGateDiversityPanel.h"
 #include "gui/DiversityScope.h"
 
 #include <QApplication>
@@ -34,6 +35,7 @@
 #include <QStringList>
 #include <QTest>
 #include <QTimer>
+#include <QToolButton>
 #include <QUrl>
 
 #include <algorithm>
@@ -42,6 +44,7 @@
 #include <cstring>
 
 using AetherSDR::AetherGateApplet;
+using AetherSDR::AetherGateDiversityPanel;
 using AetherSDR::DiversityScope;
 
 namespace {
@@ -1114,6 +1117,93 @@ void testDiversityCaptureActiveShowsRecordingAndDisablesButton()
     CHECK(captureButton && !captureButton->isEnabled());
 }
 
+// The four collapsible section headers open the way the operator asked for:
+// Combine/Listen visible so the controls used most stay one click away,
+// Noise/Memory & capture collapsed since they are consulted less often. This
+// MUST run before any test that toggles a header — AppSettings is a single
+// process-wide cache shared by every test in this binary (TestSettingsProfile
+// constructs it once, before QApplication in main()), so a toggle anywhere
+// else would leave its persisted state visible here too.
+void testDiversityHeaderDefaultOpenStates()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+    settle();
+    CHECK(a.gatePresent());
+
+    auto* combine = a.findChild<QToolButton*>(QStringLiteral("gateDiversityCombineHeader"));
+    auto* listen = a.findChild<QToolButton*>(QStringLiteral("gateDiversityListenHeader"));
+    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
+    auto* memoryCapture =
+        a.findChild<QToolButton*>(QStringLiteral("gateDiversityMemoryCaptureHeader"));
+    CHECK(combine && combine->isChecked());
+    CHECK(listen && listen->isChecked());
+    CHECK(noise && !noise->isChecked());
+    CHECK(memoryCapture && !memoryCapture->isChecked());
+}
+
+// Each header's accessible name is its caption, unchanged by moving the
+// widgets a level deeper under AetherGateDiversityPanel — a screen reader
+// user needs "Noise", not some internal object name.
+void testDiversityHeaderAccessibleNamesMatchCaptions()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+    settle();
+    CHECK(a.gatePresent());
+
+    auto* combine = a.findChild<QToolButton*>(QStringLiteral("gateDiversityCombineHeader"));
+    auto* listen = a.findChild<QToolButton*>(QStringLiteral("gateDiversityListenHeader"));
+    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
+    auto* memoryCapture =
+        a.findChild<QToolButton*>(QStringLiteral("gateDiversityMemoryCaptureHeader"));
+    CHECK(combine && combine->accessibleName() == QStringLiteral("Combine"));
+    CHECK(listen && listen->accessibleName() == QStringLiteral("Listen"));
+    CHECK(noise && noise->accessibleName() == QStringLiteral("Noise"));
+    CHECK(memoryCapture && memoryCapture->accessibleName() == QStringLiteral("Memory & capture"));
+}
+
+// Selecting a mode from the combo — as opposed to the compare hold's own
+// forced mode=off/resume, covered by testCompareButtonPressReleaseSends...
+// below — still reaches the gate as a plain /diversity/set?mode=<value>
+// query, unchanged by the panel's extraction into its own widget.
+void testDiversityModeComboChangeSendsModeQuery()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
+    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityV2};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+    settle();
+    CHECK(a.gatePresent());
+
+    // kDiversityV2 arrives with mode=manual — selecting Null is a real change.
+    auto* mode = a.findChild<QComboBox*>(QStringLiteral("gateDiversityModeCombo"));
+    CHECK(mode != nullptr);
+    mode->setCurrentIndex(mode->findData(QStringLiteral("null")));
+    settle();
+    CHECK(net.log.contains(QStringLiteral("/diversity/set?mode=null")));
+}
+
 // The map strip takes a full 256-point coherence array without crashing, and
 // an {"error"} reply (no map yet) clears it just as cleanly -- same
 // non-critical-to-presence contract as every other diversity route.
@@ -1134,7 +1224,24 @@ void testDiversityMapStripAcceptsFullArrayAndErrorWithoutCrashing()
 
     CHECK(a.gatePresent());
     CHECK(a.findChild<QWidget*>(QStringLiteral("gateDiversityMapStrip")) != nullptr);
-    CHECK(net.count(QStringLiteral("/diversity/map")) == 1);
+
+    // The Noise section (which holds the map strip) collapses by default —
+    // wantsMapPoll() ANDs that in, so nothing is fetched until it is
+    // expanded. Force a known collapsed state first and let one poll cycle
+    // reset the cadence, regardless of whatever an earlier test left
+    // persisted (AppSettings is one process-wide cache shared by every test
+    // in this binary) — see
+    // testCollapsingNoiseHeaderStopsMapPollAndExpandingRestoresIt for the
+    // collapsed-state behaviour itself.
+    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
+    CHECK(noise != nullptr);
+    noise->setChecked(false);
+    tick(a);
+    const int baseline = net.count(QStringLiteral("/diversity/map"));
+
+    noise->setChecked(true);
+    tick(a);
+    CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 1);
 
     // Switch to an {"error"} reply for the next throttled fetch
     // (kDiversityMapRefreshPolls == 2 ticks) and confirm it lands cleanly.
@@ -1142,16 +1249,16 @@ void testDiversityMapStripAcceptsFullArrayAndErrorWithoutCrashing()
     tick(a);
     tick(a);
     settle();
-    CHECK(net.count(QStringLiteral("/diversity/map")) == 2);
+    CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 2);
     CHECK(a.gatePresent());
 }
 
 // The /diversity/map throttle lives in the TIMER-DRIVEN poll path only.
-// applyDiversity() is also the read-back handler for sendDiversitySet(), so
-// an operator round-tripping an edit through it must never itself advance
-// (or trigger) the map's own cadence -- only the periodic /status+/diversity
-// poll may (#5372-round-2 finding: the throttle used to live inside
-// applyDiversity() itself, so edits counted).
+// AetherGateDiversityPanel::applyDiversity() is also the read-back handler
+// for onDiversityRequestSet(), so an operator round-tripping an edit through
+// it must never itself advance (or trigger) the map's own cadence -- only
+// the periodic /status+/diversity poll may (#5372-round-2 finding: the
+// throttle used to live inside applyDiversity() itself, so edits counted).
 void testDiversityMapCadenceIsPollDrivenNotEditDriven()
 {
     FakeGate net;
@@ -1167,23 +1274,88 @@ void testDiversityMapCadenceIsPollDrivenNotEditDriven()
     settle();
     settle();
     CHECK(a.gatePresent());
-    CHECK(net.count(QStringLiteral("/diversity/map")) == 1);   // fetched once, up front
 
-    // Five full sendDiversitySet() round trips, each running applyDiversity()
-    // on its own read-back -- none of these may advance the map's cadence.
+    // Force a known collapsed state and let one poll cycle reset the map's
+    // cadence, regardless of whatever an earlier test left persisted —
+    // AppSettings is one process-wide cache shared by every test in this
+    // binary. baseline is captured AFTER that reset, so what follows holds
+    // no matter how many fetches happened before this test ever ran.
+    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
+    CHECK(noise != nullptr);
+    noise->setChecked(false);
+    tick(a);
+    const int baseline = net.count(QStringLiteral("/diversity/map"));
+
+    noise->setChecked(true);
+    tick(a);
+    CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 1);   // fetched once, up front
+
+    // Five full onDiversityRequestSet() round trips, each running
+    // applyDiversity() on its own read-back -- none of these may advance the
+    // map's cadence.
     auto* pan = a.findChild<QComboBox*>(QStringLiteral("gateDiversityPanCombo"));
     for (int i = 0; i < 5; ++i) {
         pan->setCurrentIndex((pan->currentIndex() + 1) % pan->count());
         settle();
     }
-    CHECK(net.count(QStringLiteral("/diversity/map")) == 1);
+    CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 1);
 
     // Only the TIMER-DRIVEN poll advances it: kDiversityMapRefreshPolls == 2,
     // so the map is re-fetched on the SECOND subsequent poll, not the first.
     tick(a);
-    CHECK(net.count(QStringLiteral("/diversity/map")) == 1);
+    CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 1);
     tick(a);
-    CHECK(net.count(QStringLiteral("/diversity/map")) == 2);
+    CHECK(net.count(QStringLiteral("/diversity/map")) == baseline + 2);
+}
+
+// Collapsing the Noise section (which holds the map strip) must stop
+// /diversity/map polling — the same "costs no polling" contract a hidden
+// panel already had, now also true of a collapsed section within a visible
+// one — and expanding it again must resume the fetch, immediately (the
+// cadence resets while collapsed rather than waiting out a stale count; see
+// pollDiversity()'s own comment on m_mapFetched).
+void testCollapsingNoiseHeaderStopsMapPollAndExpandingRestoresIt()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
+    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, makeDiversityMap(8)};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+    settle();
+    CHECK(a.gatePresent());
+
+    auto* noise = a.findChild<QToolButton*>(QStringLiteral("gateDiversityNoiseHeader"));
+    CHECK(noise != nullptr);
+
+    // Force a known collapsed state regardless of whatever an earlier test
+    // left persisted — AppSettings is one process-wide cache shared by every
+    // test in this binary.
+    noise->setChecked(false);
+    settle();
+    CHECK(!a.diversityPanel()->wantsMapPoll());
+    const int fetchedWhileCollapsed = net.count(QStringLiteral("/diversity/map"));
+    tick(a);
+    tick(a);
+    CHECK(net.count(QStringLiteral("/diversity/map")) == fetchedWhileCollapsed);
+
+    noise->setChecked(true);
+    settle();
+    CHECK(a.diversityPanel()->wantsMapPoll());
+    tick(a);   // cadence was reset while collapsed -- fetches immediately
+    CHECK(net.count(QStringLiteral("/diversity/map")) == fetchedWhileCollapsed + 1);
+
+    noise->setChecked(false);
+    settle();
+    CHECK(!a.diversityPanel()->wantsMapPoll());
+    const int fetchedAfterReCollapse = net.count(QStringLiteral("/diversity/map"));
+    tick(a);
+    tick(a);
+    CHECK(net.count(QStringLiteral("/diversity/map")) == fetchedAfterReCollapse);
 }
 
 // /diversity and /diversity/map failing repeatedly must never count toward
@@ -1377,8 +1549,12 @@ int main(int argc, char** argv)
     testCompareButtonPressReleaseSendsOffThenPreviousModeExactlyOnce();
     testSetPresentFalseWhilePressedRestoresModeOnceAndClearsScope();
     testDiversityCaptureActiveShowsRecordingAndDisablesButton();
+    testDiversityHeaderDefaultOpenStates();     // must run before any header toggle below
+    testDiversityHeaderAccessibleNamesMatchCaptions();
+    testDiversityModeComboChangeSendsModeQuery();
     testDiversityMapStripAcceptsFullArrayAndErrorWithoutCrashing();
     testDiversityMapCadenceIsPollDrivenNotEditDriven();
+    testCollapsingNoiseHeaderStopsMapPollAndExpandingRestoresIt();
     testDiversityAndMapErrorsNeverAffectPresence();
     testShrinkingSourcesNeverRetargetsNullToADifferentSource();
     testPresentFalseThenV1GateLeavesSourcesEmptyAndNullDisabled();
