@@ -65,6 +65,7 @@ class QButtonGroup;
 class QCloseEvent;
 class QJsonArray;
 class QJsonObject;
+class QJsonValue;
 class QLabel;
 class QListWidget;
 class QPushButton;
@@ -146,6 +147,13 @@ private:
     // whose id matches `talkerId` when `haveTalker`.
     void applyTalkers(const QJsonArray& memory, bool haveTalker, int talkerId,
                       double talkerSinceS);
+    // The gate's "focus" object (or a non-object when there is none): the
+    // station the combiner is pinned on, and what it is doing about everyone
+    // else. Drives the LOCKED banner and the Lock/Release button.
+    void applyFocus(const QJsonValue& focus, bool haveTalker, int talkerId,
+                    const QString& talkerName);
+    void updateLockButton();
+    int  selectedTalkerId() const;
     // Re-applies the live-talker row brush after a theme switch -- the
     // highlight is a token-backed QBrush on the items, which a stylesheet
     // re-polish cannot reach.
@@ -214,6 +222,10 @@ private:
     int           m_talkerLiveRow{-1};
     QLabel*       m_talkersCount{nullptr};
     QPushButton*  m_memoryClearButton{nullptr};
+    QPushButton*  m_lockButton{nullptr};
+    QLabel*       m_focusLine{nullptr};
+    bool          m_haveFocus{false};
+    int           m_focusId{-1};
     // Set while applyTalkers() is writing items, so the itemChanged() that
     // commits a Name edit can tell an operator's typing from our own paint.
     bool          m_talkersRebuilding{false};

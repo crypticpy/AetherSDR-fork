@@ -405,6 +405,81 @@ void testLiveTalkerLightsItsRowAndHeader()
 // route every other one does. The half-typed name also has to survive the
 // poll that lands while the editor is open -- a 250ms rebuild cadence is
 // otherwise long odds against ever finishing a callsign.
+// (h2) Station lock. Selecting a row arms the Lock button with that talker's
+// id; clicking writes focus=<id>; the gate's focus object drives a LOCKED
+// banner (naming who is being nulled meanwhile) and turns the button into
+// Release, which writes focus=off. The log says when the lock came and went.
+void testLockOnAStationWritesFocusAndShowsTheBanner()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityTalkersIdle);
+    openButton(a)->click();
+    settle();
+    tick(a);
+
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* table = w->findChild<QTableWidget*>(QStringLiteral("diversityWindowTalkersTable"));
+    auto* lock = w->findChild<QPushButton*>(QStringLiteral("diversityWindowLockButton"));
+    auto* banner = w->findChild<QLabel*>(QStringLiteral("diversityWindowFocusLabel"));
+    auto* events = w->findChild<QListWidget*>(QStringLiteral("diversityWindowEventsList"));
+    CHECK(table && lock && banner);
+    if (!table || !lock || !banner)
+        return;
+
+    // Nothing selected: the button is armed with nothing.
+    CHECK(!lock->isEnabled() && lock->text() == QStringLiteral("Lock on station"));
+    CHECK(banner->isHidden());
+    table->selectRow(1);
+    CHECK(lock->isEnabled() && lock->text() == QStringLiteral("Lock on #2"));
+    const int before = net.count(QStringLiteral("/diversity/set?focus=2"));
+    lock->click();
+    settle();
+    CHECK(net.count(QStringLiteral("/diversity/set?focus=2")) == before + 1);
+
+    // The gate confirms the lock while Kay is talking over it.
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
+                                                kDiversityFocusNulling};
+    tick(a);
+    CHECK(!banner->isHidden());
+    CHECK(banner->text()
+          == QStringLiteral("LOCKED on #2 \"Al\" · nulling #5 \"Kay\" · 3 overs · 5 nulled · "
+                            "best +7.2 dB"));
+    CHECK(lock->isEnabled() && lock->text() == QStringLiteral("Release lock"));
+    CHECK(events && events->count() >= 2);
+    if (events) {
+        QStringList lines;
+        for (int i = 0; i < events->count(); ++i)
+            lines << events->item(i)->text();
+        const QString all = lines.join(QStringLiteral("\n"));
+        CHECK(all.contains(QStringLiteral("locked on #2 \"Al\"")));
+        CHECK(all.contains(QStringLiteral("nulling #5 \"Kay\" (not the locked station)")));
+    }
+
+    const int offBefore = net.count(QStringLiteral("/diversity/set?focus=off"));
+    lock->click();
+    settle();
+    CHECK(net.count(QStringLiteral("/diversity/set?focus=off")) == offBefore + 1);
+
+    // Released on the gate: banner gone, button back to arming on selection.
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
+                                                kDiversityTalkersIdle};
+    tick(a);
+    CHECK(banner->isHidden());
+    CHECK(lock->text() != QStringLiteral("Release lock"));
+    if (events) {
+        QStringList lines;
+        for (int i = 0; i < events->count(); ++i)
+            lines << events->item(i)->text();
+        CHECK(lines.join(QStringLiteral("\n")).contains(QStringLiteral("lock released")));
+    }
+    closedToStart();
+}
+
 void testNamingATalkerWritesThroughAndSurvivesAPoll()
 {
     closedToStart();
@@ -710,6 +785,7 @@ int main(int argc, char** argv)
     testGateGoingAwayClearsTheWindowsReadouts();
     testLiveTalkerLightsItsRowAndHeader();
     testNamingATalkerWritesThroughAndSurvivesAPoll();
+    testLockOnAStationWritesFocusAndShowsTheBanner();
     testTimelineAccumulatesAgesOutAndClears();
     testEventLogDerivesOneLinePerTransition();
     testMapPassbandParsesOnlyWhenTheGateSendsIt();

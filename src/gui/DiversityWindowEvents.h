@@ -51,6 +51,11 @@ struct DiversitySnapshot {
 
     QVector<int> memoryIds;        // ids present in "memory", in gate order
 
+    bool    haveFocus{false};      // "focus": {...} rather than null
+    int     focusId{0};
+    QString focusName;
+    bool    focusNulling{false};   // the current over is being nulled, not steered
+
     bool    haveSteadyQrm{false};
     bool    steadyQrm{false};
 

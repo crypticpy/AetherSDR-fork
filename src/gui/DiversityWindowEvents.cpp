@@ -95,6 +95,29 @@ QString talkerTag(int id, const QString& name)
     return QStringLiteral("#%1 \"%2\"").arg(QString::number(id), name);
 }
 
+
+
+// Row content is packed into one string per row so an unchanged memory list
+// can be detected with a single QStringList compare. The separator is the
+// ASCII unit separator rather than a printable character: the Name column is
+// operator text, and a callsign with a pipe in it must not be able to make
+// two different tables compare equal.
+constexpr QChar kRowSep = QChar(0x1f);
+
+QString cellOr(bool have, const QString& text)
+{
+    return have ? text : QStringLiteral("—");
+}
+
+bool memberNumber(const QJsonObject& obj, const char* key, double* out)
+{
+    const QJsonValue v = obj.value(QLatin1String(key));
+    if (v.isUndefined() || v.isNull())
+        return false;
+    *out = v.toDouble();
+    return true;
+}
+
 } // namespace
 
 QString DiversityEventLog::shortDuration(double seconds)
@@ -174,6 +197,22 @@ QStringList DiversityEventLog::apply(const DiversitySnapshot& s)
                                                  "new talker #%1 remembered")
                          .arg(id);
         }
+    }
+
+    // --- station focus ----------------------------------------------------
+    const bool focusChanged = (s.haveFocus != prev.haveFocus)
+                              || (s.haveFocus && s.focusId != prev.focusId);
+    if (focusChanged) {
+        lines << (s.haveFocus
+                      ? QCoreApplication::translate("DiversityEventLog", "locked on %1")
+                            .arg(talkerTag(s.focusId, s.focusName))
+                      : QCoreApplication::translate("DiversityEventLog", "lock released"));
+    }
+    if (s.haveFocus && s.focusNulling && !(prev.haveFocus && prev.focusNulling)
+            && s.haveTalker) {
+        lines << QCoreApplication::translate("DiversityEventLog",
+                                             "nulling %1 (not the locked station)")
+                     .arg(talkerTag(s.talkerId, s.talkerName));
     }
 
     // --- steady QRM -------------------------------------------------------
@@ -301,13 +340,113 @@ QWidget* DiversityWindow::buildTalkersPanel()
         addEventLines({DiversityEventLog::memoryClearedLine()});
     });
 
+    // Lock: the DX workflow. With two antennas the combiner can steer at one
+    // station or null one interferer, never both; locked on a station it
+    // keeps their beam and nulls every other over instead of following each
+    // caller in turn.
+    m_lockButton = new QPushButton(tr("Lock on station"), frame);
+    m_lockButton->setObjectName(QStringLiteral("diversityWindowLockButton"));
+    m_lockButton->setAccessibleName(tr("Lock the combiner on the selected talker"));
+    m_lockButton->setToolTip(
+        tr("Pin the combiner on the selected station. Their overs get the "
+           "remembered beam; anyone else who transmits is treated as an "
+           "interferer and nulled, so the receiver stays deaf to a pile-up "
+           "between the wanted station's overs. Release to go back to "
+           "following whoever is talking."));
+    m_lockButton->setEnabled(false);
+    connect(m_lockButton, &QPushButton::clicked, this, [this] {
+        QUrlQuery q;
+        if (m_haveFocus) {
+            q.addQueryItem(QStringLiteral("focus"), QStringLiteral("off"));
+        } else {
+            const int id = selectedTalkerId();
+            if (id < 0)
+                return;
+            q.addQueryItem(QStringLiteral("focus"), QString::number(id));
+        }
+        emit requestSet(q);
+    });
+    connect(m_talkers, &QTableWidget::itemSelectionChanged, this,
+            &DiversityWindow::updateLockButton);
+
+    m_focusLine = DiversityWidgets::makeFieldLabel(QString(), frame);
+    m_focusLine->setObjectName(QStringLiteral("diversityWindowFocusLabel"));
+    m_focusLine->setAccessibleName(tr("Station lock status"));
+    m_focusLine->setWordWrap(true);
+    m_focusLine->setToolTip(
+        tr("Which station the combiner is locked on, how many of their overs "
+           "it has steered, how many other overs it has nulled meanwhile, and "
+           "the best output SNR it reached on them."));
+    m_focusLine->hide();
+
     auto* header = new QHBoxLayout;
     header->setSpacing(6);
     header->addWidget(m_talkersCount, 1);
+    header->addWidget(m_lockButton);
     header->addWidget(m_memoryClearButton);
     body->addLayout(header);
+    body->addWidget(m_focusLine);
     body->addWidget(m_talkers, 1);
     return frame;
+}
+
+int DiversityWindow::selectedTalkerId() const
+{
+    if (!m_talkers)
+        return -1;
+    const int row = m_talkers->currentRow();
+    if (row < 0)
+        return -1;
+    const QTableWidgetItem* item = m_talkers->item(row, kTalkerNameColumn);
+    if (!item)
+        return -1;
+    bool ok = false;
+    const int id = item->data(Qt::UserRole).toInt(&ok);
+    return ok ? id : -1;
+}
+
+void DiversityWindow::updateLockButton()
+{
+    if (!m_lockButton)
+        return;
+    if (m_haveFocus) {
+        m_lockButton->setText(tr("Release lock"));
+        m_lockButton->setEnabled(true);
+        return;
+    }
+    const int id = selectedTalkerId();
+    m_lockButton->setText(id >= 0 ? tr("Lock on #%1").arg(id) : tr("Lock on station"));
+    m_lockButton->setEnabled(id >= 0);
+}
+
+void DiversityWindow::applyFocus(const QJsonValue& focus, bool haveTalker, int talkerId,
+                                 const QString& talkerName)
+{
+    double id = 0.0;
+    const QJsonObject f = focus.isObject() ? focus.toObject() : QJsonObject();
+    m_haveFocus = focus.isObject() && memberNumber(f, "id", &id);
+    m_focusId = m_haveFocus ? int(std::lround(id)) : -1;
+    if (!m_haveFocus) {
+        m_focusLine->hide();
+        DiversityWidgets::setLive(m_focusLine, false);
+        updateLockButton();
+        return;
+    }
+    const QJsonValue nameValue = f.value(QStringLiteral("name"));
+    const QString name = nameValue.isString() ? nameValue.toString() : QString();
+    QStringList parts;
+    parts << tr("LOCKED on %1").arg(talkerTag(m_focusId, name));
+    if (f.value(QStringLiteral("nulling")).toBool() && haveTalker)
+        parts << tr("nulling %1").arg(talkerTag(talkerId, talkerName));
+    parts << tr("%1 overs").arg(f.value(QStringLiteral("overs")).toInt());
+    parts << tr("%1 nulled").arg(f.value(QStringLiteral("nulled")).toInt());
+    double best = 0.0;
+    if (memberNumber(f, "best_db", &best))
+        parts << tr("best %1 dB").arg(QString::asprintf("%+.1f", best));
+    m_focusLine->setText(parts.join(QStringLiteral(" · ")));
+    DiversityWidgets::setLive(m_focusLine, true);
+    m_focusLine->show();
+    updateLockButton();
 }
 
 QWidget* DiversityWindow::buildEventsPanel()
@@ -378,31 +517,6 @@ QWidget* DiversityWindow::buildEventsPanel()
 // --------------------------------------------------------------------------
 // The TALKERS table's own bookkeeping.
 // --------------------------------------------------------------------------
-
-namespace {
-
-// Row content is packed into one string per row so an unchanged memory list
-// can be detected with a single QStringList compare. The separator is the
-// ASCII unit separator rather than a printable character: the Name column is
-// operator text, and a callsign with a pipe in it must not be able to make
-// two different tables compare equal.
-constexpr QChar kRowSep = QChar(0x1f);
-
-QString cellOr(bool have, const QString& text)
-{
-    return have ? text : QStringLiteral("—");
-}
-
-bool memberNumber(const QJsonObject& obj, const char* key, double* out)
-{
-    const QJsonValue v = obj.value(QLatin1String(key));
-    if (v.isUndefined() || v.isNull())
-        return false;
-    *out = v.toDouble();
-    return true;
-}
-
-} // namespace
 
 bool DiversityWindow::talkersBusy() const
 {

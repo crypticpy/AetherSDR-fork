@@ -210,6 +210,26 @@ inline const QByteArray kDiversityTalkersIdle = R"({"available": true, "channels
     "rn_source": "guard", "noise_coherence": 0.42,
     "capture": {"active": false, "path": null}})";
 
+// Locked on #2 while #5 is on the air: the gate is nulling Kay, not
+// steering at her, and says so.
+inline const QByteArray kDiversityFocusNulling = R"({"available": true, "channels": 2,
+    "mode": "track", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
+    "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
+    "snr_db": {"a": 12.3, "b": 9.8, "out": 2.1}, "updates": 44,
+    "memory": [
+      {"id": 1, "name": null, "phase_deg": 141.0, "ratio_db": -2.1,
+       "age_s": 6.0, "first_seen_s": 301.0, "hits": 12},
+      {"id": 2, "name": "Al", "phase_deg": 10.0, "ratio_db": 1.0,
+       "age_s": 40.0, "first_seen_s": 241.0, "hits": 3},
+      {"id": 5, "name": "Kay", "phase_deg": 200.0, "ratio_db": -4.0,
+       "age_s": 2.0, "first_seen_s": 7201.0, "hits": 2}
+    ],
+    "talker": {"id": 5, "since_s": 2.0},
+    "focus": {"id": 2, "name": "Al", "since_s": 30.0, "live": false, "nulling": true,
+              "overs": 3, "nulled": 5, "best_db": 7.2},
+    "rn_source": "guard", "noise_coherence": 0.42,
+    "capture": {"active": false, "path": null}})";
+
 // A gate that predates every v3 key: no talker, no memory ids, no names, no
 // first_seen_s, no passband. Nothing here may be invented -- every readout
 // those keys would have driven has to say so.

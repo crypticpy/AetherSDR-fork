@@ -510,6 +510,15 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
     }
     if (d.contains(QStringLiteral("memory")) || haveTalker)
         applyTalkers(memory, haveTalker, talkerId, talkerSinceS);
+    QString talkerName;
+    for (const QJsonValue& v : memory) {
+        const QJsonObject entry = v.toObject();
+        double id = 0.0;
+        if (haveTalker && jsonNumber(entry, "id", &id) && int(std::lround(id)) == talkerId
+                && entry.value(QStringLiteral("name")).isString())
+            talkerName = entry.value(QStringLiteral("name")).toString();
+    }
+    applyFocus(d.value(QStringLiteral("focus")), haveTalker, talkerId, talkerName);
 
     // --- noise ------------------------------------------------------------
     double coherence = 0.0;
@@ -639,6 +648,14 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
             snapshot.talkerRatioDb = ratio;
         }
     }
+    snapshot.haveFocus = m_haveFocus;
+    snapshot.focusId = m_focusId;
+    if (m_haveFocus) {
+        const QJsonObject f = d.value(QStringLiteral("focus")).toObject();
+        if (f.value(QStringLiteral("name")).isString())
+            snapshot.focusName = f.value(QStringLiteral("name")).toString();
+        snapshot.focusNulling = f.value(QStringLiteral("nulling")).toBool();
+    }
     const QJsonValue qrm = d.value(QStringLiteral("steady_qrm"));
     snapshot.haveSteadyQrm = qrm.isBool();
     snapshot.steadyQrm = snapshot.haveSteadyQrm && qrm.toBool();
@@ -714,6 +731,10 @@ void DiversityWindow::clearReadouts()
     m_talkers->setRowCount(0);
     m_talkersRebuilding = false;
     m_talkersCount->setText(tr("%1 talkers remembered · nobody talking").arg(0));
+    m_haveFocus = false;
+    m_focusId = -1;
+    m_focusLine->hide();
+    updateLockButton();
     m_noiseStatus->setText(tr("noise reference: %1 · coherence %2")
                                .arg(QStringLiteral("—"), QStringLiteral("—")));
     m_balanceDelta->setText(tr("A - B: —"));
