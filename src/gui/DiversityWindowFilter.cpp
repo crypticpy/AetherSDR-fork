@@ -21,6 +21,10 @@
 // the same seam, and DiversityFilterControls.cpp -- which builds thirty
 // controls and explains each of them to somebody who has never met an audio
 // peaking filter -- is at the file-size budget AGENTS.md asks for on its own.
+//
+// The PRESETS strip is built here for that second reason and no other. It
+// belongs with the four columns; it lives beside applyStatus() because putting
+// it there would take DiversityFilterControls.cpp past the cap.
 
 #include "gui/DiversityWindow.h"
 
@@ -33,6 +37,7 @@
 #include <QAbstractButton>
 #include <QCheckBox>
 #include <QFrame>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -47,8 +52,11 @@
 #include <QTableWidgetItem>
 #include <QTimer>
 #include <QToolButton>
+#include <QVBoxLayout>
 
 #include <cmath>
+#include <initializer_list>
+#include <utility>
 
 namespace AetherSDR {
 
@@ -60,6 +68,19 @@ namespace {
 constexpr int kTransientMs = 5000;
 
 constexpr int kNotchClearButtonHeight = 18;
+
+// The same height every other button on this page uses.
+constexpr int kPresetHeight = 22;
+
+// One preset's query, written in the order it goes on the wire so the string
+// the gate sees is the string this file reads.
+QUrlQuery filterQuery(std::initializer_list<std::pair<const char*, const char*>> items)
+{
+    QUrlQuery q;
+    for (const auto& item : items)
+        q.addQueryItem(QLatin1String(item.first), QLatin1String(item.second));
+    return q;
+}
 
 QString emDash()
 {
@@ -144,6 +165,112 @@ void DiversityWindow::clearFilterReadouts()
 }
 
 // --------------------------------------------------------------------------
+// PRESETS: five whole filters, one click each
+// --------------------------------------------------------------------------
+//
+// The four buttons in the WIDTH column are widths -- they move one edge and
+// touch nothing else. These are the whole filter: edges, shape, and whichever
+// of the tone controls the setting is actually about. That is the difference
+// between "make it 2.4 kHz" and "put me back on SSB", and an operator who has
+// been down in a CW filter with the APF up wants the second one.
+//
+// Each is exactly one /filter/set, so the gate's reply to it is the page's
+// next state and there is no window in which half a preset is in force. RESET
+// is the one exception and it is honest about being two: clearing the notches
+// is a different route, because "remove them all" is not a setting.
+
+QWidget* DiversityFilterControls::buildPresetStrip()
+{
+    QVBoxLayout* body = nullptr;
+    QFrame* frame = DiversityWidgets::makeGroupBox(
+        tr("PRESETS"), QStringLiteral("diversityWindowFilterPresetsBox"), body, this);
+    frame->setToolTip(
+        tr("A whole filter in one click -- edges, shape and the tone controls "
+           "that go with them, rather than the one edge the width buttons "
+           "move. Nothing here is remembered: each is a set of values sent to "
+           "the gate, and the page then shows whatever the gate did with "
+           "them."));
+
+    auto* row = new QHBoxLayout;
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(6);
+    body->addLayout(row);
+
+    const auto addPreset = [&](const QString& suffix, const QString& label,
+                               const QString& tip, const QUrlQuery& query,
+                               bool clearNotches) {
+        auto* button = new QPushButton(label, this);
+        button->setObjectName(QStringLiteral("diversityWindowFilterPreset") + suffix);
+        button->setAccessibleName(label);
+        button->setToolTip(tip);
+        button->setAccessibleDescription(tip);
+        button->setFixedHeight(kPresetHeight);
+        applyToggleButtonStyle(button);
+        m_controls.append(button);
+        connect(button, &QPushButton::clicked, this, [this, query, clearNotches] {
+            set(query);
+            if (clearNotches)
+                notch(QStringLiteral("clear"), QStringLiteral("1"));
+        });
+        row->addWidget(button, 1);
+    };
+
+    addPreset(QStringLiteral("SsbWide"), tr("SSB WIDE"),
+              tr("100-2900 Hz, soft. The widest a voice filter is normally set "
+                 "to: everything the other station's microphone sent, with a "
+                 "roll-off gentle enough that the band either side arrives as "
+                 "background rather than as an edge."),
+              filterQuery({{"low", "100"}, {"high", "2900"}, {"shape", "soft"}}),
+              false);
+    addPreset(QStringLiteral("SsbNarrow"), tr("SSB NARROW"),
+              tr("300-2400 Hz, sharp. What you drop to when the channel is "
+                 "crowded: the bottom 200 Hz is rumble and the top 500 is "
+                 "mostly the neighbour, and a sharp skirt keeps them both "
+                 "out at the cost of a little ring on transients."),
+              filterQuery({{"low", "300"}, {"high", "2400"}, {"shape", "sharp"}}),
+              false);
+    addPreset(QStringLiteral("Cw"), tr("CW-ISH"),
+              tr("400-1000 Hz, sharp, with the audio peak switched on at "
+                 "700 Hz. Not a CW filter -- the gate's roofing filter is "
+                 "still where it was -- but it is what makes a note audible "
+                 "in a passband that was cut for speech."),
+              filterQuery({{"low", "400"},
+                           {"high", "1000"},
+                           {"shape", "sharp"},
+                           {"apf", "1"},
+                           {"apf_hz", "700"}}),
+              false);
+    addPreset(QStringLiteral("Net"), tr("NET"),
+              tr("200-2700 Hz, sharp, with AUTO EQ on. For a net or a "
+                 "round-table, where every station arrives with a different "
+                 "audio tilt: the equaliser takes each one's tilt back out so "
+                 "you are not reaching for the tone control every over."),
+              filterQuery({{"low", "200"},
+                           {"high", "2700"},
+                           {"shape", "sharp"},
+                           {"auto_eq", "1"}}),
+              false);
+    addPreset(QStringLiteral("Reset"), tr("RESET"),
+              tr("Everything off and 100-2900 Hz soft: no automatic notcher, "
+                 "no contour, no audio peak, no automatic width, no automatic "
+                 "equaliser, no blanker, AGC medium, and every notch you "
+                 "placed cleared. The state to go back to when you can no "
+                 "longer tell which of six things is making it sound wrong."),
+              filterQuery({{"low", "100"},
+                           {"high", "2900"},
+                           {"shape", "soft"},
+                           {"anf", "0"},
+                           {"contour", "0"},
+                           {"apf", "0"},
+                           {"auto", "0"},
+                           {"auto_eq", "0"},
+                           {"nb", "0"},
+                           {"agc", "med"}}),
+              true);
+    return frame;
+}
+
+// --------------------------------------------------------------------------
 // The page's half: one status object becomes what the widgets show
 // --------------------------------------------------------------------------
 
@@ -209,8 +336,8 @@ void DiversityFilterControls::clear()
     m_caption->setText(emDash());
     m_notchRows.clear();
     m_notchTable->setRowCount(0);
-    for (QLabel* line : {m_autoLine, m_roofingLine, m_anfLine, m_tiltLine, m_gainLine,
-                         m_blankedLine}) {
+    for (QLabel* line : {m_forceLine, m_autoLine, m_roofingLine, m_anfLine, m_tiltLine,
+                         m_gainLine, m_blankedLine}) {
         line->setText(emDash());
     }
 }
@@ -354,14 +481,19 @@ void DiversityFilterControls::applyStatus(const QJsonObject& f)
     const QJsonArray depths = anf.value(QStringLiteral("depth_db")).toArray();
     QStringList tones;
     for (int i = 0; i < found.size(); ++i) {
+        // One decimal, the same as the notch table's dB column: the two lists
+        // are the same measurement made by two different notchers, and reading
+        // one to the hertz and the other to the decibel invited the reader to
+        // think they were different quantities.
         tones << tr("%1 Hz %2 dB")
                      .arg(QString::number(qint64(std::llround(found.at(i).toDouble()))),
-                          i < depths.size() ? signedDb(depths.at(i).toDouble(), 0)
+                          i < depths.size() ? signedDb(depths.at(i).toDouble(), 1)
                                             : emDash());
     }
     m_anfLine->setText(tones.isEmpty() ? tr("none")
                                        : tones.join(QStringLiteral(", ")));
-    applyNotchTable(f.value(QStringLiteral("notches")).toArray());
+    const QJsonArray notchArray = f.value(QStringLiteral("notches")).toArray();
+    applyNotchTable(notchArray);
 
     // --- TONE --------------------------------------------------------------
     const QJsonObject contour = f.value(QStringLiteral("contour")).toObject();
@@ -390,17 +522,60 @@ void DiversityFilterControls::applyStatus(const QJsonObject& f)
     writeSpin(m_decaySpin, jsonInt(agc, "decay_ms", m_decaySpin->value()));
     writeSpin(m_hangSpin, jsonInt(agc, "hang_ms", m_hangSpin->value()));
     double gain = 0.0;
-    m_gainLine->setText(jsonNumber(agc, "gain_db", &gain)
-                            ? tr("gain %1 dB").arg(signedDb(gain, 1))
-                            : tr("gain %1").arg(emDash()));
+    const bool haveGain = jsonNumber(agc, "gain_db", &gain);
+    m_gainLine->setText(haveGain ? tr("gain %1 dB").arg(signedDb(gain, 1))
+                                 : tr("gain %1").arg(emDash()));
 
     const QJsonObject nb = f.value(QStringLiteral("nb")).toObject();
     writeCheck(m_nbCheck, nb.value(QStringLiteral("enabled")).toBool());
     writeSpin(m_nbSpin, jsonInt(nb, "threshold_db", m_nbSpin->value()));
     double blanked = 0.0;
-    m_blankedLine->setText(jsonNumber(nb, "blanked_pct", &blanked)
-                               ? tr("blanked %1 %").arg(blanked, 0, 'f', 1)
-                               : tr("blanked %1").arg(emDash()));
+    const bool haveBlanked = jsonNumber(nb, "blanked_pct", &blanked);
+    m_blankedLine->setText(haveBlanked ? tr("blanked %1 %").arg(blanked, 0, 'f', 1)
+                                       : tr("blanked %1").arg(emDash()));
+
+    // --- the one line between the curve and the columns --------------------
+    // Assembled last because it is a summary of everything above it and of
+    // nothing else: every clause here has already been written into a control
+    // or a readout, from the same object, in this same call.
+    QStringList state;
+    state << tr("in force %1–%2 Hz (asked %3–%4)")
+                 .arg(jsonHz(f, "low_hz"), jsonHz(f, "high_hz"),
+                      jsonHz(f, "set_low_hz"), jsonHz(f, "set_high_hz"));
+    if (!autoOn) {
+        state << tr("AUTO off");
+    } else if (!source.isString()) {
+        state << tr("AUTO warming up");
+    } else {
+        state << tr("AUTO %1 %2–%3")
+                     .arg(source.toString(), jsonHz(autoObj, "low_hz"),
+                          jsonHz(autoObj, "high_hz"));
+    }
+    if (!anf.value(QStringLiteral("enabled")).toBool()) {
+        state << tr("ANF off");
+    } else if (tones.isEmpty()) {
+        // Running and holding nothing is a different fact from switched off,
+        // and the whole value of this line is that it does not blur the two.
+        state << tr("ANF no tones");
+    } else {
+        state << (tones.size() == 1 ? tr("ANF 1 tone")
+                                    : tr("ANF %1 tones").arg(tones.size()));
+    }
+    state << tr("notches %1").arg(notchArray.size());
+    const QString agcMode = agc.value(QStringLiteral("mode")).toString();
+    if (agcMode == QLatin1String("off")) {
+        state << tr("AGC off");
+    } else {
+        state << tr("AGC %1 %2")
+                     .arg(agcMode.isEmpty() ? emDash() : agcMode,
+                          haveGain ? tr("%1 dB").arg(signedDb(gain, 1)) : emDash());
+    }
+    if (!nb.value(QStringLiteral("enabled")).toBool()) {
+        state << tr("NB off");
+    } else {
+        state << (haveBlanked ? tr("NB %1 %").arg(blanked, 0, 'f', 1) : tr("NB on"));
+    }
+    m_forceLine->setText(state.join(QStringLiteral(" · ")));
 }
 
 } // namespace AetherSDR

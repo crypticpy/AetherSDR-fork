@@ -3084,6 +3084,50 @@ add_test(NAME diversity_filter_test COMMAND diversity_filter_test)
 set_tests_properties(diversity_filter_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# The FILTER page as a picture rather than as a set of controls: the pre-filter
+# spectrum drawn under the response curve, the one-line state readout between
+# the curve and the columns, and the five whole-filter presets under them. A
+# seventh binary for the reason the sixth is one -- diversity_filter_test.cpp is
+# at the 800-line budget AGENTS.md asks for. The spectrum area is painted, so
+# these cases assert on what DiversityFilterPanel says it draws, the way the
+# SNR meter's cases assert on shownDb().
+add_executable(diversity_filter_layout_test
+    tests/diversity_filter_layout_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_filter_layout_test PRIVATE src tests)
+target_link_libraries(diversity_filter_layout_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_filter_layout_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_filter_layout_test COMMAND diversity_filter_layout_test)
+set_tests_properties(diversity_filter_layout_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The SITE page's two write channels: the noise profile's per-kind action
 # buttons and the station locator. A sixth binary rather than more cases in
 # diversity_site_test for the reason every one of these is separate -- that

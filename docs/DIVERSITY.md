@@ -328,7 +328,30 @@ Shift by 50. Double-click anywhere on the curve to put a notch there at the
 width beside the ADD button. Vertical marks are notches, labelled with the
 depth the gate measured; dashed lines are tones the automatic notcher has
 found on its own; short ticks off the bottom axis are the contour and audio
-peak centres. The hertz under the pointer is in the corner.
+peak centres. The hertz under the pointer is in the corner. Depth labels sit
+just under the 0 dB line beside their mark rather than on it, because the
+response runs along the top edge across the whole passband.
+
+**What is actually arriving.** Filled in behind the curve is the gate's
+one-second pre-filter spectrum — the same measurement the AUTO width and the
+ANF read — on the same hertz axis. It is *not* drawn on the filter's own
+0…−60 dB scale: the gate reports it in dB below its own peak, so a dead
+channel drawn that way would paint a full-scale slab under the curve. The
+gate's median is pinned to the tick marked `floor` at −45 dB instead, and
+everything keeps its distance from that, so the area's HEIGHT is decibels
+over the noise and a station 30 dB out of the noise rises from −45 to −15.
+Before the gate has heard a block there is no area at all and the corner says
+`no audio yet`. While AUTO is on, the two edges it has chosen are marked with
+their own thin dash-dotted lines (labelled `auto` at the low one), which is
+how you see whether the tracker put them on the energy or beside it.
+
+**The state line.** Under the curve, one line, always the same height:
+`in force 100–2900 Hz (asked 100–2900) · AUTO print 300–2700 · ANF 2 tones ·
+notches 2 · AGC med −1.9 dB · NB 0.4 %`. Everything on it is also in one of
+the four columns below — the point is that "what is switched on?" costs one
+glance rather than four columns of reading, and that the two pairs of edges
+sit next to each other where a disagreement between them is impossible to
+miss. `ANF off` and `ANF no tones` are different sentences on purpose.
 
 **WIDTH.** SOFT and SHARP are the two ends of one trade: SHARP spends taps
 on a near-vertical skirt and rings a little on transients, SOFT rolls off
@@ -345,8 +368,8 @@ it has not decided yet. While AUTO is on, the spin boxes still show what
 this, which nothing on this page can move.
 
 **NOTCH.** ANF is the automatic notcher; beside it are the tones it has
-found and how deep it is cutting them (`1240 Hz −34 dB, 2010 Hz −31 dB`, or
-`none`). The table below is your own notches, each with its measured depth
+found and how deep it is cutting them, to the same decimal the notch table's
+own dB column uses (`1240 Hz −34.0 dB, 2010 Hz −31.0 dB`, or `none`). The table below is your own notches, each with its measured depth
 and its own CLEAR; CLEAR ALL empties the table and leaves the automatic
 notcher alone.
 
@@ -362,6 +385,18 @@ short decay is pumping. NB is the noise blanker, with its threshold and —
 the readout that matters — `blanked 0.4 %`, the share of the audio it is
 throwing away. Anything above a percent or two on a quiet band means it is
 eating signal, not noise.
+
+**PRESETS.** Under the four columns, five whole filters. The width buttons in
+the WIDTH column move one edge and touch nothing else; these set the lot.
+`SSB WIDE` is 100–2900 soft, `SSB NARROW` 300–2400 sharp, `CW-ISH` 400–1000
+sharp with the audio peak on at 700 Hz, `NET` 200–2700 sharp with AUTO EQ on
+for a round-table where every station arrives with a different tilt. `RESET`
+is 100–2900 soft with the automatic notcher, contour, audio peak, automatic
+width, automatic equaliser and blanker all off, AGC medium, and every notch
+you placed cleared — the state to come back to when you can no longer tell
+which of six things is making it sound wrong. Each preset is one
+`/filter/set`; RESET is that plus one `/filter/notch?clear=1`, because
+removing every notch is a route rather than a setting.
 
 Every control writes immediately; there is no Apply button. The gate's reply
 to a write is the same status object a poll returns, so what you see a
@@ -440,8 +475,12 @@ The gate's HTTP control port (default 8731) serves:
   `auto` {enabled, source: "print" | "spectrum" | null, low_hz, high_hz},
   `auto_eq` {enabled, tilt_db}, `nb` {enabled, threshold_db, blanked_pct},
   `agc` {mode, attack_ms, decay_ms, hang_ms, gain_db}, `roofing`
-  {analogue_hz, digital_hz} and `response` {hz[], db[]} — the measured
-  curve. Numbers may be ints or floats.
+  {analogue_hz, digital_hz}, `response` {hz[], db[]} — the measured curve —
+  and `spectrum` {hz[], db[], floor_db} or null: the one-second pre-filter
+  spectrum on the SAME grid as `response`, in dB below its own peak (so its
+  maximum is 0.0) with `floor_db` the median of those points on that same
+  scale. Null until the gate has heard a block. Numbers may be ints or
+  floats.
 - `GET /filter/set?low=&high=&shape=&anf=&contour=&contour_hz=&contour_db=&contour_width=&apf=&apf_hz=&apf_width=&auto=&auto_eq=&nb=&nb_db=&agc=&attack_ms=&decay_ms=&hang_ms=`
   — any subset; `shape=soft|sharp`, `agc=fast|med|slow|long|off`,
   0 ≤ low < high ≤ 20000. Replies with the status object above, or with

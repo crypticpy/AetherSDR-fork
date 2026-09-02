@@ -279,7 +279,7 @@ void testCaptionAndReadoutsRenderFromStatus()
     CHECK(labelText(w, "diversityWindowFilterRoofingLabel")
           == QStringLiteral("Roof 200 kHz RF · 25 kHz digital"));
     CHECK(labelText(w, "diversityWindowFilterAnfLabel")
-          == QStringLiteral("1240 Hz −34 dB, 2010 Hz −31 dB"));
+          == QStringLiteral("1240 Hz −34.0 dB, 2010 Hz −31.0 dB"));
     CHECK(labelText(w, "diversityWindowFilterTiltLabel")
           == QStringLiteral("tilt +3.5 dB"));
     CHECK(labelText(w, "diversityWindowFilterGainLabel")

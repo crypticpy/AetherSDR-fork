@@ -84,6 +84,10 @@ signals:
     void requestFilter(QString path, QUrlQuery query);
 
 private:
+    // The five whole-filter presets under the four columns. Defined in
+    // DiversityWindowFilter.cpp beside applyStatus() rather than here, for the
+    // file-size reason the rest of this class is already split for.
+    QWidget* buildPresetStrip();
     QWidget* buildWidthColumn();
     QWidget* buildNotchColumn();
     QWidget* buildToneColumn();
@@ -125,6 +129,11 @@ private:
 
     DiversityFilterPanel* m_panel{nullptr};
     QLabel*               m_caption{nullptr};
+    // The one line between the curve and the columns: the whole state of the
+    // filter as a sentence, so the answer to "what is switched on?" does not
+    // require reading four columns of controls. Everything on it is also
+    // somewhere below it -- that is the point, not a duplication bug.
+    QLabel*               m_forceLine{nullptr};
     QLabel*               m_status{nullptr};
     QTimer*               m_statusTimer{nullptr};
     QString               m_baseStatus;

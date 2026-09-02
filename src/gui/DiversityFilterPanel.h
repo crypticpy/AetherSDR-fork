@@ -32,12 +32,30 @@
 // still reports 100..2900; drawing that mirrored would be a truer picture of
 // the RF and a worse picture of what the operator is about to type into a
 // spin box. The sideband is stated in the caption above the widget instead.
+//
+// THE SPECTRUM UNDER THE CURVE. The response is what the filter WOULD do to
+// anything arriving; the "spectrum" object is what is actually arriving -- the
+// one-second pre-filter spectrum the AUTO width and the ANF read. Drawn as a
+// filled area behind the curve on the same Hz axis, it turns every other mark
+// on this widget into a claim you can check: whether the AUTO edges landed on
+// the energy, whether the notch is on the carrier, whether the passband is
+// wide open over nothing.
+//
+// The gate reports it in dB BELOW ITS OWN PEAK, so its maximum is always 0.0.
+// Painting that straight onto the 0..-60 axis would put a full-scale slab
+// under the curve on a dead channel, which is the most confident possible
+// picture of nothing. The floor is pinned instead: the gate's own median
+// (floor_db) is drawn at kFloorAxisDb and everything else keeps its distance
+// from it, so a quiet channel is a thin band at the floor tick and a station
+// 30 dB over it rises 30 dB up the axis. The axis is then the filter's, and
+// the area's HEIGHT is signal-over-noise rather than a level.
 
 #include <QString>
 #include <QVector>
 #include <QWidget>
 
 class QJsonObject;
+class QPainter;
 
 namespace AetherSDR {
 
@@ -69,6 +87,24 @@ public:
     int lowHz() const { return m_lowHz; }
     int highHz() const { return m_highHz; }
 
+    // What the spectrum area currently draws. A painted widget has no child to
+    // read back from and these are rendered values, so they are exposed the
+    // way DiversitySnrMeter::shownDb() is -- there is no other way to check
+    // that a floor moving in the payload moves the picture.
+    bool   hasSpectrum() const { return !m_specDb.isEmpty(); }
+    int    spectrumPointCount() const { return int(m_specDb.size()); }
+    // The gate's own median, on the gate's dB-below-peak scale. NaN when there
+    // is no spectrum -- "the floor is zero" is a different claim.
+    double spectrumFloorDb() const { return m_specFloorDb; }
+    // The dB `index` is actually PLOTTED at on this widget's 0..-60 axis:
+    // floor-pinned and clipped. This, not the payload, is the picture.
+    double spectrumAxisDbAt(int index) const;
+    // Where AUTO has put the edges, or NaN each when AUTO is off. Drawn as
+    // their own thin dashed marks so the operator can see what the tracker
+    // chose against the energy it chose it from.
+    double autoLowHz() const { return m_autoLowHz; }
+    double autoHighHz() const { return m_autoHighHz; }
+
 signals:
     // A handle has been let go, and the two edges are now `lowHz`/`highHz`,
     // snapped to 10 Hz. Emitted on RELEASE, not per pixel: a set per mouse-move
@@ -98,6 +134,10 @@ private:
     double xForHz(double hz) const;
     double hzForX(double x) const;
     double yForDb(double db) const;
+    // Draws the spectrum area, its floor tick and the two AUTO marks. Split
+    // out of paintEvent() because it is the one part of the picture that is
+    // about the signal rather than about the filter.
+    void   paintSpectrum(QPainter& p, const QRectF& r) const;
     // Which handle is within grab distance of `x`, or None.
     Edge   edgeAt(double x) const;
     // Moves the focused/dragged edge to `hz`, snapped to 10 Hz and kept the
@@ -108,6 +148,15 @@ private:
     QVector<double> m_db;
     double m_minHz{0.0};
     double m_maxHz{0.0};
+
+    // The pre-filter spectrum on the same Hz grid, its own median, and the two
+    // edges AUTO has chosen. Empty / NaN when the gate has sent "spectrum":
+    // null, which is what it says before it has heard a block.
+    QVector<double> m_specHz;
+    QVector<double> m_specDb;
+    double m_specFloorDb{0.0};
+    double m_autoLowHz{0.0};
+    double m_autoHighHz{0.0};
 
     bool m_available{false};
     int  m_lowHz{0};

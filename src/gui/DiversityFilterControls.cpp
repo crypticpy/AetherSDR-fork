@@ -58,6 +58,10 @@ const char* kCaptionStyle =
     "QLabel { color: {{color.accent.bright}}; font-size: 12px; font-weight: bold;"
     " background: transparent; }";
 
+const char* kForceLineStyle =
+    "QLabel { color: {{color.text.primary}}; font-size: 11px;"
+    " background: transparent; }";
+
 const char* kStatusStyle =
     "QLabel { color: {{color.text.secondary}}; font-size: 11px;"
     " background: transparent; }"
@@ -148,6 +152,26 @@ DiversityFilterControls::DiversityFilterControls(QWidget* parent) : QWidget(pare
     });
     root->addWidget(m_panel);
 
+    m_forceLine = new QLabel(emDash(), this);
+    m_forceLine->setObjectName(QStringLiteral("diversityWindowFilterForceLabel"));
+    m_forceLine->setAccessibleName(tr("Filter state"));
+    m_forceLine->setToolTip(
+        tr("Everything that is switched on, in force, in one line: the edges "
+           "the gate is actually using and the ones you asked for, what AUTO "
+           "has chosen, how many tones the automatic notcher is holding, how "
+           "many notches you have placed, the AGC mode and the gain it is "
+           "taking off, and what the blanker is removing. When the two pairs "
+           "of edges disagree, something else is moving them."));
+    m_forceLine->setAccessibleDescription(m_forceLine->toolTip());
+    ThemeManager::instance().applyStyleSheet(m_forceLine,
+                                             QString::fromLatin1(kForceLineStyle));
+    // Fixed height and an ignored width, exactly like the status line below:
+    // it is one line whatever it says, and a sentence that grew the page's
+    // minimum width would put the four columns behind a scrollbar.
+    m_forceLine->setFixedHeight(m_forceLine->sizeHint().height());
+    m_forceLine->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    root->addWidget(m_forceLine);
+
     m_status = new QLabel(QString(), this);
     m_status->setObjectName(QStringLiteral("diversityWindowFilterStatusLabel"));
     m_status->setAccessibleName(tr("Filter status"));
@@ -169,7 +193,15 @@ DiversityFilterControls::DiversityFilterControls(QWidget* parent) : QWidget(pare
     columns->addWidget(buildNotchColumn(), 1);
     columns->addWidget(buildToneColumn(), 1);
     columns->addWidget(buildAgcColumn(), 1);
-    root->addLayout(columns, 1);
+    // Stretch 0: the four boxes are as tall as what is in them and no taller.
+    // They used to take every pixel to the bottom of the window and hold a
+    // control in the top third of each, which drew four boxes mostly full of
+    // nothing and read as four things half-built.
+    root->addLayout(columns, 0);
+    root->addWidget(buildPresetStrip(), 0);
+    // What is left over is left over. There is no honest control to put in it
+    // and stretching something into it would be decoration.
+    root->addStretch(1);
 
     setControlsEnabled(false);
 }
@@ -422,7 +454,7 @@ QWidget* DiversityFilterControls::buildNotchColumn()
     body->addWidget(m_anfCheck);
     m_anfLine = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowFilterAnfLabel"),
-        QStringLiteral("1240 Hz −34 dB, 2010 Hz"),
+        QStringLiteral("1240 Hz −34.0 dB, 2010 Hz"),
         tr("The tones the automatic notcher currently has hold of, and how deep "
            "it is cutting each. \"none\" means it is running and has found "
            "nothing, which is a different fact from being switched off."),

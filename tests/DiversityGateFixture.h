@@ -613,11 +613,76 @@ inline QByteArray makeFilterResponse()
     return body;
 }
 
+// The pre-filter spectrum the AUTO width and the ANF read, on the SAME 128-point
+// grid as the response -- the panel draws one over the other and a second grid
+// would be a picture of interpolation.
+//
+// A station on a quiet channel: a noise floor at -38.4 dB and a voice-shaped
+// bump between 300 and 2700 Hz peaking at 1 kHz. The gate reports dB below the
+// spectrum's own peak, so the array is normalised to put its maximum at exactly
+// 0.00 -- a fixture whose peak was -0.09 would let a panel that forgot to pin
+// the floor still look right.
+//
+// `floor_db` is the gate's median. This fixture states the floor it was BUILT
+// with rather than the median of these 128 numbers: 60 % of a 0-4000 Hz grid is
+// inside 300-2700 here, so the true median of the array lands in the middle of
+// the bump, and a fixture whose "floor" was half way up the station would be
+// testing the arithmetic instead of the picture.
+inline QByteArray makeFilterSpectrum(double floorDb = -38.4)
+{
+    double raw[128];
+    double peak = -1e9;
+    for (int i = 0; i < 128; ++i) {
+        const double f = 4000.0 * double(i) / 127.0;
+        double value = floorDb;
+        if (f >= 300.0 && f <= 2700.0) {
+            const double bump =
+                -10.0 + 10.0 * std::exp(-0.5 * std::pow((f - 1000.0) / 600.0, 2.0));
+            // Raised-cosine over the first and last 150 Hz of the band, so the
+            // energy meets the floor instead of falling off a cliff at 300 and
+            // 2700. A fixture with vertical sides is a spectrum no receiver has
+            // ever produced, and it hides an off-by-one in the area's end caps.
+            double taper = 1.0;
+            if (f < 450.0)
+                taper = 0.5 * (1.0 - std::cos(M_PI * (f - 300.0) / 150.0));
+            else if (f > 2550.0)
+                taper = 0.5 * (1.0 - std::cos(M_PI * (2700.0 - f) / 150.0));
+            value = std::max(floorDb + (bump - floorDb) * taper, floorDb);
+        }
+        raw[i] = value;
+        peak = std::max(peak, value);
+    }
+
+    QByteArray hz;
+    QByteArray db;
+    for (int i = 0; i < 128; ++i) {
+        if (i > 0) {
+            hz += ", ";
+            db += ", ";
+        }
+        hz += QByteArray::number(4000.0 * double(i) / 127.0, 'f', 1);
+        db += QByteArray::number(raw[i] - peak, 'f', 2);
+    }
+    QByteArray body = R"("spectrum": {"hz": [)";
+    body += hz;
+    body += R"(], "db": [)";
+    body += db;
+    body += R"(], "floor_db": )";
+    body += QByteArray::number(floorDb - peak, 'f', 2);
+    body += "}";
+    return body;
+}
+
+// The gate before it has heard a block. Not a flat spectrum and not an absent
+// key: an explicit null, which is the only shape that says "I have not measured
+// this yet" rather than "there is nothing there".
+inline const QByteArray kNoFilterSpectrum = R"("spectrum": null)";
+
 // A working LSB filter with something switched on in every column, so one
 // payload can carry every readout the page has: two manual notches, an ANF
 // that has found two tones, contour and APF placed, AUTO on with the print
 // tracker driving it, an AGC in MED with real numbers, and a blanker biting.
-inline QByteArray makeDiversityFilterStatus()
+inline QByteArray makeDiversityFilterStatus(const QByteArray& spectrum = makeFilterSpectrum())
 {
     QByteArray body = R"({"available": true, "mode": "lsb", "sideband": "lsb",
     "low_hz": 100, "high_hz": 2900, "width_hz": 2800,
@@ -636,12 +701,19 @@ inline QByteArray makeDiversityFilterStatus()
     "agc": {"mode": "med", "attack_ms": 10, "decay_ms": 500, "hang_ms": 250,
             "gain_db": -1.9},
     "roofing": {"analogue_hz": 200000.0, "digital_hz": 25000.0}, )";
+    body += spectrum;
+    body += ", ";
     body += makeFilterResponse();
     body += "}";
     return body;
 }
 
 inline const QByteArray kDiversityFilterStatus = makeDiversityFilterStatus();
+
+// The same filter with nothing heard yet. The page must draw no area at all
+// and say so, rather than drawing a flat one at the bottom of the axis.
+inline const QByteArray kDiversityFilterNoSpectrum =
+    makeDiversityFilterStatus(kNoFilterSpectrum);
 
 // The same filter with the auto-width tracker driving from the spectrum rather
 // than from a voice print, and the edges it has chosen in force -- so low_hz /
@@ -664,6 +736,10 @@ inline QByteArray makeDiversityFilterAutoSpectrum()
     "agc": {"mode": "slow", "attack_ms": 10, "decay_ms": 1200, "hang_ms": 500,
             "gain_db": -4.5},
     "roofing": {"analogue_hz": 200000.0, "digital_hz": 25000.0}, )";
+    // A quieter channel: the same shape 12 dB nearer its own floor, which is
+    // what the tracker was reading when it chose 210-2840 off the spectrum.
+    body += makeFilterSpectrum(-26.5);
+    body += ", ";
     body += makeFilterResponse();
     body += "}";
     return body;

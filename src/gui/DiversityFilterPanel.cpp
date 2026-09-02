@@ -28,6 +28,14 @@ namespace {
 constexpr double kTopDb = 0.0;
 constexpr double kBottomDb = -60.0;
 
+// Where the pre-filter spectrum's own median is pinned on that axis. Fifteen
+// dB of headroom above it before the curve's 0 dB line, and fifteen below it
+// before the axis runs out -- enough that a floor which has crept up is still
+// visibly a floor, and enough that a 40 dB station is clipped at the top of
+// the axis rather than off it. See the header for why the gate's own scale is
+// not used directly.
+constexpr double kFloorAxisDb = -45.0;
+
 // Gutters. The left one carries the dB scale, the bottom one the Hz scale.
 constexpr int kLeftGutter = 32;
 constexpr int kBottomGutter = 16;
@@ -83,6 +91,9 @@ DiversityFilterPanel::DiversityFilterPanel(QWidget* parent) : QWidget(parent)
     m_cursorHz = std::numeric_limits<double>::quiet_NaN();
     m_contourHz = std::numeric_limits<double>::quiet_NaN();
     m_apfHz = std::numeric_limits<double>::quiet_NaN();
+    m_specFloorDb = std::numeric_limits<double>::quiet_NaN();
+    m_autoLowHz = std::numeric_limits<double>::quiet_NaN();
+    m_autoHighHz = std::numeric_limits<double>::quiet_NaN();
 }
 
 void DiversityFilterPanel::clear()
@@ -90,6 +101,9 @@ void DiversityFilterPanel::clear()
     m_available = false;
     m_hz.clear();
     m_db.clear();
+    m_specHz.clear();
+    m_specDb.clear();
+    m_specFloorDb = std::numeric_limits<double>::quiet_NaN();
     m_notches.clear();
     m_anf.clear();
     m_minHz = 0.0;
@@ -98,6 +112,8 @@ void DiversityFilterPanel::clear()
     m_highHz = 0;
     m_contourHz = std::numeric_limits<double>::quiet_NaN();
     m_apfHz = std::numeric_limits<double>::quiet_NaN();
+    m_autoLowHz = std::numeric_limits<double>::quiet_NaN();
+    m_autoHighHz = std::numeric_limits<double>::quiet_NaN();
     m_drag = Edge::None;
     update();
 }
@@ -126,6 +142,30 @@ void DiversityFilterPanel::applyStatus(const QJsonObject& filter)
             m_minHz = std::min(m_minHz, m_hz[i]);
             m_maxHz = std::max(m_maxHz, m_hz[i]);
         }
+    }
+
+    // The pre-filter spectrum. "spectrum": null before the gate has heard a
+    // block, and then everything is dropped rather than left stale: an area
+    // that stopped updating would go on claiming a channel is occupied for as
+    // long as the page is open.
+    m_specHz.clear();
+    m_specDb.clear();
+    m_specFloorDb = std::numeric_limits<double>::quiet_NaN();
+    const QJsonObject spectrum = filter.value(QStringLiteral("spectrum")).toObject();
+    const QJsonArray specHz = spectrum.value(QStringLiteral("hz")).toArray();
+    const QJsonArray specDb = spectrum.value(QStringLiteral("db")).toArray();
+    double floorDb = 0.0;
+    // The floor is not optional: without it there is no scale to pin the area
+    // to, and guessing one would be an invented measurement.
+    if (!specHz.isEmpty() && specHz.size() == specDb.size()
+        && jsonNumber(spectrum, "floor_db", &floorDb)) {
+        m_specHz.resize(specHz.size());
+        m_specDb.resize(specDb.size());
+        for (int i = 0; i < specHz.size(); ++i) {
+            m_specHz[i] = specHz.at(i).toDouble();
+            m_specDb[i] = specDb.at(i).toDouble();
+        }
+        m_specFloorDb = floorDb;
     }
 
     double v = 0.0;
@@ -168,6 +208,16 @@ void DiversityFilterPanel::applyStatus(const QJsonObject& filter)
     if (apf.value(QStringLiteral("enabled")).toBool() && jsonNumber(apf, "hz", &v))
         m_apfHz = v;
 
+    const QJsonObject autoWidth = filter.value(QStringLiteral("auto")).toObject();
+    m_autoLowHz = std::numeric_limits<double>::quiet_NaN();
+    m_autoHighHz = std::numeric_limits<double>::quiet_NaN();
+    if (autoWidth.value(QStringLiteral("enabled")).toBool()) {
+        if (jsonNumber(autoWidth, "low_hz", &v))
+            m_autoLowHz = v;
+        if (jsonNumber(autoWidth, "high_hz", &v))
+            m_autoHighHz = v;
+    }
+
     update();
 }
 
@@ -205,6 +255,18 @@ double DiversityFilterPanel::yForDb(double db) const
     const QRectF r = plotRect();
     const double t = (kTopDb - std::clamp(db, kBottomDb, kTopDb)) / (kTopDb - kBottomDb);
     return r.top() + t * r.height();
+}
+
+double DiversityFilterPanel::spectrumAxisDbAt(int index) const
+{
+    if (index < 0 || index >= int(m_specDb.size()))
+        return std::numeric_limits<double>::quiet_NaN();
+    // The floor lands on kFloorAxisDb and every point keeps its own distance
+    // above it. Clipped rather than rescaled: a 50 dB signal over the floor is
+    // off the top of a 45 dB axis, and squashing the axis to fit it would move
+    // the floor tick, which is the one thing on it that has to stay put.
+    return std::clamp(kFloorAxisDb + (m_specDb[index] - m_specFloorDb), kBottomDb,
+                      kTopDb);
 }
 
 DiversityFilterPanel::Edge DiversityFilterPanel::edgeAt(double x) const
@@ -334,6 +396,72 @@ void DiversityFilterPanel::leaveEvent(QEvent* ev)
 // Paint
 // --------------------------------------------------------------------------
 
+void DiversityFilterPanel::paintSpectrum(QPainter& p, const QRectF& r) const
+{
+    ThemeManager& tm = ThemeManager::instance();
+    const QColor secondary = tm.color(this, QStringLiteral("color.text.secondary"));
+
+    // The AUTO edges, whether or not there is a spectrum to judge them
+    // against: thin, so they cannot be mistaken for the two solid handles that
+    // are the operator's own, and dash-DOTTED rather than dashed so they
+    // cannot be mistaken for the automatic notcher's tones either. Labelled
+    // once, at the low edge, because two thin lines on a busy plot are worth
+    // nothing if you cannot tell what put them there.
+    QColor mark = secondary;
+    mark.setAlpha(190);
+    for (double edge : {m_autoLowHz, m_autoHighHz}) {
+        if (std::isnan(edge))
+            continue;
+        p.setPen(QPen(mark, 1, Qt::DashDotLine));
+        const double x = xForHz(edge);
+        p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()));
+    }
+    if (!std::isnan(m_autoLowHz)) {
+        p.setPen(secondary);
+        p.drawText(QRectF(xForHz(m_autoLowHz) + 3, r.bottom() - 14, 30, 12),
+                   Qt::AlignLeft | Qt::AlignBottom, tr("auto"));
+    }
+
+    if (m_specDb.isEmpty())
+        return;
+
+    // The area itself: the spectrum's own colour, not the trace's, because the
+    // trace is the filter and this is the band.
+    const QColor spectrum = tm.color(this, QStringLiteral("color.spectrum.average"));
+    QPolygonF area;
+    area.reserve(m_specDb.size() + 2);
+    area << QPointF(xForHz(m_specHz.isEmpty() ? m_minHz : m_specHz.first()),
+                    r.bottom());
+    for (int i = 0; i < int(m_specDb.size()); ++i)
+        area << QPointF(xForHz(m_specHz[i]), yForDb(spectrumAxisDbAt(i)));
+    area << QPointF(xForHz(m_specHz.last()), r.bottom());
+
+    QColor fill = spectrum;
+    fill.setAlpha(52);
+    QColor rim = spectrum;
+    rim.setAlpha(150);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+    p.setBrush(fill);
+    p.drawPolygon(area);
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(rim, 1));
+    p.drawPolyline(area.mid(1, int(m_specDb.size())));
+    p.setRenderHint(QPainter::Antialiasing, false);
+
+    // The floor tick. Without it the area's height is a number nobody can
+    // read; with it the height is decibels over the median, which is the only
+    // thing about an incoming spectrum that is worth reading off a picture.
+    const double floorY = yForDb(kFloorAxisDb);
+    QColor floorPen = secondary;
+    floorPen.setAlpha(140);
+    p.setPen(QPen(floorPen, 1, Qt::DotLine));
+    p.drawLine(QPointF(r.left(), floorY), QPointF(r.right(), floorY));
+    p.setPen(secondary);
+    p.drawText(QRectF(0, floorY - 7, kLeftGutter - 4, 14),
+               Qt::AlignRight | Qt::AlignVCenter, tr("floor"));
+}
+
 void DiversityFilterPanel::paintEvent(QPaintEvent*)
 {
     ThemeManager& tm = ThemeManager::instance();
@@ -370,6 +498,10 @@ void DiversityFilterPanel::paintEvent(QPaintEvent*)
         return;
     }
 
+    // What is actually arriving, under everything else that is about what the
+    // filter would do to it.
+    paintSpectrum(p, r);
+
     // The passband the operator asked for, shaded. Deliberately drawn UNDER
     // the curve: the shading is the request, the curve is the answer, and
     // where they disagree the curve has to win the eye.
@@ -395,9 +527,14 @@ void DiversityFilterPanel::paintEvent(QPaintEvent*)
         const double x = xForHz(notch.x());
         p.setPen(QPen(warning, 1));
         p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()));
+        // Just BELOW the 0 dB line rather than on it: the response curve runs
+        // along the top of the plot across the whole passband, and a depth
+        // label on the top edge sat on the curve it was describing.
+        //
         // The true minus sign, the same one the notch table and every other dB
         // readout in this window uses -- a hyphen here would be the only one.
-        p.drawText(QRectF(x + 2, r.top() + 1, 46, 12), Qt::AlignLeft | Qt::AlignTop,
+        p.drawText(QRectF(x + 3, yForDb(kTopDb) + 5, 46, 12),
+                   Qt::AlignLeft | Qt::AlignTop,
                    QStringLiteral("%1%2")
                        .arg(notch.y() < 0.0 ? QStringLiteral("−") : QString(),
                             QString::number(std::abs(notch.y()), 'f', 0)));
@@ -454,6 +591,14 @@ void DiversityFilterPanel::paintEvent(QPaintEvent*)
         p.drawText(QRectF(r.right() - 80, r.top() + 2, 78, 14),
                    Qt::AlignRight | Qt::AlignTop,
                    tr("%1 Hz").arg(qint64(std::lround(m_cursorHz))));
+    }
+    // No spectrum is a fact about the gate, not about the band: it has not
+    // heard a block yet. Said in the corner rather than left as an empty area,
+    // which would read as a dead channel.
+    if (m_specDb.isEmpty()) {
+        p.setPen(secondary);
+        p.drawText(QRectF(r.right() - 90, r.top() + 16, 88, 14),
+                   Qt::AlignRight | Qt::AlignTop, tr("no audio yet"));
     }
 }
 
