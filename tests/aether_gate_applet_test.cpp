@@ -674,6 +674,30 @@ void testDiversityStatusLineIsAFixedShortPhraseNotLiveNumbers()
     CHECK(label && label->minimumWidth() > 0);
 }
 
+// The status label's minimum width must cover the longest phrase it can
+// actually show -- "aligned · lag <n>" with a worst-case 5-digit signed lag
+// -- not just the three example phrases it happens to be constructed with.
+void testDiversityStatusLabelMinimumWidthCoversWorstCaseLag()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
+    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+    settle();
+
+    auto* label = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
+    CHECK(label);
+    const int worst =
+        label->fontMetrics().horizontalAdvance(QStringLiteral("aligned · lag −99999"));
+    CHECK(label->minimumWidth() >= worst);
+}
+
 // A phase-slider drag must debounce to one write carrying phase= alone, not
 // ratio= riding along on the same request.
 void testDiversityPhaseChangeSendsPhaseOnly()
@@ -726,12 +750,14 @@ void testDiversityV2FieldsParseIntoWidgets()
     auto* pan = a.findChild<QComboBox*>(QStringLiteral("gateDiversityPanCombo"));
     CHECK(pan && pan->currentData().toString() == QStringLiteral("nulled"));
 
+    // Row text is now the short form (freq + coherence, sized to fit the
+    // 250px sidebar); the old full-detail text (phase/ratio too) moved to
+    // the item's tooltip -- see testDiversitySourcesListShortTextWithTooltip
+    // for the dedicated coverage of that split.
     auto* sources = a.findChild<QListWidget*>(QStringLiteral("gateDiversitySourcesList"));
     CHECK(sources && sources->count() == 2);
-    CHECK(sources->item(0)->text()
-          == QStringLiteral("3.512–3.560 MHz · coh 0.82 · 141° · −2.1 dB"));
-    CHECK(sources->item(1)->text()
-          == QStringLiteral("7.030–7.040 MHz · coh 0.55 · 10° · 1.0 dB"));
+    CHECK(sources->item(0)->text() == QStringLiteral("3.512–3.560 MHz   coh 0.82"));
+    CHECK(sources->item(1)->text() == QStringLiteral("7.030–7.040 MHz   coh 0.55"));
 
     auto* memory = a.findChild<QLabel*>(QStringLiteral("gateDiversityMemoryLabel"));
     CHECK(memory && memory->text() == QStringLiteral("memory: 2 talkers"));
@@ -741,15 +767,68 @@ void testDiversityV2FieldsParseIntoWidgets()
     CHECK(captureButton && captureButton->isEnabled());       // capture.active == false
     CHECK(captureLabel && captureLabel->text() == QStringLiteral("—"));  // path == null
 
-    // rn_source/talk_mod moved to DiversityScope's bottom text row (see
+    // rn_source/talk_mod moved to DiversityScope's bottom text lines (see
     // testDiversityStatusLineIsAFixedShortPhraseNotLiveNumbers) -- the status
-    // label itself is now a short fixed phrase.
+    // label itself is now a short fixed phrase, which since #5372's review
+    // fixes also carries the lag once aligned (kDiversityV2's lag_samples is
+    // 3).
     auto* status = a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"));
-    CHECK(status && status->text() == QStringLiteral("aligned"));
+    CHECK(status && status->text() == QStringLiteral("aligned · lag 3"));
 
     // kDiversityV2's snr_db is a=12.3, b=9.8, out=15.1 -> gain = 15.1 - 12.3.
     auto* scope = a.findChild<DiversityScope*>(QStringLiteral("gateDiversityScope"));
     CHECK(scope && std::abs(scope->lastGainDb() - 2.8) < 1e-9);
+}
+
+// The sidebar redesign moved a source row's full detail (lo/hi, phase,
+// ratio) into the item's tooltip and left only the short freq+coherence text
+// visible, specifically so gateDiversitySourcesList never needs a horizontal
+// scrollbar at the sidebar's 250px width.
+void testDiversitySourcesListShortTextWithTooltipAndNoHScrollbar()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
+    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+    settle();
+
+    auto* sources = a.findChild<QListWidget*>(QStringLiteral("gateDiversitySourcesList"));
+    CHECK(sources && sources->count() == 2);
+    CHECK(sources->horizontalScrollBarPolicy() == Qt::ScrollBarAlwaysOff);
+
+    CHECK(sources->item(0)->text() == QStringLiteral("3.512–3.560 MHz   coh 0.82"));
+    CHECK(sources->item(0)->toolTip()
+          == QStringLiteral("3.512–3.560 MHz · coh 0.82 · 141° · −2.1 dB"));
+    CHECK(sources->item(1)->text() == QStringLiteral("7.030–7.040 MHz   coh 0.55"));
+    CHECK(sources->item(1)->toolTip()
+          == QStringLiteral("7.030–7.040 MHz · coh 0.55 · 10° · 1.0 dB"));
+}
+
+// The checkbox itself carries no visible text any more (the row label says
+// "Blanker" instead) -- it must still name itself to a screen reader.
+void testDiversityNbCheckboxHasAccessibleNameAndNoVisibleText()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
+    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+    settle();
+
+    auto* nbCheck = a.findChild<QCheckBox*>(QStringLiteral("gateDiversityNbCheck"));
+    CHECK(nbCheck && nbCheck->text().isEmpty());
+    CHECK(nbCheck && nbCheck->accessibleName() == QStringLiteral("Noise blanker"));
 }
 
 // An older gate's /diversity carries none of the v2 keys -- every new widget
@@ -825,6 +904,36 @@ void testDiversityScopeAcceptsNullsAndFullPayloadWithoutCrashingAndComputesGain(
     CHECK(std::isnan(scope.lastGainDb()));
 }
 
+// The redesign's hard requirement: at the sidebar's 250px width and the
+// default font, DiversityScope's two bottom text lines (talk/moves/mem,
+// noise/coh/nb) must fit without eliding -- grab() forces a real paintEvent()
+// against the resized widget so bottomLinesElided() reflects an actual
+// QFontMetrics measurement, not a guess.
+void testDiversityScopeBottomLinesFitAt250pxWithoutEliding()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityV2};
+    net.routes[QStringLiteral("/diversity/map")] = {QNetworkReply::NoError, kDiversityMapError};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+    settle();
+
+    a.resize(250, a.sizeHint().height());
+    settle();
+
+    auto* box = a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"));
+    CHECK(box);
+    box->grab();
+
+    auto* scope = a.findChild<DiversityScope*>(QStringLiteral("gateDiversityScope"));
+    CHECK(scope && !scope->bottomLinesElided());
+}
+
 // nb/nb_db/pan/null_source/capture/memory-clear each produce their own exact
 // query string, on the same /diversity/set (or dedicated) route the rest of
 // the section already writes through.
@@ -879,8 +988,11 @@ void testDiversityV2QueryStrings()
     captureButton->click();
     settle();
     CHECK(net.log.contains(QStringLiteral("/diversity/capture?seconds=10")));
+    // Elided to the file BASENAME (the sidebar has no room for a full path),
+    // with the full path moved to the label's tooltip.
     auto* captureLabel = a.findChild<QLabel*>(QStringLiteral("gateDiversityCaptureLabel"));
-    CHECK(captureLabel && captureLabel->text() == QStringLiteral("/tmp/capture.wav"));
+    CHECK(captureLabel && captureLabel->text() == QStringLiteral("capture.wav"));
+    CHECK(captureLabel && captureLabel->toolTip() == QStringLiteral("/tmp/capture.wav"));
 
     auto* memoryClear =
         a.findChild<QPushButton*>(QStringLiteral("gateDiversityMemoryClearButton"));
@@ -1194,7 +1306,8 @@ void testCaptureErrorTextSurvivesNextPoll()
     settle();
 
     auto* captureLabel = a.findChild<QLabel*>(QStringLiteral("gateDiversityCaptureLabel"));
-    CHECK(captureLabel->text() == QStringLiteral("/tmp/old_capture.wav"));
+    CHECK(captureLabel->text() == QStringLiteral("old_capture.wav"));
+    CHECK(captureLabel->toolTip() == QStringLiteral("/tmp/old_capture.wav"));
 
     auto* captureButton = a.findChild<QPushButton*>(QStringLiteral("gateDiversityCaptureButton"));
     captureButton->click();
@@ -1251,10 +1364,14 @@ int main(int argc, char** argv)
     testDiversityTrackModePollLeavesPhaseSliderUntouchedAndDisabled();
     testDiversityManualModePollSkipsSliderWhileDebounceActive();
     testDiversityStatusLineIsAFixedShortPhraseNotLiveNumbers();
+    testDiversityStatusLabelMinimumWidthCoversWorstCaseLag();
     testDiversityPhaseChangeSendsPhaseOnly();
     testDiversityV2FieldsParseIntoWidgets();
+    testDiversitySourcesListShortTextWithTooltipAndNoHScrollbar();
+    testDiversityNbCheckboxHasAccessibleNameAndNoVisibleText();
     testOldDiversityPayloadLeavesV2WidgetsAtDefaults();
     testDiversityScopeAcceptsNullsAndFullPayloadWithoutCrashingAndComputesGain();
+    testDiversityScopeBottomLinesFitAt250pxWithoutEliding();
     testDiversityV2QueryStrings();
     testCompareButtonDisabledWhenModeAlreadyOff();
     testCompareButtonPressReleaseSendsOffThenPreviousModeExactlyOnce();

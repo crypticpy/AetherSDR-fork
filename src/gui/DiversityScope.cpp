@@ -36,6 +36,12 @@ constexpr double kSnrHiDb = 30.0;
 // A gain worth having, for the OUT bar's accent-vs-secondary colour switch.
 constexpr double kGainGoodDb = 1.0;
 
+// The polar plot's fixed square side, and the vertical budget (two text
+// lines + padding) it is sized to leave room for -- both from the 250px
+// sidebar redesign's own numbers.
+constexpr double kWeightPlotSide = 120.0;
+constexpr double kWeightPlotReserve = 56.0;
+
 bool jsonNumber(const QJsonObject& obj, const char* key, double* out)
 {
     if (!obj.contains(QLatin1String(key)))
@@ -51,7 +57,7 @@ bool jsonNumber(const QJsonObject& obj, const char* key, double* out)
 
 DiversityScope::DiversityScope(QWidget* parent) : QWidget(parent)
 {
-    setFixedHeight(140);
+    setFixedHeight(176);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setObjectName(QStringLiteral("gateDiversityScope"));
     setAccessibleName(tr("Diversity scope"));
@@ -105,15 +111,7 @@ void DiversityScope::setState(const QJsonObject& d)
         ? m_snrOut - std::max(m_snrA, m_snrB)
         : std::numeric_limits<double>::quiet_NaN();
 
-    if (d.contains(QStringLiteral("mode")))
-        m_mode = d.value(QStringLiteral("mode")).toString();
     m_talking = d.value(QStringLiteral("talking")).toBool();
-
-    const QJsonValue talkMod = d.value(QStringLiteral("talk_mod"));
-    m_haveTalkMod = d.contains(QStringLiteral("talk_mod"))
-        && !talkMod.isNull() && !talkMod.isUndefined();
-    if (m_haveTalkMod)
-        m_talkMod = talkMod.toDouble();
 
     const QJsonValue rn = d.value(QStringLiteral("rn_source"));
     m_haveRnSource = d.contains(QStringLiteral("rn_source")) && !rn.isNull() && !rn.isUndefined();
@@ -125,9 +123,6 @@ void DiversityScope::setState(const QJsonObject& d)
     m_haveNoiseCoh = jsonNumber(d, "noise_coherence", &m_noiseCoh);
 
     m_updates = d.value(QStringLiteral("updates")).toInt();
-    m_aligned = d.value(QStringLiteral("aligned")).toBool();
-    m_lagSamples = d.value(QStringLiteral("lag_samples")).toInt();
-    m_corrPeak = d.value(QStringLiteral("corr_peak")).toDouble();
 
     // Same isObject() guard applyDiversity() uses for "nb" -- a malformed
     // (non-object) value must not read as "0% blanked" via toObject()'s
@@ -136,13 +131,6 @@ void DiversityScope::setState(const QJsonObject& d)
     if (m_haveNb) {
         const QJsonObject nb = d.value(QStringLiteral("nb")).toObject();
         m_nbBlankedPct = nb.value(QStringLiteral("blanked_pct")).toDouble();
-    }
-
-    m_haveCapture = d.contains(QStringLiteral("capture"))
-        && d.value(QStringLiteral("capture")).isObject();
-    if (m_haveCapture) {
-        const QJsonObject capture = d.value(QStringLiteral("capture")).toObject();
-        m_captureActive = capture.value(QStringLiteral("active")).toBool();
     }
 
     update();
@@ -158,23 +146,15 @@ void DiversityScope::clear()
     m_snrAValid = m_snrBValid = m_snrOutValid = false;
     m_snrA = m_snrB = m_snrOut = 0.0;
     m_gainDb = std::numeric_limits<double>::quiet_NaN();
-    m_mode.clear();
     m_talking = false;
-    m_haveTalkMod = false;
-    m_talkMod = 0.0;
     m_haveRnSource = false;
     m_rnSource.clear();
     m_haveNoiseCoh = false;
     m_noiseCoh = 0.0;
     m_updates = 0;
-    m_aligned = false;
-    m_lagSamples = 0;
-    m_corrPeak = 0.0;
     m_haveNb = false;
     m_nbBlankedPct = 0.0;
     m_memoryCount = 0;
-    m_haveCapture = false;
-    m_captureActive = false;
     update();
 }
 
@@ -187,16 +167,19 @@ void DiversityScope::paintEvent(QPaintEvent*)
 
     const double w = width();
     const double h = height();
-    const double textRowH = 18.0;
-    const double topH = std::max(0.0, h - textRowH);
+    const double textRowsH = 32.0;   // two fixed-field lines, see paintTextLines()
+    const double topH = std::max(0.0, h - textRowsH);
 
-    const QRectF weightRect(0, 0, w * 0.40, topH);
-    const QRectF barsRect(weightRect.right() + 6.0, 0, w - weightRect.width() - 6.0, topH);
-    const QRectF textRect(0, topH, w, textRowH);
+    const double squareSide =
+        std::clamp(std::min(kWeightPlotSide, h - kWeightPlotReserve), 0.0, topH);
+    const double squareY = (topH - squareSide) / 2.0;
+    const QRectF weightRect(0, squareY, squareSide, squareSide);
+    const QRectF barsRect(squareSide + 6.0, 0, std::max(0.0, w - squareSide - 6.0), topH);
+    const QRectF textRect(0, topH, w, textRowsH);
 
     paintWeightPlot(p, weightRect);
     paintSnrBars(p, barsRect);
-    paintTextRow(p, textRect);
+    paintTextLines(p, textRect);
 }
 
 void DiversityScope::paintWeightPlot(QPainter& p, const QRectF& rectArea) const
@@ -260,10 +243,11 @@ void DiversityScope::paintSnrBars(QPainter& p, const QRectF& rectArea) const
     barFont.setPointSizeF(8.0);
     p.setFont(barFont);
 
-    const double barH = 14.0;
-    const double gap = 6.0;
-    const double labelW = 26.0;
-    const double top = rectArea.top() + 4.0;
+    const double barH = 12.0;
+    const double gap = 5.0;
+    const double labelW = 22.0;
+    const double valueW = 34.0;   // fixed-width numeric field, right of the bar
+    const double top = rectArea.top() + 3.0;
 
     const auto drawBar = [&](int row, const QString& label, bool valid, double value,
                               const QColor& fillColor) {
@@ -272,7 +256,7 @@ void DiversityScope::paintSnrBars(QPainter& p, const QRectF& rectArea) const
         p.drawText(QRectF(rectArea.left(), y, labelW, barH),
                    Qt::AlignLeft | Qt::AlignVCenter, label);
         const double trackX = rectArea.left() + labelW;
-        const double trackW = std::max(0.0, rectArea.width() - labelW);
+        const double trackW = std::max(0.0, rectArea.width() - labelW - valueW);
         p.setPen(Qt::NoPen);
         p.setBrush(track);
         p.drawRect(QRectF(trackX, y, trackW, barH));
@@ -281,6 +265,13 @@ void DiversityScope::paintSnrBars(QPainter& p, const QRectF& rectArea) const
             p.setBrush(fillColor);
             p.drawRect(QRectF(trackX, y, trackW * t, barH));
         }
+        // Fixed-width value field: right-aligned in its own reserved
+        // rectangle so a digit-count change never moves anything beside it.
+        const QString valueText =
+            valid ? QString::asprintf("%+5.1f", value) : QStringLiteral("    –");
+        p.setPen(secondary);
+        p.drawText(QRectF(trackX + trackW, y, valueW, barH),
+                   Qt::AlignRight | Qt::AlignVCenter, valueText);
     };
 
     drawBar(0, QStringLiteral("A"), m_snrAValid, m_snrA, secondary);
@@ -298,40 +289,68 @@ void DiversityScope::paintSnrBars(QPainter& p, const QRectF& rectArea) const
                Qt::AlignLeft | Qt::AlignVCenter, gainText);
 }
 
-QString DiversityScope::buildTextRow() const
+// "talk ●   moves 7   mem 6" -- what used to be scattered across the status
+// line's ever-changing tail (talking, updates, memory count), now a single
+// fixed-order line. "mem" rather than "remembered": it is the word that
+// still fits without eliding at the 250px sidebar's default font once the
+// three fields (talk marker, an updates count that can run to 4+ digits, a
+// memory count of the same width) are all present at once.
+QString DiversityScope::buildTopLine() const
 {
-    QString row;
-    row += m_mode.isEmpty() ? QStringLiteral("mode –") : QStringLiteral("mode %1").arg(m_mode);
-    row += QStringLiteral("  talk ") + (m_talking ? QStringLiteral("●") : QStringLiteral("○"));
-    row += QStringLiteral(" mod ")
-        + (m_haveTalkMod ? QString::number(m_talkMod, 'f', 2) : QStringLiteral("–"));
-    row += QStringLiteral("  rn ") + (m_haveRnSource ? m_rnSource : QStringLiteral("–"));
-    row += QStringLiteral(" coh ")
-        + (m_haveNoiseCoh ? QString::number(m_noiseCoh, 'f', 2) : QStringLiteral("–"));
-    row += QStringLiteral("  upd %1").arg(m_updates);
-    row += QStringLiteral("  ") + (m_aligned ? tr("aligned") : tr("not aligned"));
-    row += QStringLiteral(" lag %1 pk %2").arg(m_lagSamples).arg(m_corrPeak, 0, 'f', 2);
-    row += QStringLiteral("  nb ")
-        + (m_haveNb ? QStringLiteral("%1%").arg(m_nbBlankedPct, 0, 'f', 1) : QStringLiteral("–"));
-    row += QStringLiteral("  mem %1").arg(m_memoryCount);
-    row += QStringLiteral("  cap ")
-        + (m_haveCapture ? (m_captureActive ? QStringLiteral("●") : QStringLiteral("○"))
-                         : QStringLiteral("–"));
-    return row;
+    return QStringLiteral("talk %1   moves %2   mem %3")
+        .arg(m_talking ? QStringLiteral("●") : QStringLiteral("○"))
+        .arg(m_updates)
+        .arg(m_memoryCount);
 }
 
-void DiversityScope::paintTextRow(QPainter& p, const QRectF& rectArea) const
+// "noise guard · coh 0.12   nb 0.1%" -- rn_source is gate-reported free text;
+// "guard" and "inband" are the two values the gate is documented to send, so
+// those map to the short words the design calls for and anything else (an
+// older/newer gate's own wording) is shown verbatim rather than swallowed.
+QString DiversityScope::buildBottomLine() const
+{
+    QString noiseWord;
+    if (!m_haveRnSource)
+        noiseWord = QStringLiteral("noise –");
+    else if (m_rnSource == QLatin1String("guard"))
+        noiseWord = QStringLiteral("noise guard");
+    else if (m_rnSource == QLatin1String("inband"))
+        noiseWord = QStringLiteral("noise in-band");
+    else
+        noiseWord = QStringLiteral("noise %1").arg(m_rnSource);
+
+    const QString cohText =
+        m_haveNoiseCoh ? QString::number(m_noiseCoh, 'f', 2) : QStringLiteral("–");
+    const QString nbText = m_haveNb
+        ? QStringLiteral("%1%").arg(m_nbBlankedPct, 0, 'f', 1)
+        : QStringLiteral("–");
+
+    return QStringLiteral("%1 · coh %2   nb %3").arg(noiseWord, cohText, nbText);
+}
+
+void DiversityScope::paintTextLines(QPainter& p, const QRectF& rectArea)
 {
     auto& tm = ThemeManager::instance();
-    QFont mono(QStringLiteral("Monospace"));
-    mono.setStyleHint(QFont::TypeWriter);
-    mono.setPointSizeF(8.5);
-    p.setFont(mono);
+    QFont small = font();
+    small.setPointSizeF(std::max(7.0, font().pointSizeF() - 1.0));
+    p.setFont(small);
     p.setPen(tm.color(this, QStringLiteral("color.text.secondary")));
 
-    const QFontMetricsF fm(mono);
-    const QString elided = fm.elidedText(buildTextRow(), Qt::ElideRight, rectArea.width() - 6.0);
-    p.drawText(rectArea.adjusted(4.0, 0, -2.0, 0), Qt::AlignLeft | Qt::AlignVCenter, elided);
+    const QFontMetricsF fm(small);
+    const double lineH = rectArea.height() / 2.0;
+    const double availW = std::max(0.0, rectArea.width() - 6.0);
+
+    const QString line1 = buildTopLine();
+    const QString line2 = buildBottomLine();
+    const QString elided1 = fm.elidedText(line1, Qt::ElideRight, availW);
+    const QString elided2 = fm.elidedText(line2, Qt::ElideRight, availW);
+    m_line1Elided = (elided1 != line1);
+    m_line2Elided = (elided2 != line2);
+
+    p.drawText(QRectF(rectArea.left() + 4.0, rectArea.top(), availW, lineH),
+               Qt::AlignLeft | Qt::AlignVCenter, elided1);
+    p.drawText(QRectF(rectArea.left() + 4.0, rectArea.top() + lineH, availW, lineH),
+               Qt::AlignLeft | Qt::AlignVCenter, elided2);
 }
 
 } // namespace AetherSDR

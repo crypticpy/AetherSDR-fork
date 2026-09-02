@@ -132,6 +132,12 @@ private:
     void sendDiversityCapture();
     void sendDiversityMemoryClear();
 
+    // Shows a successful capture's file BASENAME in the label (the sidebar's
+    // 250px width has no room for a full path) with the full path in the
+    // label's tooltip. An empty path means "no successful capture yet" --
+    // the constructor's "—" default, restored by setPresent(false).
+    void setDiversityCaptureResultLabel(const QString& path);
+
     QPointer<RadioModel>   m_model;
     QNetworkAccessManager* m_net{nullptr};
     QTimer*                m_timer{nullptr};
