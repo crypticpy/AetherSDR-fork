@@ -41,9 +41,17 @@
 // in the sidebar and vice versa: both are views of the same polled state,
 // neither echoes locally.
 //
-// Layout, top to bottom:
-//   * chain row  -- MODE (off/manual/null/track), HEAR (combined/A/B), the
-//                   hold-to-compare "Hear A only", REALIGN, and CAPTURE.
+// It has two pages, switched by the SLICE/BAND buttons at the left of the
+// chain row. SLICE is the window described above -- everything about the
+// frequency you are tuned to. BAND is about the SPAN: the spatial waterfall
+// and the conversation FINDER, both click-to-tune, built on the gate's
+// /diversity/spatial and /diversity/finder routes and polled only while that
+// page is on screen (see DiversityWindowBand.cpp).
+//
+// Layout of the SLICE page, top to bottom:
+//   * chain row  -- SLICE/BAND, MODE (off/manual/null/track), HEAR
+//                   (combined/A/B), the hold-to-compare "Hear A only",
+//                   REALIGN, and CAPTURE. Shared by both pages.
 //   * row 0      -- the scope (two columns) and TALKERS beside it.
 //   * row 1      -- the timeline, full width.
 //   * row 2      -- ANTENNAS | NOISE | EVENTS.
@@ -63,6 +71,8 @@
 
 class QButtonGroup;
 class QCloseEvent;
+class QHideEvent;
+class QShowEvent;
 class QJsonArray;
 class QJsonObject;
 class QJsonValue;
@@ -70,9 +80,11 @@ class QLabel;
 class QListWidget;
 class QPushButton;
 class QSpinBox;
+class QStackedWidget;
 class QTableWidget;
 class QTableWidgetItem;
 class QTimer;
+class QToolButton;
 class QVBoxLayout;
 class QWidget;
 
@@ -80,8 +92,10 @@ namespace AetherSDR {
 
 class AetherGateDiversityPanel;
 class ClientCompKnob;
+class DiversityFinderPanel;
 class DiversityMapStrip;
 class DiversityScope;
+class DiversitySpatialWaterfall;
 class DiversitySnrMeter;
 class DiversityTimeline;
 
@@ -106,6 +120,20 @@ public:
     void applyMap(const QJsonObject& map);
     void applyCaptureResult(bool ok, const QString& pathOrError);
 
+    // The BAND page's own two payloads, same contract as the three above: a
+    // missing or malformed field leaves its widget alone, and an
+    // "available": false answer is a fact about the gate rather than a reason
+    // to invent one. Fed only while that page is on screen -- see
+    // bandPageVisible(), which is what gates the polls upstream.
+    void applySpatial(const QJsonObject& spatial);
+    void applyFinder(const QJsonObject& finder);
+
+    // True while the window is showing BAND rather than SLICE.
+    // AetherGateDiversityPanel::wantsBandPoll() combines it with the window's
+    // own visibility, and AetherGateApplet polls /diversity/spatial and
+    // /diversity/finder only when both hold.
+    bool bandPageVisible() const;
+
     // Mirrors AetherGateApplet's own presence flag: false clears every
     // readout and greys the status strip, but leaves the window open -- the
     // operator opened it, and a dropped poll is not a reason to take it away.
@@ -120,14 +148,39 @@ signals:
     // -> GET /diversity/memory/name?id=<id>&name=<urlencoded>. An empty name
     // clears the gate's own label for that talker.
     void requestMemoryName(int id, QString name);
+    // -> the ACTIVE SLICE, not the gate: the gate has no tune route of its own
+    // (docs/DIVERSITY.md, "Limits and known gaps"), so a click on the spatial
+    // waterfall or a FINDER row leaves through AetherGateDiversityPanel to
+    // AetherGateApplet, which tunes AetherSDR's own slice. Absolute Hz.
+    void requestTune(double hz);
+    // The BAND page came on screen, or went off it (a page switch or the
+    // window closing). Carries whether the two BAND routes should be polled.
+    void bandPageChanged(bool bandVisible);
 
 protected:
     // Persists DiversityWindowVisible; PersistentDialog's own override saves
     // the geometry.
     void closeEvent(QCloseEvent* event) override;
+    // The BAND page's two polls follow the window on and off the screen. Both
+    // are announced from the show/hide events rather than from the code that
+    // calls show()/hide(): those events are delivered AFTER isVisible() has
+    // flipped, which is the state AetherGateDiversityPanel::wantsBandPoll()
+    // reads, and they catch every path (the close button, a hide() from the
+    // sidebar, the window manager) rather than the two we thought of.
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 
 private:
     QWidget* buildChainRow();
+    // The SLICE/BAND page switch, appended to the chain row's own layout, and
+    // the BAND page itself. Both defined in DiversityWindowBand.cpp.
+    void     buildPageSwitch(QWidget* row);
+    QWidget* buildBandPage();
+    void     showPage(bool band);
+    // A click on the waterfall or a FINDER row: emits requestTune() and, when
+    // the combiner is not already tracking, asks for mode=track.
+    void     tuneTo(double hz);
+    void     clearBandReadouts();
     QWidget* buildAntennasPanel();
     QWidget* buildNoisePanel();
     QWidget* buildTalkersPanel();
@@ -171,6 +224,13 @@ private:
     // True while the operator is holding/editing `knob` or its debounce has a
     // write pending -- a poll must not move it out from under either.
     static bool knobBusy(const ClientCompKnob* knob, const QTimer* debounce);
+
+    // --- pages ------------------------------------------------------------
+    QStackedWidget* m_pages{nullptr};
+    QToolButton*    m_pageSliceButton{nullptr};
+    QToolButton*    m_pageBandButton{nullptr};
+    DiversitySpatialWaterfall* m_waterfall{nullptr};
+    DiversityFinderPanel*      m_finder{nullptr};
 
     // --- chain row --------------------------------------------------------
     QButtonGroup* m_modeGroup{nullptr};

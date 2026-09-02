@@ -751,7 +751,7 @@ void testNothingScrollsAtTheInitialSize()
     settle();
     w->grab();   // forces a full layout pass on an offscreen platform
 
-    auto* scroll = w->findChild<QScrollArea*>();
+    auto* scroll = w->findChild<QScrollArea*>(QStringLiteral("diversityWindowSliceScroll"));  // SLICE, not BAND
     CHECK(scroll != nullptr);
     if (!scroll)
         return;

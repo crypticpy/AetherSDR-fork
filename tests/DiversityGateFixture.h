@@ -265,6 +265,39 @@ QByteArray makeDiversityMapWithPassband(int points)
     return body;
 }
 
+// --- BAND page -----------------------------------------------------------
+//
+// /diversity/spatial: eight bins across 2 kHz, with phases chosen so the
+// colour test has two columns that MUST differ (0 deg vs 180 deg) and one that
+// must be grey (zero coherence). The receiver's passband sits inside the span.
+inline const QByteArray kDiversitySpatial = R"({"available": true,
+    "start_hz": 14100000.0, "step_hz": 250.0, "points": 8,
+    "phase_deg": [0.0, 180.0, -90.0, 45.0, 0.0, 120.0, -175.0, 30.0],
+    "coherence": [0.9, 0.9, 0.7, 0.0, 0.5, 0.8, 0.6, 0.3],
+    "level_db": [-40.0, -41.0, -55.0, -70.0, -60.0, -44.0, -80.0, -66.0],
+    "passband_hz": [14100500.0, 14101200.0]})";
+
+// The same span with nothing measured yet -- the "waiting for the gate" case.
+inline const QByteArray kDiversitySpatialUnavailable = R"({"available": false})";
+
+// /diversity/finder: three candidates, best first, plus the activity strip.
+// The third is an OLD gate's row: hz and score only, every other field absent.
+// None of those may be rendered as a number.
+inline const QByteArray kDiversityFinder = R"({"available": true,
+    "span_hz": [14100000.0, 14102000.0], "history_s": 600,
+    "activity": [0.0, 0.2, 0.9, 0.4, 0.0, 0.1, 0.6, 0.0],
+    "candidates": [
+      {"hz": 14100600.0, "width_hz": 2700.0, "score": 0.82, "snr_db": 6.1,
+       "syllabic": 0.61, "active_s": 184.0, "last_s": 0.0,
+       "phase_deg": 141.0, "coherence": 0.70, "ratio_db": -2.1, "gain_db": 1.4},
+      {"hz": 14101450.0, "width_hz": 2400.0, "score": 0.55, "snr_db": -1.2,
+       "syllabic": 0.44, "active_s": 42.0, "last_s": 12.0,
+       "phase_deg": -30.0, "coherence": 0.21, "ratio_db": 0.4, "gain_db": -0.3},
+      {"hz": 14101900.0, "score": 0.31}
+    ]})";
+
+inline const QByteArray kDiversityFinderUnavailable = R"({"available": false})";
+
 QJsonObject asObject(const QByteArray& body)
 {
     return QJsonDocument::fromJson(body).object();

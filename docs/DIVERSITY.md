@@ -76,6 +76,11 @@ sidebar with the setting `AetherGateDiversityPanel_ShowScope`.
 Open it from the sidebar button. Its geometry and visibility persist; it
 reopens on the next run if it was open at exit.
 
+**SLICE / BAND.** The two buttons at the left of the chain row switch
+pages. SLICE, described below, is about the frequency you are tuned to.
+BAND is about the whole span the gate can see, and is where you go to
+decide where to be tuned.
+
 **Chain row.** MODE (off / manual / null / track), HEAR (combined, A, B —
 what goes to the audio), *Hear A only* (press-and-hold A/B comparison that
 restores the previous mode on release), REALIGN, and CAPTURE with a
@@ -125,6 +130,35 @@ selected**, which parks a manual weight on a source's null.
 remembered, lock and release, steady carrier nulled, mode and hear
 changes, realigns, captures.
 
+## The BAND page
+
+Everything on the SLICE page is about one channel, so none of it can answer
+"where should I be listening?". The BAND page asks the gate two questions
+about its whole 125 kHz instead. Both are click-to-tune: a click moves
+AetherSDR's active slice and switches the combiner to **track**, so the
+first over you hear is already being solved for.
+
+**SPATIAL WATERFALL.** One row per poll (4 Hz) across the gate's span, with
+colour meaning *direction* rather than strength: hue is the inter-loop
+arrival phase, saturation is coherence, brightness is level over a 50 dB
+window below the row's loudest bin. Two stations arriving from different
+places cannot share a colour. One local noise source paints a single flat
+colour across everything it touches, which is how you recognise it. Sky
+noise has no direction, so it goes grey. The receiver's passband is
+bracketed. Click a column to tune there; hover for the numbers.
+
+**FINDER.** The activity strip is the share of the last ten minutes each
+column carried voice; the table below it is the conversations the gate
+found there, best first (at most twelve, ranked by the gate): frequency,
+score, SNR, syllabic rate, how long it has been active, how long ago it was
+last heard, arrival phase, coherence, and `gain` — the diversity gain the
+pair can actually earn on that signal, which on plain sky noise is often
+near zero and says so. **Tune** (or a double-click on the row) goes there.
+
+A gate that is too old to serve these two routes, or that has not built a
+map yet, leaves the waterfall empty with *waiting for the gate*; missing
+numbers render as `—` rather than as zeros.
+
 ## A working session
 
 1. Start the gate, connect, open the window. Wait for `aligned` in the
@@ -164,6 +198,8 @@ over the better loop, best-loop share, talkers, passband flatness).
 - Two antennas: one null or one beam. Four-channel coherent HF hardware is
   the next step; the code is written to be N-ready but is 2×2 today.
 - Band changes come from AetherSDR; the gate has no tune route of its own.
+  The BAND page's click-to-tune therefore moves AetherSDR's active slice,
+  the same write a click on the panadapter makes.
 - Talker matching is spatial. Two stations at the same phase and level are
   one talker to the memory.
 - The audio blanker and the diversity blanker are separate; use one.

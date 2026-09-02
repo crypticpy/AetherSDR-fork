@@ -30,6 +30,13 @@ class RadioModel;
 // write the panel wants to make arrives here as a signal and leaves as a GET.
 class AetherGateDiversityPanel;
 
+// The BAND page's own transport: /diversity/spatial at 4 Hz and
+// /diversity/finder at 1 Hz, off a timer of their own because neither cadence
+// fits the 1 Hz one /status and /diversity share. Constructed with THIS
+// applet's QNetworkAccessManager and owned by it, so the section still has one
+// transport; see DiversityBandPoller.h for why it is a separate file.
+class DiversityBandPoller;
+
 // GATE — Aether-gate device controls.
 //
 // Aether-gate presents non-Flex hardware (an SDRplay RSP, an HPSDR, an Icom) to
@@ -123,6 +130,12 @@ private:
     void onDiversityRequestCapture(int seconds);
     void onDiversityRequestMemoryClear();
     void onDiversityRequestMemoryName(int id, QString name);
+    // The one diversity request that does NOT go to the gate: the gate has no
+    // tune route, so a click on the BAND page tunes AetherSDR's own active
+    // slice. `hz` is absolute.
+    void onDiversityRequestTune(double hz);
+    // Starts or stops the band poller from the panel's wantsBandPoll().
+    void updateBandPoll();
 
     QPointer<RadioModel>   m_model;
     QNetworkAccessManager* m_net{nullptr};
@@ -162,6 +175,9 @@ private:
     // than waiting out a stale count.
     bool m_mapFetched{false};
     int  m_pollsSinceMap{0};
+    // /diversity/spatial + /diversity/finder. Idle (and issuing nothing at
+    // all) unless the window is open on its BAND page.
+    DiversityBandPoller* m_bandPoller{nullptr};
 };
 
 } // namespace AetherSDR

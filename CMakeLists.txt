@@ -979,10 +979,14 @@ set(GUI_SOURCES
     src/gui/AetherGateApplet.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
     src/gui/DiversityWindowEvents.cpp
     src/gui/DiversityWindowPanels.cpp
     src/gui/KiwiPublicReceiverPicker.cpp

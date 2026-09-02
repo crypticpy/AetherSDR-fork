@@ -251,6 +251,10 @@ void AetherGateDiversityPanel::toggleWindow()
     if (!m_window) {
         m_window = DiversityWindow::createFor(this);
         m_window->setPresent(m_present);
+        // Wired here rather than in createFor(): a signal can only be emitted
+        // by the object that owns it, and this is that object.
+        connect(m_window, &DiversityWindow::bandPageChanged, this,
+                [this] { emit bandPollChanged(); });
     }
     const bool wantVisible = !m_window->isVisible();
     AppSettings::instance().setValue(QLatin1String(kWindowVisibleKey),
@@ -268,6 +272,11 @@ void AetherGateDiversityPanel::toggleWindow()
 bool AetherGateDiversityPanel::wantsMapPoll() const
 {
     return m_window && m_window->isVisible();
+}
+
+bool AetherGateDiversityPanel::wantsBandPoll() const
+{
+    return m_window && m_window->isVisible() && m_window->bandPageVisible();
 }
 
 void AetherGateDiversityPanel::setPresent(bool present)
@@ -346,6 +355,18 @@ void AetherGateDiversityPanel::applyMap(const QJsonObject& map)
 {
     if (m_window)
         m_window->applyMap(map);
+}
+
+void AetherGateDiversityPanel::applySpatial(const QJsonObject& spatial)
+{
+    if (m_window)
+        m_window->applySpatial(spatial);
+}
+
+void AetherGateDiversityPanel::applyFinder(const QJsonObject& finder)
+{
+    if (m_window)
+        m_window->applyFinder(finder);
 }
 
 void AetherGateDiversityPanel::applyCaptureResult(bool ok, const QString& pathOrError)

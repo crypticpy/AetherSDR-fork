@@ -2,7 +2,9 @@
 
 #include "core/ThemeManager.h"
 #include "gui/AetherGateDiversityPanel.h"
+#include "gui/DiversityBandPoller.h"
 #include "models/RadioModel.h"
+#include "models/SliceModel.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -261,6 +263,17 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
     root->addStretch(1);
 
     m_net = net ? net : new QNetworkAccessManager(this);
+    // The BAND page's routes, on their own cadence and off unless that page is
+    // on screen — see DiversityBandPoller.h.
+    m_bandPoller = new DiversityBandPoller(m_net, this);
+    connect(m_bandPoller, &DiversityBandPoller::spatialReceived, m_diversityPanel,
+            &AetherGateDiversityPanel::applySpatial);
+    connect(m_bandPoller, &DiversityBandPoller::finderReceived, m_diversityPanel,
+            &AetherGateDiversityPanel::applyFinder);
+    connect(m_diversityPanel, &AetherGateDiversityPanel::bandPollChanged, this,
+            &AetherGateApplet::updateBandPoll);
+    connect(m_diversityPanel, &AetherGateDiversityPanel::requestTune, this,
+            &AetherGateApplet::onDiversityRequestTune);
     m_timer = new QTimer(this);
     m_timer->setObjectName(QStringLiteral("gatePollTimer"));
     connect(m_timer, &QTimer::timeout, this, &AetherGateApplet::poll);
@@ -313,6 +326,7 @@ void AetherGateApplet::setRadioAddress(const QString& ip)
     m_mapFetched = false;
     m_pollsSinceMap = 0;
     setPresent(false);
+    updateBandPoll();
     if (m_ip.isEmpty())
         return;                       // setPresent() has already parked the timer
     // Probe even while hidden.  AppletPanel keeps the GATE button out of the
@@ -417,6 +431,7 @@ void AetherGateApplet::setPresent(bool present)
         m_diversityPanel->setPresent(true);
     }
     emit gatePresenceChanged(present);
+    updateBandPoll();
     scheduleTimer();
 }
 
@@ -771,6 +786,46 @@ void AetherGateApplet::pollDiversity()
             m_pollsSinceMap = 0;
         }
     });
+}
+
+// The BAND page's poller runs only while that page is on screen and the gate
+// is answering: a closed window, an open one on SLICE, or a gate that has gone
+// away all cost zero requests. Called from setPresent()/setRadioAddress() and
+// from the panel's bandPollChanged(), so a page switch starts it at once
+// rather than up to a second later.
+void AetherGateApplet::updateBandPoll()
+{
+    m_bandPoller->setBaseUrl(baseUrl());
+    m_bandPoller->setEnabled(m_present && m_diversityPanel->wantsBandPoll());
+}
+
+// The one request in this section that never reaches the gate. The gate has no
+// tune verb (docs/DIVERSITY.md, "Limits and known gaps"), so a click on the
+// BAND page tunes AetherSDR's own active slice -- the same slice a click on the
+// panadapter would move, through the same slice frequency write, so the radio
+// cannot end up disagreeing with the app about where it is.
+//
+// "Active" is defined exactly as MainWindow::activeSlice() defines it, minus
+// its cache: the first slice flagged active, falling back to the first slice
+// there is. With no model wired (the applet can be driven address-first) there
+// is nothing to tune and the click is dropped rather than guessed at.
+void AetherGateApplet::onDiversityRequestTune(double hz)
+{
+    if (!m_model || hz <= 0.0)
+        return;
+    const QList<SliceModel*> slices = m_model->slices();
+    SliceModel* target = nullptr;
+    for (SliceModel* slice : slices) {
+        if (slice && slice->isActive()) {
+            target = slice;
+            break;
+        }
+    }
+    if (!target && !slices.isEmpty())
+        target = slices.first();
+    if (!target)
+        return;
+    target->setFrequency(hz / 1.0e6);
 }
 
 // Same non-critical-to-presence contract as pollDiversity() above: an

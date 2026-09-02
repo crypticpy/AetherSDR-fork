@@ -29,6 +29,7 @@
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QTableWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -171,6 +172,7 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     auto* gridHost = new QWidget;
     gridHost->setLayout(grid);
     auto* scroll = new QScrollArea;
+    scroll->setObjectName(QStringLiteral("diversityWindowSliceScroll"));
     scroll->setWidget(gridHost);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
@@ -179,7 +181,15 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     // but the window can be dragged down to 980x720, and a control that has
     // been squeezed off the right-hand edge with no way to scroll to it is
     // worse than a scrollbar.
-    root->addWidget(scroll, 1);
+    // Two pages, one chain row. The BAND page is built here rather than
+    // lazily so its widgets exist for the very first poll -- a page that
+    // built itself on first show would miss the payload that arrived while
+    // it did.
+    m_pages = new QStackedWidget;
+    m_pages->setObjectName(QStringLiteral("diversityWindowPages"));
+    m_pages->addWidget(scroll);
+    m_pages->addWidget(buildBandPage());
+    root->addWidget(m_pages, 1);
 
     m_statusStrip = new QLabel(tr("gate not answering"), this);
     m_statusStrip->setObjectName(QStringLiteral("diversityWindowStatusLabel"));
@@ -213,6 +223,8 @@ DiversityWindow* DiversityWindow::createFor(AetherGateDiversityPanel* panel)
             panel, &AetherGateDiversityPanel::requestMemoryClear);
     connect(window, &DiversityWindow::requestMemoryName,
             panel, &AetherGateDiversityPanel::requestMemoryName);
+    connect(window, &DiversityWindow::requestTune,
+            panel, &AetherGateDiversityPanel::requestTune);
     return window;
 }
 
@@ -296,6 +308,10 @@ QWidget* DiversityWindow::buildChainRow()
     auto* layout = new QHBoxLayout(row);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(6);
+
+    // The SLICE/BAND switch leads the row: it decides which of the two
+    // instruments below it the rest of the row is operating.
+    buildPageSwitch(row);
 
     m_modeGroup = addButtonRow(
         row, tr("MODE"), QStringLiteral("mode"), QStringLiteral("diversityWindowMode"),
@@ -723,6 +739,7 @@ void DiversityWindow::setPresent(bool present)
 
 void DiversityWindow::clearReadouts()
 {
+    clearBandReadouts();
     m_scope->clear();
     m_timeline->clear();
     m_mapStrip->setMap({});

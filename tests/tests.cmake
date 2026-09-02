@@ -2877,10 +2877,14 @@ add_executable(aether_gate_applet_test
     src/gui/AetherGateApplet.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
     src/gui/DiversityWindowEvents.cpp
     src/gui/DiversityWindowPanels.cpp
     src/gui/ClientCompKnob.cpp
@@ -2908,10 +2912,14 @@ add_executable(diversity_window_test
     src/gui/AetherGateApplet.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
     src/gui/DiversityWindowEvents.cpp
     src/gui/DiversityWindowPanels.cpp
     src/gui/ClientCompKnob.cpp
@@ -2926,6 +2934,42 @@ target_link_libraries(diversity_window_test PRIVATE
 set_target_properties(diversity_window_test PROPERTIES AUTOMOC ON)
 add_test(NAME diversity_window_test COMMAND diversity_window_test)
 set_tests_properties(diversity_window_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The Diversity window's BAND page: the SLICE/BAND switch, the spatial
+# waterfall and the conversation FINDER, and the two extra gate routes they are
+# fed from (/diversity/spatial at 4 Hz, /diversity/finder at 1 Hz). A third
+# binary rather than more cases in diversity_window_test: that file is at the
+# 800-line budget AGENTS.md asks for, and this page's cases need the same
+# fresh, process-wide AppSettings start every window case does. Socket-free the
+# same way -- the applet under it takes the injected QNetworkAccessManager.
+add_executable(diversity_band_test
+    tests/diversity_band_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_band_test PRIVATE src tests)
+target_link_libraries(diversity_band_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_band_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_band_test COMMAND diversity_band_test)
+set_tests_properties(diversity_band_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(meter_applet_capability_test

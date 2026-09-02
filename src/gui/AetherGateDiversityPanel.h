@@ -74,6 +74,13 @@ public:
     // pure forwarding.
     void applyCaptureResult(bool ok, const QString& pathOrError);
 
+    // The BAND page's two payloads, forwarded to the window the same way
+    // applyMap() is -- the window is the only view of either. Fed by
+    // AetherGateApplet's DiversityBandPoller, which runs only while
+    // wantsBandPoll() holds.
+    void applySpatial(const QJsonObject& spatial);
+    void applyFinder(const QJsonObject& finder);
+
     // present/absent — mirrors AetherGateApplet::setPresent(): false hides
     // the panel and resets every readout that must not outlive a reconnect
     // to a different (or older) gate at the same address.
@@ -92,6 +99,13 @@ public:
     // /diversity/map polling at all. AetherGateApplet gates its map poll on
     // this.
     bool wantsMapPoll() const;
+
+    // True only while the pop-out window is on screen AND showing its BAND
+    // page. /diversity/spatial is a 4 Hz route and /diversity/finder a 1 Hz
+    // one; neither is worth a byte while nobody is looking at the page they
+    // draw on, so AetherGateApplet gates its band poller on this and on the
+    // bandPollChanged() signal below.
+    bool wantsBandPoll() const;
 
     // Test/introspection accessor for the pop-out window -- null until the
     // "Open Diversity window" button has been pressed once (or the persisted
@@ -120,6 +134,16 @@ signals:
     // -> GET /diversity/memory/name?id=<id>&name=<urlencoded>. An empty name
     // clears the gate's label.
     void requestMemoryName(int id, QString name);
+    // -> the active slice. The gate has no tune route of its own, so a click
+    // on the BAND page's waterfall or FINDER table leaves the window, crosses
+    // here, and is turned into a real slice tune by AetherGateApplet -- the
+    // one place in this section that can reach the RadioModel. Absolute Hz.
+    void requestTune(double hz);
+    // wantsBandPoll() may have changed: the window opened or closed, or its
+    // page switched. Polling it once a second off the status timer would leave
+    // the BAND page blank for up to a second after it is opened, which is the
+    // whole time an operator spends deciding it is broken.
+    void bandPollChanged();
 
 private:
     // Shows the pop-out window (building it on first use) or hides it, and
