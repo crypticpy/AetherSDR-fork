@@ -7,10 +7,13 @@
 class QCheckBox;
 class QJsonObject;
 class QComboBox;
+class QDoubleSpinBox;
 class QFormLayout;
 class QLabel;
 class QNetworkAccessManager;
 class QNetworkReply;
+class QPushButton;
+class QSlider;
 class QTimer;
 class QUrlQuery;
 
@@ -82,6 +85,16 @@ private:
              void (AetherGateApplet::*handler)(const QJsonObject&, bool));
     void setPresent(bool present);
 
+    // Diversity — polled off the same timer as /status (never a second one:
+    // see poll()), but NOT through get(): an old gate with no /diversity route
+    // 404s, and that says nothing about whether the GATE itself answered, so a
+    // diversity failure only hides the section rather than counting toward
+    // m_failures/setPresent(false).
+    void pollDiversity();
+    void applyDiversity(const QJsonObject& d, bool isJson);
+    void sendDiversitySet(const QUrlQuery& query);
+    void sendDiversityAlign();
+
     QPointer<RadioModel>   m_model;
     QNetworkAccessManager* m_net{nullptr};
     QTimer*                m_timer{nullptr};
@@ -107,6 +120,19 @@ private:
     QComboBox*   m_antenna{nullptr};
     QHash<QString, QWidget*> m_settingWidgets;    // Soapy setting key -> control
     QString      m_controlsFingerprint;           // rebuild only when the SET changes
+
+    // Diversity — RSPduo dual-tuner combining. Hidden until /diversity reports
+    // "available": true.
+    QWidget*        m_diversityBox{nullptr};
+    QComboBox*      m_diversityMode{nullptr};
+    QSlider*        m_diversityPhase{nullptr};
+    QLabel*         m_diversityPhaseValue{nullptr};
+    QDoubleSpinBox* m_diversityRatio{nullptr};
+    QComboBox*      m_diversitySource{nullptr};
+    QPushButton*    m_diversityRealign{nullptr};
+    QLabel*         m_diversityStatusLine{nullptr};
+    QTimer*         m_diversityPhaseDebounce{nullptr};   // ~150ms so a drag sends once
+    QTimer*         m_diversityRatioDebounce{nullptr};
 };
 
 } // namespace AetherSDR

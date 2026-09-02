@@ -7,6 +7,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QHideEvent>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -16,8 +17,10 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPushButton>
 #include <QShowEvent>
 #include <QSignalBlocker>
+#include <QSlider>
 #include <QSpinBox>
 #include <QTimer>
 #include <QUrlQuery>
@@ -50,6 +53,11 @@ static constexpr int kReprobeMs = 15000;
 // /device is re-read every this many status polls, so a hot-swapped device's
 // control set replaces the old one while the gate itself stays present.
 static constexpr int kDeviceRefreshPolls = 10;
+
+// Debounce for the diversity phase slider / ratio spinbox: a slider drag fires
+// valueChanged many times a second, and each write is a real HTTP round trip
+// to the gate — coalesce to one request per ~150ms of quiet.
+static constexpr int kDiversityDebounceMs = 150;
 
 // Numeric bounds used only when the gate reports none for a setting. Wide on
 // purpose: a guessed range clamps in BOTH directions — a write outside it is
@@ -164,6 +172,31 @@ int decimalsForStep(double step)
     return std::clamp(int(std::ceil(-std::log10(step))), 0, 6);
 }
 
+// snr_db's a/b/out members are individually float|null (no signal seen yet on
+// that leg) — render the dash the rest of the applet already uses for "no
+// value" (m_binWidth's placeholder) rather than a bare "0.0" that reads as a
+// measurement.
+QString snrText(const QJsonObject& snr, const char* key)
+{
+    const QJsonValue v = snr.value(QLatin1String(key));
+    if (v.isNull() || v.isUndefined())
+        return QStringLiteral("—");
+    return QString::number(v.toDouble(), 'f', 1);
+}
+
+QString formatDiversityStatus(const QJsonObject& d)
+{
+    const int lag = d.value(QStringLiteral("lag_samples")).toInt();
+    const bool aligned = d.value(QStringLiteral("aligned")).toBool();
+    const double peak = d.value(QStringLiteral("corr_peak")).toDouble();
+    const QJsonObject snr = d.value(QStringLiteral("snr_db")).toObject();
+    return QStringLiteral("lag %1 samples · %2 · peak %3 · SNR %4/%5/%6 dB")
+        .arg(lag)
+        .arg(aligned ? QObject::tr("aligned") : QObject::tr("not aligned"))
+        .arg(peak, 0, 'f', 2)
+        .arg(snrText(snr, "a"), snrText(snr, "b"), snrText(snr, "out"));
+}
+
 } // namespace
 
 AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
@@ -230,7 +263,112 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
     m_deviceHint->setVisible(false);
     root->addWidget(m_deviceHint);
 
+    // --- diversity, RSPduo dual-tuner combining --------------------------
+    // Hidden until a /diversity poll reports "available": true (a gate not
+    // bridging a dual-tuner device, or one that predates the feature).
+    m_diversityBox = new QWidget(this);
+    m_diversityBox->setObjectName(QStringLiteral("gateDiversityBox"));
+    auto* divForm = new QFormLayout(m_diversityBox);
+    divForm->setContentsMargins(0, 6, 0, 0);
+    divForm->setSpacing(4);
+
+    m_diversityMode = new QComboBox(m_diversityBox);
+    m_diversityMode->setObjectName(QStringLiteral("gateDiversityModeCombo"));
+    m_diversityMode->addItem(tr("Off"), QStringLiteral("off"));
+    m_diversityMode->addItem(tr("Manual"), QStringLiteral("manual"));
+    m_diversityMode->addItem(tr("Null"), QStringLiteral("null"));
+    m_diversityMode->addItem(tr("Track"), QStringLiteral("track"));
+    connect(m_diversityMode, &QComboBox::currentIndexChanged, this, [this](int idx) {
+        if (idx < 0)
+            return;
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("mode"), m_diversityMode->itemData(idx).toString());
+        sendDiversitySet(q);
+    });
+    auto* modeLabel = new QLabel(tr("Mode"), m_diversityBox);
+    styleRowLabel(modeLabel);
+    divForm->addRow(modeLabel, m_diversityMode);
+
+    auto* phaseRow = new QWidget(m_diversityBox);
+    auto* phaseRowLayout = new QHBoxLayout(phaseRow);
+    phaseRowLayout->setContentsMargins(0, 0, 0, 0);
+    m_diversityPhase = new QSlider(Qt::Horizontal, phaseRow);
+    m_diversityPhase->setObjectName(QStringLiteral("gateDiversityPhaseSlider"));
+    m_diversityPhase->setRange(0, 360);
+    m_diversityPhaseValue = new QLabel(QStringLiteral("0°"), phaseRow);
+    m_diversityPhaseValue->setObjectName(QStringLiteral("gateDiversityPhaseValueLabel"));
+    connect(m_diversityPhase, &QSlider::valueChanged, this, [this](int v) {
+        m_diversityPhaseValue->setText(QStringLiteral("%1°").arg(v));
+        m_diversityPhaseDebounce->start(kDiversityDebounceMs);
+    });
+    phaseRowLayout->addWidget(m_diversityPhase, 1);
+    phaseRowLayout->addWidget(m_diversityPhaseValue);
+    auto* phaseLabel = new QLabel(tr("Phase"), m_diversityBox);
+    styleRowLabel(phaseLabel);
+    divForm->addRow(phaseLabel, phaseRow);
+
+    m_diversityRatio = new QDoubleSpinBox(m_diversityBox);
+    m_diversityRatio->setObjectName(QStringLiteral("gateDiversityRatioSpin"));
+    m_diversityRatio->setRange(-20.0, 20.0);
+    m_diversityRatio->setSingleStep(0.5);
+    m_diversityRatio->setDecimals(1);
+    m_diversityRatio->setSuffix(QStringLiteral(" dB"));
+    connect(m_diversityRatio, &QDoubleSpinBox::valueChanged, this, [this](double) {
+        m_diversityRatioDebounce->start(kDiversityDebounceMs);
+    });
+    auto* ratioLabel = new QLabel(tr("Ratio"), m_diversityBox);
+    styleRowLabel(ratioLabel);
+    divForm->addRow(ratioLabel, m_diversityRatio);
+
+    m_diversitySource = new QComboBox(m_diversityBox);
+    m_diversitySource->setObjectName(QStringLiteral("gateDiversitySourceCombo"));
+    m_diversitySource->addItem(tr("Combined"), QStringLiteral("combined"));
+    m_diversitySource->addItem(tr("A"), QStringLiteral("a"));
+    m_diversitySource->addItem(tr("B"), QStringLiteral("b"));
+    connect(m_diversitySource, &QComboBox::currentIndexChanged, this, [this](int idx) {
+        if (idx < 0)
+            return;
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("source"), m_diversitySource->itemData(idx).toString());
+        sendDiversitySet(q);
+    });
+    auto* sourceLabel = new QLabel(tr("Source"), m_diversityBox);
+    styleRowLabel(sourceLabel);
+    divForm->addRow(sourceLabel, m_diversitySource);
+
+    m_diversityRealign = new QPushButton(tr("Realign"), m_diversityBox);
+    m_diversityRealign->setObjectName(QStringLiteral("gateDiversityRealignButton"));
+    connect(m_diversityRealign, &QPushButton::clicked, this,
+            &AetherGateApplet::sendDiversityAlign);
+    divForm->addRow(QString(), m_diversityRealign);
+
+    m_diversityStatusLine = new QLabel(QStringLiteral("—"), m_diversityBox);
+    m_diversityStatusLine->setObjectName(QStringLiteral("gateDiversityStatusLabel"));
+    m_diversityStatusLine->setWordWrap(true);
+    styleRowLabel(m_diversityStatusLine);
+    divForm->addRow(QString(), m_diversityStatusLine);
+
+    m_diversityBox->setVisible(false);
+    root->addWidget(m_diversityBox);
+
     root->addStretch(1);
+
+    m_diversityPhaseDebounce = new QTimer(this);
+    m_diversityPhaseDebounce->setSingleShot(true);
+    connect(m_diversityPhaseDebounce, &QTimer::timeout, this, [this] {
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("phase"), QString::number(m_diversityPhase->value()));
+        sendDiversitySet(q);
+    });
+
+    m_diversityRatioDebounce = new QTimer(this);
+    m_diversityRatioDebounce->setSingleShot(true);
+    connect(m_diversityRatioDebounce, &QTimer::timeout, this, [this] {
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("ratio"),
+                       QString::number(m_diversityRatio->value(), 'f', 1));
+        sendDiversitySet(q);
+    });
 
     m_net = net ? net : new QNetworkAccessManager(this);
     m_timer = new QTimer(this);
@@ -367,6 +505,9 @@ void AetherGateApplet::setPresent(bool present)
         m_deviceHint->setVisible(false);
         m_controlsFingerprint.clear();
         m_deviceFetched = false;
+        m_diversityBox->setVisible(false);
+        m_diversityPhaseDebounce->stop();
+        m_diversityRatioDebounce->stop();
     } else {
         m_status->setToolTip(QString());
     }
@@ -384,6 +525,7 @@ void AetherGateApplet::poll()
         return;
     }
     get(QStringLiteral("/status"), &AetherGateApplet::applyStatus);
+    pollDiversity();               // piggyback — never a second timer
 }
 
 void AetherGateApplet::refreshDeviceControls()
@@ -672,6 +814,123 @@ void AetherGateApplet::buildDeviceControls(const QJsonObject& dev)
             edit->setText(value);
         }
     }
+}
+
+// Not routed through get(): an older gate with no /diversity route 404s here,
+// and that says nothing about whether the GATE answered — /status alone
+// decides presence — so a failure just hides the section instead of counting
+// toward m_failures/setPresent(false) (see the header comment on this method).
+void AetherGateApplet::pollDiversity()
+{
+    const QString base = baseUrl();
+    if (base.isEmpty())
+        return;
+    QNetworkRequest req{QUrl(base + QStringLiteral("/diversity"))};
+    req.setTransferTimeout(2000);
+    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                     QNetworkRequest::AlwaysNetwork);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            m_diversityBox->setVisible(false);
+            return;
+        }
+        QJsonObject obj;
+        const bool json = parseObject(reply->readAll(), &obj);
+        applyDiversity(obj, json);
+    });
+}
+
+void AetherGateApplet::applyDiversity(const QJsonObject& d, bool isJson)
+{
+    if (!isJson) {
+        m_diversityBox->setVisible(false);
+        return;
+    }
+
+    const bool available = d.value(QStringLiteral("available")).toBool();
+    m_diversityBox->setVisible(available);
+    if (!available)
+        return;
+
+    const QString mode = d.value(QStringLiteral("mode")).toString();
+    {
+        const QSignalBlocker block(m_diversityMode);
+        const int idx = m_diversityMode->findData(mode);
+        if (idx >= 0)
+            m_diversityMode->setCurrentIndex(idx);
+    }
+    // Only Manual takes a phase/ratio setpoint — Null and Track solve for
+    // their own weight, and Off applies none, so editing either there would
+    // write a value the gate is not using.
+    const bool manual = (mode == QLatin1String("manual"));
+    m_diversityPhase->setEnabled(manual);
+    m_diversityRatio->setEnabled(manual);
+
+    const QString source = d.value(QStringLiteral("source")).toString();
+    {
+        const QSignalBlocker block(m_diversitySource);
+        const int idx = m_diversitySource->findData(source);
+        if (idx >= 0)
+            m_diversitySource->setCurrentIndex(idx);
+    }
+
+    // Skip a control the operator is in the middle of dragging/editing — the
+    // same guard buildDeviceControls() uses for the settings it re-populates.
+    if (!m_diversityPhase->hasFocus()) {
+        const QSignalBlocker block(m_diversityPhase);
+        const int phase = int(std::lround(d.value(QStringLiteral("phase_deg")).toDouble()));
+        m_diversityPhase->setValue(phase);
+        m_diversityPhaseValue->setText(QStringLiteral("%1°").arg(phase));
+    }
+    if (!m_diversityRatio->hasFocus()) {
+        const QSignalBlocker block(m_diversityRatio);
+        m_diversityRatio->setValue(d.value(QStringLiteral("ratio_db")).toDouble());
+    }
+
+    m_diversityStatusLine->setText(formatDiversityStatus(d));
+}
+
+// One path for every diversity write, same shape as sendDeviceSet(): the
+// read-back arrives with the reply, so a control always ends up showing what
+// the gate took rather than what we asked for.
+void AetherGateApplet::sendDiversitySet(const QUrlQuery& query)
+{
+    const QString base = baseUrl();
+    if (base.isEmpty() || !m_present)
+        return;
+    QUrl url(base + QStringLiteral("/diversity/set"));
+    url.setQuery(query);
+    QNetworkRequest req{url};
+    req.setTransferTimeout(4000);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        QJsonObject obj;
+        const bool json = parseObject(reply->readAll(), &obj);
+        applyDiversity(obj, json);
+    });
+}
+
+void AetherGateApplet::sendDiversityAlign()
+{
+    const QString base = baseUrl();
+    if (base.isEmpty() || !m_present)
+        return;
+    QNetworkRequest req{QUrl(base + QStringLiteral("/diversity/align"))};
+    req.setTransferTimeout(4000);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        QJsonObject obj;
+        const bool json = parseObject(reply->readAll(), &obj);
+        applyDiversity(obj, json);
+    });
 }
 
 } // namespace AetherSDR

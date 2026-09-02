@@ -24,6 +24,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QSignalSpy>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStringList>
 #include <QTest>
@@ -183,6 +184,18 @@ const QByteArray kDevice = R"({
     ]})";
 
 const QByteArray kHtml = "<html><body>Aether-gate web panel</body></html>";
+
+const QByteArray kDiversityUnavailable = R"({"available": false})";
+
+const QByteArray kDiversityManual = R"({"available": true, "channels": 2,
+    "mode": "manual", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
+    "weight": [0.7, 0.1], "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
+    "snr_db": {"a": 12.3, "b": 9.8, "out": 15.1}, "updates": 42, "slice_id": 0})";
+
+const QByteArray kDiversityTrack = R"({"available": true, "channels": 2,
+    "mode": "track", "source": "combined", "phase_deg": 10.0, "ratio_db": 0.0,
+    "weight": [1.0, 0.0], "lag_samples": 0, "aligned": false, "corr_peak": 0.0,
+    "snr_db": {"a": null, "b": null, "out": null}, "updates": 0, "slice_id": 0})";
 
 // ---------------------------------------------------------------------------
 
@@ -424,6 +437,100 @@ void testDownEdgeDropsPresenceAndReprobesOnReturn()
     CHECK(spy.count() == 3 && spy.at(2).at(0).toBool());
 }
 
+// No /diversity route (an old gate) or "available": false (a gate whose
+// device isn't a dual-tuner) both mean no diversity section — not a silently
+// empty one.
+void testDiversityHiddenWhenUnavailableOrMissing()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+
+    CHECK(a.gatePresent());     // /diversity 404ing must not affect presence
+    CHECK(a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"))->isHidden());
+
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityUnavailable};
+    tick(a);
+    CHECK(a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"))->isHidden());
+}
+
+// Manual is the only mode that takes a phase/ratio setpoint; Track (and Null,
+// Off) solve/hold their own, so editing either there would write a value the
+// gate ignores.
+void testDiversityManualEnablesPhaseRatioOtherModesDisable()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+
+    CHECK(!a.findChild<QWidget*>(QStringLiteral("gateDiversityBox"))->isHidden());
+    auto* phase = a.findChild<QSlider*>(QStringLiteral("gateDiversityPhaseSlider"));
+    auto* ratio = a.findChild<QDoubleSpinBox*>(QStringLiteral("gateDiversityRatioSpin"));
+    CHECK(phase && phase->isEnabled() && phase->value() == 45);
+    CHECK(ratio && ratio->isEnabled() && ratio->value() == -2.5);
+
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityTrack};
+    tick(a);
+    CHECK(!phase->isEnabled());
+    CHECK(!ratio->isEnabled());
+}
+
+// snr_db's a/b/out members are individually nullable — the status line must
+// show a dash for each, not "0.0" (which reads as a real, terrible reading).
+void testDiversityStatusLineRendersNullSnrAsDashes()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityTrack};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+
+    const QString text =
+        a.findChild<QLabel*>(QStringLiteral("gateDiversityStatusLabel"))->text();
+    CHECK(text.contains(QStringLiteral("SNR —/—/— dB")));
+    CHECK(text.contains(QStringLiteral("lag 0 samples")));
+}
+
+// A phase-slider drag must debounce to one write carrying phase= alone, not
+// ratio= riding along on the same request.
+void testDiversityPhaseChangeSendsPhaseOnly()
+{
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kNewStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityManual};
+    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, kDiversityManual};
+    AetherGateApplet a(nullptr, &net);
+
+    a.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+
+    auto* phase = a.findChild<QSlider*>(QStringLiteral("gateDiversityPhaseSlider"));
+    CHECK(phase && phase->isEnabled());
+    phase->setValue(200);
+    QTest::qWait(250);           // past the ~150ms debounce
+    settle();
+
+    CHECK(net.count(QStringLiteral("/diversity/set")) == 1);
+    CHECK(net.log.contains(QStringLiteral("/diversity/set?phase=200")));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -439,6 +546,10 @@ int main(int argc, char** argv)
     testBlipRecoversWithoutHelp();
     testVisibleCadence();
     testDownEdgeDropsPresenceAndReprobesOnReturn();
+    testDiversityHiddenWhenUnavailableOrMissing();
+    testDiversityManualEnablesPhaseRatioOtherModesDisable();
+    testDiversityStatusLineRendersNullSnrAsDashes();
+    testDiversityPhaseChangeSendsPhaseOnly();
 
     std::printf("\n%d aether gate applet test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;
