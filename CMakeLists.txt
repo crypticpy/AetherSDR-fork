@@ -985,6 +985,9 @@ set(GUI_SOURCES
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainPresets.cpp
+    src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
@@ -996,6 +999,7 @@ set(GUI_SOURCES
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFilterPanelPaint.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp

@@ -524,7 +524,8 @@ that is specific to a pair: a single-antenna receiver has a passband, an
 AGC and a notch too. It has all moved to the gate's own CHAIN window,
 reachable from the OPEN CHAIN button at the top of this page — the note
 underneath it says so in as many words: `roofing, blanker, shape, notch,
-APF, AGC: in the CHAIN window`.
+APF, AGC: in the CHAIN window`. The passband as a picture — the curve, the notches, the tones the ANF is
+holding — is on the CHAIN window's VISUAL tab, not here.
 
 What is left on FILTER, in the PAIR STAGES box, is the two stages that
 only exist because there are two receivers: a post-filter that works on
@@ -600,6 +601,82 @@ a time, waiting for the receiver after each. The line under the button
 says what that does to the sound. `DATA` is deliberately dead, with `No
 set for data yet.` on its hover: the gate has no data-specific stage and
 a button that wrote nothing would be a lie.
+
+**Two tabs.** The window has two tabs at the top, `CHAIN` and `VISUAL`, and they are
+two views of the same `/filter` poll. `CHAIN` is the block diagram
+above. `VISUAL` is the passband drawn as a curve at the full width of the
+window, over what is actually arriving: the measured response in blue,
+the spectrum filled in under it with the noise floor as a dotted line,
+each notch as a vertical line labelled with its depth, each tone the ANF
+is holding as a dashed line, the CONTOUR centre and the APF centre as
+ticks along the bottom, and the AUTO WIDTH edges as faint lines when
+AUTO is on. The one line under the picture reads what the gate said:
+`350–2400 Hz · floor -70.0 dB · 2 notches`. Hover anywhere and the
+top-right corner reads the frequency and the response there.
+
+Only the tab in front is fed. With `CHAIN` in front the picture is not
+walked, fingerprinted or painted at all; turn to `VISUAL` and it catches
+up at once from the last body, without waiting for a poll. A chain
+window left open on `CHAIN` behind the main window costs nothing.
+
+**Presets.** `PRESETS` sits over the picture on the `VISUAL` tab: a menu, `LOAD`,
+`SAVE AS...`, `DELETE`, and a line that says which preset is in force.
+
+A preset is the **whole chain as you left it** — every stage on the
+current chain that can be written from this window, with its on/off or
+its value: the roof, the blanker, the shape, both notches switches, the
+contour, the APF, the EQ, the AGC, and on a dual-tuner pair the
+combiner, SUB-BAND NULL and POST-FILTER too. What is *not* in one is
+anything this window has never been able to move (the antenna port, the
+LNA, the sample rate — those are set on the setup page), and the
+passband edges themselves, which belong to the band you are on rather
+than to a way of listening.
+
+`SAVE AS...` opens a field where the menu was; type a name and press
+Enter (Escape leaves everything as it was). `LOAD` applies the chosen
+preset the same way `SET UP FOR PHONE` does — one write at a time, each
+waited for, in the gate's own signal order, with the progress line
+counting them off — and a stage the preset names that this receiver
+does not have is skipped and said out loud: `this receiver has no
+POST-FILTER, SUB-BAND NULL — the rest was set`. A preset saved on the
+pair loads on one tuner without complaint. `DELETE` does not ask first;
+it leaves an `UNDO` for eight seconds instead.
+
+**Where they live.** One JSON file per preset, under the app's data
+folder in `chain-presets/` — on macOS
+`~/Library/Application Support/AetherSDR/chain-presets/net-night-80m.json`.
+That is the import and the export: a preset is a file you can copy to
+another machine, mail to a friend, or drop into that folder by hand, and
+it is in the menu the next time the row rereads the folder. The file is
+plain enough to edit — a name, the mode it was saved in, and the stages
+with their values in order.
+
+**What "edited" means.** The line under the menu reads `in force: Net
+night` after a load or a save. The moment any stage the preset names
+reads differently from what the preset says — you switched the blanker
+off from the diagram, or another client turned the shape sharp — it
+reads `in force: Net night (edited)`, and the menu entry gains the same
+word. Put the stage back and the word goes away. It is a comparison
+against the receiver's own answers, not a memory of what you pressed: a
+write the gate refused never makes a preset edited, and a knob turned
+from somewhere else always does.
+
+**Working on the picture.** Everything on `VISUAL` that is drawn can be pointed at.
+
+- **Drag an edge** of the passband and that edge alone is written
+  (`low=` or `high=`) when you let go; the other edge is left to the
+  auto-width tracker. A poll that lands mid-drag does not snatch the
+  handle back.
+- **Double-click** inside the passband to place a notch there;
+  **right-click** a notch to take it away.
+- **Drag a notch** to move it. That is genuinely two writes, a clear
+  and an add, and they go through the same one-at-a-time sequencer as a
+  preset — the add waits for the clear's answer.
+- **Click any mark** — an edge, a notch, an ANF tone, the CONTOUR or
+  APF tick, an AUTO edge — and the window turns to the `CHAIN` tab with
+  that stage's card selected, scrolled into view, and its inspector
+  filled. The pointer becomes a hand over a mark that is a door rather
+  than a handle. A click on open curve does nothing.
 
 **THIS STAGE**, the pane along the bottom, is the inspector. Click any
 card and it answers four questions in order: what the stage does to what

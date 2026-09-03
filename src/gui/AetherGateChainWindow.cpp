@@ -1,7 +1,9 @@
 #include "gui/AetherGateChainWindow.h"
 
 #include "core/ThemeManager.h"
+#include "gui/AetherGateChainPresets.h"
 #include "gui/AetherGateChainStrip.h"
+#include "gui/AetherGateChainVisual.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
 
@@ -10,8 +12,8 @@
 #include <QHBoxLayout>
 #include <QJsonObject>
 #include <QLabel>
+#include <QMargins>
 #include <QPushButton>
-#include <QScrollArea>
 #include <QVBoxLayout>
 
 namespace AetherSDR {
@@ -50,7 +52,23 @@ const char* kWindowStyle =
     // frame its seven rows do not.
     "QFrame#gateChainFrontEndCard { border: 1px solid {{color.background.1}};"
     " border-radius: 4px; background: transparent; }"
-    "QScrollArea { background: transparent; border: none; }";
+    "QScrollArea { background: transparent; border: none; }"
+    // The tab row. A PLAIN QTabBar, deliberately: the Diversity window's page
+    // row is five custom toggle buttons and it reads as a set of controls, but
+    // these two are not controls -- they are two views of the same receiver,
+    // and the platform's own tab is the shape every operator already knows.
+    // Only the colours are ours.
+    "QTabWidget::pane { border: 1px solid {{color.background.1}};"
+    " border-radius: 4px; background: transparent; top: -1px; }"
+    "QTabBar::tab { color: {{color.text.secondary}}; font-size: 11px;"
+    " font-weight: bold; padding: 5px 18px; margin-right: 2px;"
+    " border: 1px solid {{color.background.1}}; border-bottom: none;"
+    " border-top-left-radius: 4px; border-top-right-radius: 4px;"
+    " background: transparent; }"
+    "QTabBar::tab:selected { color: {{color.accent.bright}};"
+    " border: 1px solid {{color.accent}}; border-bottom: none; }"
+    "QTabBar::tab:hover:!selected { color: {{color.text.primary}};"
+    " background: {{color.background.1}}; }";
 
 // The one line that says what you would hear WITHOUT the selected stage. Dim,
 // because it describes something that is not happening.
@@ -132,45 +150,19 @@ AetherGateChainWindow::AetherGateChainWindow(QWidget* parent)
     ThemeManager::instance().applyStyleSheet(this, QString::fromLatin1(kWindowStyle));
 
     auto* root = new QVBoxLayout(bodyWidget());
-    root->setContentsMargins(8, 4, 8, 8);
+    // Through the base class, not on the layout: PersistentDialog re-applies
+    // its own body margins (nine a side) on every show, and nine a side plus
+    // the tab pane's 1 px border leaves 1 100 px for a diagram that is 1 102
+    // wide at 1 120 -- which is the horizontal scrollbar the whole layout
+    // exists to avoid. Six a side leaves 1 106.
+    setBodyLayoutMargins(QMargins(6, 6, 6, 8), QMargins(6, 4, 6, 8));
     root->setSpacing(6);
 
-    auto* caption = DiversityWidgets::makeCaption(tr("FILTER CHAIN"), bodyWidget());
-    caption->setObjectName(QStringLiteral("gateChainCaption"));
-    caption->setToolTip(tr("Every stage between the antenna and your ears, in the "
-                           "order the signal goes through them. Nothing on this "
-                           "strip reorders: it is a block diagram, not a rack."));
-    caption->setAccessibleDescription(caption->toolTip());
-    root->addWidget(caption);
-
-    buildModeRow(root);
-
-    // Everything below the caption scrolls, so the window can be dragged
-    // smaller than its natural content height without a card becoming
-    // unreachable. At the initial size nothing scrolls.
-    auto* host = new QWidget;
-    host->setObjectName(QStringLiteral("gateChainScrollHost"));
-    auto* hostBox = new QVBoxLayout(host);
-    hostBox->setContentsMargins(0, 0, 0, 0);
-    hostBox->setSpacing(8);
-
-    m_strip = new AetherGateChainStrip(host);
-    m_strip->setMode(m_mode);
-    connect(m_strip, &AetherGateChainStrip::stageSelected, this,
-            &AetherGateChainWindow::showStage);
-    connect(m_strip, &AetherGateChainStrip::requestWrite, this,
-            &AetherGateChainWindow::onWriteRequested);
-    hostBox->addWidget(m_strip);
-
-    buildInspector(hostBox, host);
-    hostBox->addStretch(1);
-
-    auto* scroll = new QScrollArea;
-    scroll->setObjectName(QStringLiteral("gateChainScroll"));
-    scroll->setWidget(host);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    root->addWidget(scroll, 1);
+    // The two tabs, and everything under them. The window's own caption used
+    // to sit here reading "FILTER CHAIN"; the tab row says CHAIN in the same
+    // place and a caption over a tab bar is one line of height spent saying
+    // what the tab bar already said.
+    buildTabs(root);
 
     m_status = new QLabel(this);
     m_status->setObjectName(QStringLiteral("gateChainStatusLabel"));
@@ -369,6 +361,7 @@ void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
     connect(m_preset, &AetherGateChainPreset::finished, this,
             [this](const QString& name, bool ok, const QString& reason) {
                 Q_UNUSED(name)
+                m_loadingPreset = false;
                 if (ok) {
                     setSetProgress(tr("done"));
                 } else {
@@ -532,10 +525,18 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
     m_strip->setStages(stages);
     applyBusyToTiles();
     showStage(m_strip->selectedId());
+    if (m_visual)
+        m_visual->applyFilter(filter);
     if (m_preset->running())
         m_preset->noteFilterBody();
     else
         setLink(ChainLink::Live);
+    // Held against the preset in force -- AFTER the sequencer has seen the
+    // body, because the last step's own answer is what ends a load, and a
+    // chain compared while the load was still running would read as edited
+    // by its own hand.
+    if (m_presets && !m_loadingPreset)
+        m_presets->noteRows(stages);
 }
 
 void AetherGateChainWindow::setPresent(bool present)
@@ -548,9 +549,12 @@ void AetherGateChainWindow::setPresent(bool present)
         return;
     }
     m_preset->abort();
+    m_loadingPreset = false;
     m_pending.clear();
     m_lastWriteStage.clear();
     m_strip->clear();
+    if (m_visual)
+        m_visual->clear();
     m_fromGate = false;
     setSetProgress(QString());
     showStage(QString());

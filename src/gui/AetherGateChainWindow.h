@@ -17,12 +17,24 @@
 //
 // WHAT IS ON SCREEN, top to bottom
 //
+//   * TWO TABS -- CHAIN and VISUAL. The operator's words after the first
+//     build: "we still also need to have the visualizations and stuff like on
+//     a separate tab from the filter chain". CHAIN is the block diagram below;
+//     VISUAL is the passband drawn as a curve at the full width of the window,
+//     where every edge, every notch and the band under them are worked on by
+//     pointing at them. See AetherGateChainVisual.h. One /filter poll feeds
+//     both, and the tab that is not in front is not fed at all.
 //   * MODE -- a segmented PHONE / CW / DATA, and ONE button beside it that
 //     reads "SET UP FOR PHONE" or "SET UP FOR CW". The mode decides which
 //     stages are drawn and which fold into "stages this mode does not use";
 //     the button applies that mode's ordered list of writes. Under the row,
 //     one plain line about what the set does to the SOUND -- not to the
 //     control port. See AetherGateChainModes.h.
+//   * PRESETS -- on the VISUAL tab, over the picture: the whole chain as the
+//     operator left it, saved under a name and applied by the same
+//     one-write-at-a-time machinery the mode sets use, with a line that says
+//     which one is in force and whether the receiver has drifted from it.
+//     See AetherGateChainPresets.h.
 //   * the DIAGRAM -- four labelled groups read left to right with an arrow
 //     between them: FRONT END (one summary card, because none of it is
 //     switched from here), PAIR, PASSBAND, OUT. Every live stage is a card
@@ -71,15 +83,21 @@
 #include <QUrlQuery>
 
 class QFrame;
+class QHideEvent;
 class QJsonObject;
 class QLabel;
 class QPushButton;
+class QScrollArea;
+class QShowEvent;
+class QTabWidget;
 class QVBoxLayout;
 
 namespace AetherSDR {
 
 class AetherGateChainStrip;
 class AetherGateChainControl;
+class AetherGateChainPresetBar;
+class AetherGateChainVisual;
 
 class AetherGateChainWindow : public PersistentDialog {
     Q_OBJECT
@@ -104,6 +122,18 @@ public:
     ChainMode mode() const { return m_mode; }
     void setMode(ChainMode mode);
 
+    // Which tab is in front: 0 CHAIN, 1 VISUAL. Read back by the tests, and by
+    // the window itself when it works out whether the picture is worth feeding.
+    int currentTab() const;
+    void setCurrentTab(int index);
+
+protected:
+    // The picture is fed only while this window is on screen AND VISUAL is the
+    // tab in front, so a chain window left open on CHAIN behind the main
+    // window costs nothing at all.
+    void showEvent(QShowEvent* ev) override;
+    void hideEvent(QHideEvent* ev) override;
+
 signals:
     // One write, exactly as the gate authored it: its own route and its own
     // query. The mode sets are the one exception, and even they send the same
@@ -111,6 +141,16 @@ signals:
     void requestWrite(QString route, QUrlQuery query);
 
 private:
+    // AetherGateChainWindowTabs.cpp: the two tabs, the PRESETS row, and the
+    // one place a gesture on the picture or a preset becomes writes.
+    void buildTabs(QVBoxLayout* root);
+    void refreshVisualActive();
+    void runSequence(const QList<ChainPresetWrite>& writes, const QString& name,
+                     const QStringList& missing, bool isPreset);
+    // A mark on the picture was clicked: the CHAIN tab, turned to that stage's
+    // card, scrolled into view and selected.
+    void jumpToStage(const QString& id);
+
     void buildModeRow(QVBoxLayout* root);
     void buildInspector(QVBoxLayout* hostBox, QWidget* host);
     void showStage(const QString& id);
@@ -136,7 +176,11 @@ private:
         bool          confirmed{false};
     };
 
-    AetherGateChainStrip*   m_strip{nullptr};
+    AetherGateChainStrip*     m_strip{nullptr};
+    QScrollArea*              m_scroll{nullptr};
+    QTabWidget*               m_tabs{nullptr};
+    AetherGateChainVisual*    m_visual{nullptr};
+    AetherGateChainPresetBar* m_presets{nullptr};
     QLabel*                 m_detailName{nullptr};
     QLabel*                 m_detailText{nullptr};   // what it is doing now
     QLabel*                 m_detailTip{nullptr};    // what it does to the sound
@@ -155,6 +199,10 @@ private:
     QHash<QString, PendingWrite> m_pending;
     QString                 m_lastWriteStage;
     ChainMode               m_mode{ChainMode::Phone};
+    // True only while a PRESET is being applied. Its own writes must not mark
+    // the preset "edited" -- a preset that declared itself edited by loading
+    // would never once read as loaded.
+    bool                    m_loadingPreset{false};
     ChainLink               m_link{ChainLink::Gone};
     bool                    m_fromGate{false};
     bool                    m_present{false};

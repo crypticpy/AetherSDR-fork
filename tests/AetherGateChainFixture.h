@@ -16,13 +16,17 @@
 #include "TestSettingsProfile.h"
 #include "gui/AetherGateApplet.h"
 #include "gui/AetherGateChainModes.h"
+#include "gui/AetherGateChainPresets.h"
 #include "gui/AetherGateChainStage.h"
 #include "gui/AetherGateChainStrip.h"
+#include "gui/AetherGateChainVisual.h"
 #include "gui/AetherGateChainWindow.h"
 #include "gui/DiversityBandPoller.h"
+#include "gui/DiversityFilterPanel.h"
 
 #include <QApplication>
 #include <QComboBox>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -35,15 +39,19 @@
 #include <QTest>
 #include <QTimer>
 
+#include <cmath>
 #include <cstdio>
 
 using AetherSDR::AetherGateApplet;
 using AetherSDR::AetherGateChainControl;
+using AetherSDR::AetherGateChainPresetBar;
 using AetherSDR::AetherGateChainStrip;
 using AetherSDR::AetherGateChainTile;
+using AetherSDR::AetherGateChainVisual;
 using AetherSDR::AetherGateChainWindow;
 using AetherSDR::ChainMode;
 using AetherSDR::DiversityBandPoller;
+using AetherSDR::DiversityFilterPanel;
 using AetherSDR::chainPreset;
 
 using namespace DiversityGateFixture;
@@ -248,6 +256,103 @@ const QByteArray kRoofingFilter = R"JSON({
               "digital_hz": 3000, "digital_options": [3000, 6000, 12000]},
   "available": true, "mode": "LSB"})JSON";
 
+// The twenty-five-row payload WITH THE PICTURE in it: what the live gate
+// answers /filter with once it has heard audio -- "available", a response
+// curve, the pre-filter spectrum with its own median, two manual notches, two
+// tones the ANF found, the contour on and the APF off. This is what the
+// VISUAL tab is measured against; kChainFullFilter has the rows and no curve.
+//
+// `points` is the length of the response AND of the spectrum: 128 is what the
+// gate sends, 4096 is what the paint budget is measured at. The response is a
+// soft passband from `lowHz` to `highHz` with 0.3 dB/Hz skirts on a 0..3000 Hz
+// axis; the spectrum is a -70 dB floor with a carrier at 1 200 Hz (which is
+// why the first notch is there) and a hump of speech from 400 to 2 000.
+QByteArray visualFilter(int points = 128, int lowHz = 350, int highHz = 2400,
+                        const QList<int>& notches = {1200, 1850})
+{
+    QJsonObject root = QJsonDocument::fromJson(kChainFullFilter).object();
+    root.insert(QStringLiteral("available"), true);
+    root.insert(QStringLiteral("low_hz"), lowHz);
+    root.insert(QStringLiteral("high_hz"), highHz);
+
+    QJsonArray hz, db, specHz, specDb;
+    for (int i = 0; i < points; ++i) {
+        const double f = 3000.0 * i / double(points - 1);
+        hz.append(f);
+        double away = 0.0;
+        if (f < lowHz)
+            away = lowHz - f;
+        else if (f > highHz)
+            away = f - highHz;
+        db.append(-std::min(60.0, 0.3 * away));
+        specHz.append(f);
+        double level = -70.0 + 3.0 * std::sin(f / 37.0);
+        if (f > 400 && f < 2000)
+            level += 12.0;
+        if (std::abs(f - 1200.0) < 40.0)
+            level = -70.0 + 70.0 * (1.0 - std::abs(f - 1200.0) / 40.0);
+        specDb.append(std::min(0.0, level));
+    }
+    QJsonObject response;
+    response.insert(QStringLiteral("hz"), hz);
+    response.insert(QStringLiteral("db"), db);
+    root.insert(QStringLiteral("response"), response);
+    QJsonObject spectrum;
+    spectrum.insert(QStringLiteral("hz"), specHz);
+    spectrum.insert(QStringLiteral("db"), specDb);
+    spectrum.insert(QStringLiteral("floor_db"), -70.0);
+    root.insert(QStringLiteral("spectrum"), spectrum);
+
+    QJsonArray notchArray;
+    for (int at : notches) {
+        QJsonObject notch;
+        notch.insert(QStringLiteral("hz"), at);
+        notch.insert(QStringLiteral("depth_db"), -40.0);
+        notchArray.append(notch);
+    }
+    root.insert(QStringLiteral("notches"), notchArray);
+    QJsonObject anf;
+    anf.insert(QStringLiteral("enabled"), true);
+    anf.insert(QStringLiteral("found_hz"), QJsonArray{980.0, 2200.0});
+    anf.insert(QStringLiteral("depth_db"), QJsonArray{-30.0, -28.0});
+    root.insert(QStringLiteral("anf"), anf);
+    QJsonObject contour;
+    contour.insert(QStringLiteral("enabled"), true);
+    contour.insert(QStringLiteral("hz"), 1450.0);
+    contour.insert(QStringLiteral("db"), -2.9);
+    contour.insert(QStringLiteral("width_hz"), 300.0);
+    root.insert(QStringLiteral("contour"), contour);
+    QJsonObject apf;
+    apf.insert(QStringLiteral("enabled"), false);
+    apf.insert(QStringLiteral("hz"), 600.0);
+    root.insert(QStringLiteral("apf"), apf);
+    QJsonObject autoWidth;
+    autoWidth.insert(QStringLiteral("enabled"), false);
+    root.insert(QStringLiteral("auto"), autoWidth);
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+// The same rows with one stage flipped in the chain[] array: the way a
+// receiver drifts from a preset.
+QByteArray withStage(const QByteArray& body, const QString& id, bool enabled,
+                     const QString& actionQuery)
+{
+    QJsonObject root = QJsonDocument::fromJson(body).object();
+    QJsonArray chain = root.value(QStringLiteral("chain")).toArray();
+    for (int i = 0; i < chain.size(); ++i) {
+        QJsonObject row = chain.at(i).toObject();
+        if (row.value(QStringLiteral("id")).toString() != id)
+            continue;
+        row.insert(QStringLiteral("enabled"), enabled);
+        QJsonObject action = row.value(QStringLiteral("action")).toObject();
+        action.insert(QStringLiteral("query"), actionQuery);
+        row.insert(QStringLiteral("action"), action);
+        chain.replace(i, row);
+    }
+    root.insert(QStringLiteral("chain"), chain);
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
 // --------------------------------------------------------------------------
 // A gate whose replies do not all arrive at once.
 //
@@ -395,6 +500,28 @@ QPushButton* button(AetherGateChainWindow* w, const QString& name)
 int countWrites(const FakeGate& net)
 {
     return net.count(QStringLiteral("/filter/set"));
+}
+
+DiversityFilterPanel* panel(AetherGateChainWindow* w)
+{
+    return w ? w->findChild<DiversityFilterPanel*>() : nullptr;
+}
+
+AetherGateChainPresetBar* presets(AetherGateChainWindow* w)
+{
+    return w ? w->findChild<AetherGateChainPresetBar*>() : nullptr;
+}
+
+// Every request on the wire whose path starts with `prefix`, in order, with
+// the path stripped: what a sequence sent, as its queries.
+QStringList sentQueries(const FakeGate& net, const QString& prefix)
+{
+    QStringList out;
+    for (const QString& entry : net.log) {
+        if (entry.startsWith(prefix + QLatin1Char('?')))
+            out << entry.mid(prefix.size() + 1);
+    }
+    return out;
 }
 
 // --------------------------------------------------------------------------

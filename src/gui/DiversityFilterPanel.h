@@ -49,7 +49,47 @@
 // from it, so a quiet channel is a thin band at the floor tick and a station
 // 30 dB over it rises 30 dB up the axis. The axis is then the filter's, and
 // the area's HEIGHT is signal-over-noise rather than a level.
+//
+// WHAT IT COSTS TO DRAW. The operator's word for the first build was "a little
+// laggy", and the reason was that a 2 Hz poll repainted everything: axes,
+// gridlines, labels, the response curve, every notch mark, on every body,
+// whether or not one pixel of it had changed. Three rules fix that and they
+// are the reason for the counters below.
+//
+//   1. A poll that says the same thing costs NO paint. applyStatus() compares
+//      what it parsed against what is already drawn and returns without an
+//      update() when they match.
+//   2. Everything that changes only when the FILTER changes -- grid, labels,
+//      floor tick, AUTO marks, passband shading, notch and ANF marks, contour
+//      and APF ticks, the response curve -- is cached in ONE transparent pixmap
+//      at the device pixel ratio, rebuilt only when the response, the edges,
+//      the notches or the widget's size change. The background wash and the
+//      spectrum area are painted UNDER it every frame: the spectrum is the one
+//      thing that genuinely moves twice a second, and painting it over the
+//      curve would put the band on top of the answer, which is backwards.
+//   3. A drag repaints the handle's own column, not the widget: mouseMove
+//      calls update(QRect) over the old and new handle positions, and no layer
+//      is rebuilt until the button comes up.
+//
+// DIRECT MANIPULATION. Everything the picture shows about the passband can be
+// done ON the picture: drag either edge, double-click to notch what is under
+// the pointer, drag an existing notch mark to move it, right-click one to take
+// it away, and the arrow keys move whichever edge the pointer was last nearer
+// to. A notch move is emitted as (from, to) rather than written here -- the
+// gate's /filter/notch takes add= and clear= and has no move, so the page that
+// owns the transport turns one gesture into the two writes, in order.
+//
+// And every mark is a DOOR. A click that does not turn into a drag -- on a
+// handle, a notch, an ANF tone, the contour or APF tick, an AUTO edge -- is
+// emitted as markClicked() with the id of the chain stage that owns the mark,
+// so the CHAIN window can turn to that stage's card. The ids are the gate's own
+// chain ids (passband, notch, anf, contour, apf, auto); this widget knows
+// nothing else about the chain.
 
+#include <QByteArray>
+#include <QPixmap>
+#include <QPolygonF>
+#include <QRect>
 #include <QString>
 #include <QVector>
 #include <QWidget>
@@ -76,9 +116,14 @@ public:
     // by the gate.
     void clear();
 
-    // True from the press on a handle to the release. The page checks it
-    // before feeding a poll: see the header comment.
-    bool dragging() const { return m_drag != Edge::None; }
+    // Where a frequency is drawn, and what frequency a column is. Public so a
+    // test can put the pointer ON a handle rather than guess at the gutters.
+    double xForHz(double hz) const;
+    double hzForX(double x) const;
+
+    // True from the press on a handle OR on a notch mark to the release. The
+    // page checks it before feeding a poll: see the header comment.
+    bool dragging() const { return m_drag != Edge::None || m_notchDrag >= 0; }
 
     // What the widget currently draws for the two edges. The page reads these
     // back on a release to work out WHICH edge moved, so a drag of the low
@@ -105,6 +150,28 @@ public:
     double autoLowHz() const { return m_autoLowHz; }
     double autoHighHz() const { return m_autoHighHz; }
 
+    // How many notch marks are drawn, and where. Read back by the page for its
+    // one-line readout and by the tests, for the same reason the spectrum
+    // getters exist: a painted widget has no child to ask.
+    int    notchCount() const { return int(m_notches.size()); }
+    double notchHzAt(int index) const;
+
+    // Hz under the pointer, and the dB the spectrum is PLOTTED at there -- the
+    // number on this widget's own 0..-60 gutter, not the gate's dB-below-peak,
+    // so the corner readout and the axis beside it agree. Both NaN when the
+    // pointer is not over the widget or there is no spectrum.
+    double cursorHz() const { return m_cursorHz; }
+    double cursorDb() const;
+
+    // What the picture has actually cost. paintCount() counts paintEvent()s,
+    // staticRebuildCount() counts rebuilds of the two cached layers. They are
+    // how the three rules in the header comment are TESTED rather than
+    // asserted: three identical polls must add one paint and no rebuild, a
+    // spectrum-only body must paint without a rebuild, and a drag must not
+    // rebuild until the button comes up.
+    int paintCount() const { return m_paintCount; }
+    int staticRebuildCount() const { return m_staticRebuilds; }
+
 signals:
     // A handle has been let go, and the two edges are now `lowHz`/`highHz`,
     // snapped to 10 Hz. Emitted on RELEASE, not per pixel: a set per mouse-move
@@ -116,33 +183,96 @@ signals:
     // can see: point at it, double-click.
     void notchRequested(double hz);
 
+    // A notch mark was dragged from `fromHz` and let go at `toHz`. TWO writes
+    // on the page's side, in order, because the gate has no move: the notch at
+    // `fromHz` is cleared and one is added at `toHz`. Emitted only when the
+    // mark actually moved -- a click that lands back where it started is not a
+    // request to rebuild a filter.
+    void notchMoveRequested(double fromHz, double toHz);
+
+    // A right-click on a notch mark. /filter/notch?clear=<hz> on the page's
+    // side: the gate's own parameter for taking one notch away and leaving the
+    // others where they are.
+    void notchRemoveRequested(double hz);
+
+    // The pointer moved over the picture, or left it (both NaN). `db` is the
+    // dB the spectrum is PLOTTED at under the pointer -- see cursorDb().
+    void cursorMoved(double hz, double db);
+
+    // A click on a mark that did not become a drag: the id of the chain stage
+    // the mark belongs to. See the header comment.
+    void markClicked(QString stageId);
+
 protected:
     void paintEvent(QPaintEvent*) override;
+    void resizeEvent(QResizeEvent* ev) override;
     void mousePressEvent(QMouseEvent* ev) override;
     void mouseMoveEvent(QMouseEvent* ev) override;
     void mouseReleaseEvent(QMouseEvent* ev) override;
     void mouseDoubleClickEvent(QMouseEvent* ev) override;
     void keyPressEvent(QKeyEvent* ev) override;
+    void keyReleaseEvent(QKeyEvent* ev) override;
     void leaveEvent(QEvent* ev) override;
 
 private:
     enum class Edge { None, Low, High };
 
+    // The axis and the gutters. Class constants rather than file ones because
+    // this widget is two translation units -- the state and the input in
+    // DiversityFilterPanel.cpp, the picture in DiversityFilterPanelPaint.cpp --
+    // and both halves have to agree about where 0 dB is.
+    //
+    // 0 dB at the top is the convention every filter plot in every radio manual
+    // uses; -60 dB at the bottom is where a 1023-tap sharp filter's stopband
+    // already is, so a deeper floor would be sixty pixels of nothing.
+    static constexpr double kTopDb = 0.0;
+    static constexpr double kBottomDb = -60.0;
+    // Where the pre-filter spectrum's own median is pinned on that axis:
+    // fifteen dB of headroom above it before the curve's 0 dB line and fifteen
+    // below it before the axis runs out, so a floor that has crept up is still
+    // visibly a floor and a 40 dB station is clipped at the top rather than off
+    // it. See the header comment for why the gate's own scale is not used.
+    static constexpr double kFloorAxisDb = -45.0;
+    // The left gutter carries the dB scale, the bottom one the Hz scale.
+    static constexpr int kLeftGutter = 32;
+    static constexpr int kBottomGutter = 16;
+    static constexpr int kTopMargin = 6;
+    static constexpr int kRightMargin = 8;
+
     // Plot rectangle in widget coordinates -- the widget minus the dB gutter
     // on the left and the Hz axis along the bottom.
     QRectF plotRect() const;
-    double xForHz(double hz) const;
-    double hzForX(double x) const;
     double yForDb(double db) const;
-    // Draws the spectrum area, its floor tick and the two AUTO marks. Split
-    // out of paintEvent() because it is the one part of the picture that is
-    // about the signal rather than about the filter.
-    void   paintSpectrum(QPainter& p, const QRectF& r) const;
+    // What is on screen, as bytes: one fingerprint for the filter (everything
+    // in the cached layer) and one for the spectrum. applyStatus() takes each
+    // either side of its parse and repaints only what actually moved.
+    QByteArray filterFingerprint() const;
+    QByteArray spectrumFingerprint() const;
+    // The one part of the picture that is about the SIGNAL rather than about
+    // the filter, and the only thing painted live: everything else is in the
+    // two cached layers this is drawn between.
+    void   paintSpectrum(QPainter& p, const QRectF& r);
+    // Rebuilds the cached layer at the current device pixel ratio. The only
+    // thing that increments staticRebuildCount().
+    void   rebuildLayer();
+    void   paintLayer(QPainter& p, const QRectF& r) const;
+    // The column a handle occupies, for the partial repaint a drag does.
+    QRect  handleRect(double hz) const;
     // Which handle is within grab distance of `x`, or None.
     Edge   edgeAt(double x) const;
+    // Which notch mark is within grab distance of `x`, or -1. Handles win: at
+    // the one pixel where an edge and a notch overlap, the edge is the thing
+    // an operator is far more often reaching for.
+    int    notchAt(double x) const;
+    // Which of the marks that cannot be dragged is under (`x`, `y`): an ANF
+    // tone, the contour or APF tick along the bottom, an AUTO edge. The chain
+    // stage id, or "" when none is. Handles and notches are not in it -- they
+    // are the two hit tests above, and they are asked first.
+    QString markAt(double x, double y) const;
     // Moves the focused/dragged edge to `hz`, snapped to 10 Hz and kept the
-    // right side of its neighbour.
-    void   moveEdge(Edge edge, double hz);
+    // right side of its neighbour. `partial` repaints the two handle columns
+    // instead of the widget -- the drag path.
+    void   moveEdge(Edge edge, double hz, bool partial = false);
 
     QVector<double> m_hz;
     QVector<double> m_db;
@@ -175,9 +305,37 @@ private:
 
     Edge   m_drag{Edge::None};
     Edge   m_focusEdge{Edge::Low};
+    // An arrow key has moved an edge and the write is waiting for the key to
+    // come up. Holding an arrow down is ONE adjustment, not forty writes.
+    bool   m_keyMoved{false};
+    // The notch being dragged (an index into m_notches) and where it started,
+    // or -1 / NaN when none is. The mark stays drawn where the gate put it and
+    // a ghost follows the pointer, so one gesture shows both ends of the move
+    // and no cached layer has to be rebuilt to animate it.
+    int    m_notchDrag{-1};
+    double m_notchFromHz{0.0};
+    double m_notchGhostHz{0.0};
+    // The mark a left press landed on, held until the release says whether
+    // the press was a click or the start of a drag. Where the handle was at
+    // the press, for the same question.
+    QString m_pressMark;
+    int     m_pressLowHz{0};
+    int     m_pressHighHz{0};
     // Hz under the pointer for the corner readout, or NaN when the pointer is
     // not over the widget.
     double m_cursorHz{0.0};
+
+    // The picture, cached: everything except the background wash, the spectrum
+    // area and the two handles, on a transparent pixmap at the device pixel
+    // ratio. The spectrum's own polygon is cached separately because it changes
+    // on its own schedule (every poll) and the layer does not.
+    QPixmap  m_layer;
+    QPolygonF m_specArea;
+    QVector<double> m_specAxisDb;
+    bool m_layersDirty{true};
+    bool m_specAreaDirty{true};
+    int  m_paintCount{0};
+    int  m_staticRebuilds{0};
 };
 
 } // namespace AetherSDR
