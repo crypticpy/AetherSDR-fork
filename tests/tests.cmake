@@ -4469,6 +4469,11 @@ target_include_directories(icom_settings_test PRIVATE src tests)
 target_link_libraries(icom_settings_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME icom_settings_test COMMAND icom_settings_test)
 
+add_executable(automation_bridge_settings_test tests/automation_bridge_settings_test.cpp)
+target_include_directories(automation_bridge_settings_test PRIVATE src tests)
+target_link_libraries(automation_bridge_settings_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME automation_bridge_settings_test COMMAND automation_bridge_settings_test)
+
 add_executable(icom_family_test tests/icom_family_test.cpp)
 target_include_directories(icom_family_test PRIVATE src)
 target_link_libraries(icom_family_test PRIVATE aethercore Qt6::Core Qt6::Test)

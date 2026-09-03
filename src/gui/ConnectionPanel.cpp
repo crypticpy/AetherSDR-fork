@@ -2022,7 +2022,13 @@ void ConnectionPanel::setSmartLinkClient(SmartLinkClient* client)
         updateSmartLinkUi();
     });
 
-    client->tryAutoLogin();
+    // Only reach for the refresh token when a SmartLink sign-in actually
+    // happened: the sign-in stores SmartLinkEmail beside it, and signing out
+    // removes both. An operator who never used SmartLink must not make the app
+    // touch the OS secret store at startup; on macOS that raises a login-
+    // keychain prompt that also stalls every later QtKeychain job.
+    if (!AppSettings::instance().value("SmartLinkEmail").toString().isEmpty())
+        client->tryAutoLogin();
     updateSmartLinkUi();
 }
 

@@ -49,6 +49,9 @@ public:
     // plaintext token in on first read. When HAVE_KEYCHAIN is off, falls back
     // to the legacy plaintext setting (with a warning). `cb` always runs — with
     // an empty string if no token is set. `ctx` scopes the async callback.
+    // A non-secret "tokenSet" marker records whether the store ever held a
+    // token, so an install that has none never touches the keychain at all
+    // (macOS prompts on the first keychain call of a session).
     static void loadToken(QObject* ctx, std::function<void(const QString&)> cb);
     // Persist the token (empty string deletes it). Keychain when available,
     // else legacy plaintext. Also clears any legacy plaintext entry.

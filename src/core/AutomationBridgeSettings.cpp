@@ -27,6 +27,10 @@ constexpr const char* kFieldEnabled   = "enabled";
 constexpr const char* kFieldTxAllowed = "txAllowed";
 constexpr const char* kFieldTxAck     = "txAck";
 constexpr const char* kFieldReadOnly  = "readOnly";
+// Non-secret marker: has a token ever been in the secret store? Absent means
+// "never looked", so a store written before this field existed still probes
+// once and records the answer.
+constexpr const char* kFieldTokenSet  = "tokenSet";
 
 // Keychain coordinates for the token (analogous to MqttSettings).
 constexpr const char* kKeychainService  = "AetherSDR";
@@ -147,15 +151,32 @@ void AutomationBridgeSettings::loadToken(QObject* ctx,
         cb(legacy);
         return;
     }
+    // Nothing was ever stored: answer empty without touching the OS secret
+    // store. On macOS the first keychain call of a session raises a login-
+    // keychain prompt, and on an ad-hoc-signed build "Always Allow" cannot
+    // stick (no stable identity for the ACL). QtKeychain runs jobs one at a
+    // time, so that prompt also stalls the bridge socket, which does not
+    // listen until this callback runs.
+    const QJsonObject cfg = readObj();
+    if (cfg.contains(QLatin1String(kFieldTokenSet))
+        && !cfg.value(QLatin1String(kFieldTokenSet)).toBool()) {
+        cb(QString{});
+        return;
+    }
     auto* job = new QKeychain::ReadPasswordJob(keychainService());
     job->setAutoDelete(true);
     job->setKey(keychainKey());
     QObject::connect(job, &QKeychain::Job::finished, ctx ? ctx : job,
                      [cb = std::move(cb)](QKeychain::Job* j) {
         if (j->error() == QKeychain::NoError) {
-            cb(static_cast<QKeychain::ReadPasswordJob*>(j)->textData());
+            const QString tok =
+                static_cast<QKeychain::ReadPasswordJob*>(j)->textData();
+            writeBool(kFieldTokenSet, !tok.isEmpty());
+            cb(tok);
         } else {
-            if (j->error() != QKeychain::EntryNotFound)
+            if (j->error() == QKeychain::EntryNotFound)
+                writeBool(kFieldTokenSet, false);  // never ask again
+            else
                 qWarning() << "AutomationBridge: token keychain read failed:"
                            << j->errorString();
             cb(QString{});
@@ -181,6 +202,7 @@ void AutomationBridgeSettings::loadToken(QObject* ctx,
 
 void AutomationBridgeSettings::saveToken(const QString& token)
 {
+    writeBool(kFieldTokenSet, !token.isEmpty());
 #ifdef HAVE_KEYCHAIN
     // Never leave a plaintext copy once the keychain is authoritative.
     AppSettings::instance().remove(kLegacyTokenKey);

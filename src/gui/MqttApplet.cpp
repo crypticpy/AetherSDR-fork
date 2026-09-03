@@ -312,6 +312,14 @@ void MqttApplet::loadPasswordFromKeychain()
         return;
     }
 
+    // No broker account configured, so there is no password to find. Skipping
+    // the read keeps a never-configured install from touching the OS secret
+    // store during startup (macOS login-keychain prompt, which QtKeychain's
+    // single job queue then makes everyone else wait on).
+    if (loadMqttConnectionConfig().username.isEmpty()) {
+        finishPasswordLoad();
+        return;
+    }
     auto* job = new QKeychain::ReadPasswordJob(mqttKeychainService());
     job->setAutoDelete(true);
     job->setKey(mqttKeychainKey());
