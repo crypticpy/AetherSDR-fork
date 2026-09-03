@@ -155,6 +155,11 @@ QString chainFrontEndSharedWhy()
     return frontEndSharedWhy();
 }
 
+QString chainUnderlineStyleSheet()
+{
+    return QString::fromLatin1(kUnderStyle);
+}
+
 // --------------------------------------------------------------------------
 // ChainStage
 // --------------------------------------------------------------------------

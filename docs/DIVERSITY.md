@@ -770,10 +770,24 @@ the tones — and a comb is never stacked on a null already 6 dB deep.
 * Turning AUTO off releases everything and leaves your settings exactly where
   they stand. Releasing is not reverting: what it kept, it kept on measurement.
 
-The CHAIN window shows all of this as the first card, AUTO CLEAN, at the
-head of the chain: its detail line is the governor's state, the tools it
-is holding, and its one-sentence why. While AUTO holds a tool, that
-tool's own card says so.
+The chain shows AUTO CLEAN as its own card, at the head of FRONT END, the
+same toggle the gate's own chain[] row 0 authors. While it holds a tool, the
+card that tool moved says so: a one-line note under NB, COMBINER, SQUEEZE or
+the FRONT END card's own GUARD switch, reading `AUTO · <kind> · <why>` with
+the score appended once one exists (`, +1.8 dB` / `, -0.9 dB`), or
+`AUTO · trying · <why>` while it is still measuring one. The note is the
+card's own muted "why" tone reused, not a new colour, and it disappears the
+moment the gate's next answer no longer names that row.
+
+Select the AUTO CLEAN card and its inspector adds two lines under the usual
+one: the governor's own `state · why`, then its recent moves, newest first —
+`12:41:07 · squeeze · carrier · kept +1.8 dB · <why>`,
+`… · undone -0.9 dB · …`, a bare `released`, or `error: <the gate's own
+words>` for one it refused. An active backoff prints as
+`backing off: mains/squeeze until 12:46`. Nothing here is optimistic either:
+the note and the inspector both say only what the gate's last answer holds,
+never what a click just asked for — there is no click here to ask with, the
+governor moves on its own.
 
 ## A working session
 

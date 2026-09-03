@@ -72,6 +72,7 @@
 // wraps, every readout reserves the width of its own worst case, and every
 // colour comes from a ThemeManager token.
 
+#include "gui/AetherGateChainAuto.h"
 #include "gui/AetherGateChainModes.h"
 #include "gui/AetherGateChainRows.h"
 #include "gui/AetherGateChainStage.h"
@@ -206,6 +207,11 @@ private:
     QLabel*                 m_detailOff{nullptr};    // what you would hear without it
     QLabel*                 m_detailNote{nullptr};   // the receiver's refusal
     QLabel*                 m_detailLevels{nullptr};
+    // AUTO CLEAN's own inspector -- state+why, then its event history --
+    // shown only while the auto_clean card is selected. See
+    // gui/AetherGateChainAuto.h.
+    QLabel*                 m_detailAutoState{nullptr};
+    QLabel*                 m_autoEvents{nullptr};
     QVBoxLayout*            m_detailControlBox{nullptr};
     AetherGateChainControl* m_detailControl{nullptr};
     QLabel*                 m_status{nullptr};
@@ -224,6 +230,11 @@ private:
     // blank the guard.
     QList<ChainStage>       m_filterStages;
     ChainFrontendStatus     m_frontend;
+    // The governor block off this same /filter body -- see
+    // gui/AetherGateChainAuto.h. Kept apart like m_frontend so a
+    // /device-only refresh can reapply it to the strip without a fresh
+    // /filter poll.
+    ChainAutoGovernor       m_governor;
     ChainMode               m_mode{ChainMode::Phone};
     // True only while a PRESET is being applied. Its own writes must not mark
     // the preset "edited" -- a preset that declared itself edited by loading

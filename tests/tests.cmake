@@ -2899,6 +2899,7 @@ add_executable(aether_gate_applet_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -2958,6 +2959,7 @@ add_executable(aether_gate_applet_diversity_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3019,6 +3021,7 @@ add_executable(diversity_window_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3081,6 +3084,7 @@ add_executable(diversity_band_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3143,6 +3147,7 @@ add_executable(aether_gate_chain_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3205,6 +3210,7 @@ add_executable(aether_gate_chain_ux_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3262,6 +3268,7 @@ add_executable(aether_gate_chain_b21_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3317,6 +3324,7 @@ add_executable(aether_gate_chain_frontend_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3372,6 +3380,7 @@ add_executable(aether_gate_chain_squeeze_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3420,6 +3429,62 @@ add_test(NAME aether_gate_chain_squeeze_test COMMAND aether_gate_chain_squeeze_t
 set_tests_properties(aether_gate_chain_squeeze_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+add_executable(aether_gate_chain_auto_test
+    tests/aether_gate_chain_auto_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateAppletControls.cpp
+    src/gui/AetherGateAppletDiversity.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainPresets.cpp
+    src/gui/AetherGateChainVisual.cpp
+    src/gui/AetherGateDeviceStrip.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFilterPanelPaint.cpp
+    src/gui/DiversityFilterPanelSqueeze.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(aether_gate_chain_auto_test PRIVATE src tests)
+target_link_libraries(aether_gate_chain_auto_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(aether_gate_chain_auto_test PROPERTIES AUTOMOC ON)
+add_test(NAME aether_gate_chain_auto_test COMMAND aether_gate_chain_auto_test)
+set_tests_properties(aether_gate_chain_auto_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The applet's device line and its two diversity controls (B13): what the gate
 # has plugged in, a DIVERSITY switch, and the A/B selector for which tuner is
 # left feeding the receiver. Its own binary rather than more cases in
@@ -3435,6 +3500,7 @@ add_executable(aether_gate_device_strip_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainWindowTabs.cpp
@@ -3496,6 +3562,7 @@ add_executable(aether_gate_tune_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainWindowTabs.cpp
@@ -3558,6 +3625,7 @@ add_executable(diversity_site_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3619,6 +3687,7 @@ add_executable(diversity_filter_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3681,6 +3750,7 @@ add_executable(diversity_filter_hold_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3743,6 +3813,7 @@ add_executable(diversity_filter_layout_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3804,6 +3875,7 @@ add_executable(diversity_site_actions_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3862,6 +3934,7 @@ add_executable(diversity_beacon_sweep_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3922,6 +3995,7 @@ add_executable(diversity_talker_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3982,6 +4056,7 @@ add_executable(diversity_flow_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -4041,6 +4116,7 @@ add_executable(diversity_flow_line_test
     src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainAuto.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp

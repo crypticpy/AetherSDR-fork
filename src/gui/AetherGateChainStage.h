@@ -276,6 +276,12 @@ QString chainLevelWorstCase();
 // the FRONT END card's own note line.
 QString chainFitToWidth(const QLabel* label, const QString& text, int width);
 
+// The card's own muted "why" tone (kUnderStyle in the .cpp), exported so
+// AetherGateChainAuto.cpp can give the "held by AUTO CLEAN" note the exact
+// same role instead of minting a new colour -- the audit tracks new string
+// literals, not a second use of one that already exists.
+QString chainUnderlineStyleSheet();
+
 // The card's own frame, in one place: the strip's no-scroll arithmetic and the
 // window's initial size are both computed from these. 196 px is measured from
 // chainPrimaryWorstCase() -- the widest line the format table can produce --
@@ -287,5 +293,13 @@ constexpr int kChainCardHeight = 64;
 constexpr int kChainSummaryWidth = 244;
 constexpr int kChainSummaryNameWidth = 100;
 constexpr int kChainSummaryRowHeight = 20;
+
+// The one measured line's own text width on each shape -- the same formula
+// AetherGateChainStage.cpp's private kCardTextWidth/kLineTextWidth use,
+// exported so AetherGateChainAuto.cpp can size and elide the "held by AUTO
+// CLEAN" note without this file growing past its 800-line budget.
+constexpr int kChainCardTextWidth = kChainCardWidth - 4 - 14;
+constexpr int kChainLineTextWidth =
+    kChainSummaryWidth - 14 - kChainSummaryNameWidth - 6;
 
 } // namespace AetherSDR

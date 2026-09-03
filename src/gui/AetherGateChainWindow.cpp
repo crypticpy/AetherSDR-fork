@@ -1,6 +1,7 @@
 #include "gui/AetherGateChainWindow.h"
 
 #include "core/ThemeManager.h"
+#include "gui/AetherGateChainAuto.h"
 #include "gui/AetherGateChainPresets.h"
 #include "gui/AetherGateChainStrip.h"
 #include "gui/AetherGateChainVisual.h"
@@ -242,6 +243,25 @@ void AetherGateChainWindow::buildInspector(QVBoxLayout* hostBox, QWidget* host)
     m_detailText->setAccessibleName(tr("Selected stage now"));
     m_detailText->setFixedWidth(kDetailTextWidth);
     paneBox->addWidget(m_detailText);
+
+    // AUTO CLEAN's own two lines, under its own detail line above: its
+    // state and why, then its recent moves newest first. Hidden for every
+    // other stage -- see AetherGateChainAuto.h.
+    m_detailAutoState = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("gateChainAutoState"), QString(),
+        tr("What AUTO CLEAN is doing right now, and why."), pane);
+    m_detailAutoState->setFixedWidth(kDetailTextWidth);
+    m_detailAutoState->setVisible(false);
+    paneBox->addWidget(m_detailAutoState);
+
+    m_autoEvents = new QLabel(pane);
+    m_autoEvents->setObjectName(QStringLiteral("gateChainAutoEvents"));
+    m_autoEvents->setAccessibleName(tr("AUTO CLEAN's recent moves"));
+    m_autoEvents->setWordWrap(false);
+    m_autoEvents->setFixedWidth(kDetailTextWidth);
+    m_autoEvents->setVisible(false);
+    ThemeManager::instance().applyStyleSheet(m_autoEvents, QString::fromLatin1(kOffStyle));
+    paneBox->addWidget(m_autoEvents);
 
     // 3. The control, at full size.
     m_detailControlBox = new QVBoxLayout;
@@ -553,6 +573,7 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
     bool fromGate = false;
     m_filterStages = chainFromFilter(filter, &fromGate);
     m_fromGate = fromGate;
+    m_governor = chainAutoParseGovernor(filter);
     const QList<ChainStage> stages = refreshStrip();
     if (m_visual)
         m_visual->applyFilter(filter);
@@ -601,6 +622,7 @@ QList<ChainStage> AetherGateChainWindow::refreshStrip()
     m_strip->setStages(stages);
     m_strip->setFrontendCalNote(m_frontend.available && !m_frontend.dbmCalibrated,
                                 chainFrontendCalNoteText(m_frontend));
+    chainAutoApplyNotes(m_strip, m_governor);
     applyBusyToTiles();
     showStage(m_strip->selectedId());
     return stages;
@@ -621,6 +643,7 @@ void AetherGateChainWindow::setPresent(bool present)
     m_lastWriteStage.clear();
     m_filterStages.clear();
     m_frontend = ChainFrontendStatus();
+    m_governor = ChainAutoGovernor();
     m_strip->clear();
     m_strip->setFrontendCalNote(false, QString());
     if (m_visual)
@@ -648,6 +671,8 @@ void AetherGateChainWindow::showStage(const QString& id)
         setElided(m_detailText, QString(), kDetailTextWidth);
         setElided(m_detailLevels, QString(), kDetailTextWidth);
         m_detailOff->setVisible(false);
+        m_detailAutoState->setVisible(false);
+        m_autoEvents->setVisible(false);
         return;
     }
 
@@ -705,6 +730,17 @@ void AetherGateChainWindow::showStage(const QString& id)
         setElided(m_detailOff, aside, kDetailTextWidth);
 
     setElided(m_detailLevels, chainLevelText(stage), kDetailTextWidth);
+
+    // AUTO CLEAN's own inspector: the state+why line under its own detail
+    // above, then its event history -- built by AetherGateChainAuto.cpp from
+    // the governor block applyFilter() parsed off this same /filter body.
+    const bool isAutoClean = stage.id == QLatin1String("auto_clean");
+    m_detailAutoState->setVisible(isAutoClean);
+    m_autoEvents->setVisible(isAutoClean);
+    if (isAutoClean) {
+        setElided(m_detailAutoState, chainAutoStateLine(m_governor), kDetailTextWidth);
+        m_autoEvents->setText(chainAutoEventLines(m_governor).join(QLatin1Char('\n')));
+    }
 }
 
 // Three states, and only three. The first build put refusals, set progress
