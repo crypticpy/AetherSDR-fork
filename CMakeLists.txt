@@ -980,6 +980,7 @@ set(GUI_SOURCES
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp

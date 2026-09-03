@@ -1,13 +1,13 @@
 #include "gui/AetherGateChainStrip.h"
 
 #include "core/ThemeManager.h"
+#include "gui/DiversityWindowPanels.h"
 
-#include <QCoreApplication>
+#include <QFrame>
 #include <QGridLayout>
-#include <QJsonArray>
-#include <QJsonObject>
-#include <QJsonValue>
+#include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -15,510 +15,49 @@ namespace AetherSDR {
 
 namespace {
 
-// Four tiles across, at the operator's own number (design §0.3 item 8). At
-// 220 px a tile that is 916 px of diagram, which fits inside the 1102 px
-// viewport the sibling Diversity window measured for itself at the same
-// initial width (DiversityWindow.cpp:196-199) with room to spare.
-constexpr int kColumns = 4;
-constexpr int kTileSpacing = 8;
+constexpr int kCardSpacing = 8;
 
-// The header of the collapsed group. Its own style rather than a toggle button
+// The gap an arrow sits in between two groups. Four columns and three gutters
+// come to 1088 px at the initial width, which is inside the 1104 px of body
+// the window has at 1120 with its margins taken off -- so the whole diagram is
+// on screen the moment the window opens and nothing scrolls.
+constexpr int kArrowGutter = 22;
+
+// How far down the arrow sits: level with the first card, not level with the
+// group caption above it.
+constexpr int kArrowDrop = 30;
+
+// PASSBAND is the long group. Up to seven stages it stays one column, which
+// keeps it the same shape as PAIR; past that it splits in two so the diagram
+// does not grow a scrollbar.
+constexpr int kPassbandSplitAt = 7;
+
+constexpr int kFoldColumns = 4;
+
+// The four groups, in signal order, which is also left-to-right.
+const ChainGroup kGroups[] = {ChainGroup::FrontEnd, ChainGroup::Pair,
+                              ChainGroup::Passband, ChainGroup::Out};
+constexpr int kGroupCount = 4;
+
+// The header of the collapsed fold. Its own style rather than a toggle button
 // because it is a disclosure, not a switch on the receiver: nothing about it
-// reaches the gate.
-const char* kAsideStyle =
+// reaches the radio.
+const char* kFoldStyle =
     "QPushButton { color: {{color.text.secondary}}; font-size: 10px;"
     " font-weight: bold; background: transparent; border: none;"
     " text-align: left; padding: 2px 0px; }"
     "QPushButton:hover { color: {{color.accent.bright}}; }";
 
-QString emDash()
+int groupIndex(ChainGroup group)
 {
-    return QStringLiteral("—");
-}
-
-QString tr_(const char* text)
-{
-    return QCoreApplication::translate("AetherGateChainStrip", text);
-}
-
-// "12 kHz", "2.8 kHz", "300 Hz", "1.536 MHz". The unit follows the number
-// rather than a fixed choice, because a roofing menu that reads
-// "0.3 kHz / 0.6 kHz / 1.2 kHz" is not the menu on anybody's front panel.
-QString formatWidth(double hz)
-{
-    if (hz >= 1.0e6) {
-        QString s = QString::number(hz / 1.0e6, 'f', 3);
-        while (s.endsWith(QLatin1Char('0')))
-            s.chop(1);
-        if (s.endsWith(QLatin1Char('.')))
-            s.chop(1);
-        return s + QStringLiteral(" MHz");
+    for (int i = 0; i < kGroupCount; ++i) {
+        if (kGroups[i] == group)
+            return i;
     }
-    if (hz >= 1000.0) {
-        QString s = QString::number(hz / 1000.0, 'f', 1);
-        if (s.endsWith(QStringLiteral(".0")))
-            s.chop(2);
-        return s + QStringLiteral(" kHz");
-    }
-    return QString::number(hz, 'f', 0) + QStringLiteral(" Hz");
-}
-
-double num(const QJsonObject& obj, const char* key, double fallback = 0.0)
-{
-    const QJsonValue v = obj.value(QLatin1String(key));
-    return v.isDouble() ? v.toDouble() : fallback;
-}
-
-bool flag(const QJsonObject& obj, const char* key)
-{
-    return obj.value(QLatin1String(key)).toBool();
-}
-
-QString word(const QJsonObject& obj, const char* key)
-{
-    return obj.value(QLatin1String(key)).toString();
-}
-
-QString onOff(bool enabled)
-{
-    return enabled ? tr_("on") : tr_("off");
-}
-
-// A toggle row whose query is the action it is ABOUT to perform, which is the
-// shape the gate uses for the noise profile's kinds[] rows and the shape this
-// window's contract inherits (design §0.1).
-ChainStage toggleRow(const QString& id, const QString& name, const QString& key,
-                     bool enabled, const QString& detail, const QString& tip)
-{
-    ChainStage row;
-    row.id = id;
-    row.name = name;
-    row.kind = QStringLiteral("toggle");
-    row.enabled = enabled;
-    row.detail = detail;
-    row.tip = tip;
-    row.actionRoute = QStringLiteral("/filter/set");
-    row.actionQuery = key + QLatin1Char('=')
-                      + (enabled ? QStringLiteral("off") : QStringLiteral("on"));
-    return row;
-}
-
-// `why` is the short line PRINTED ON THE TILE ("set on the setup page", "gate
-// does not offer this yet"); `tip` is the paragraph on the hover and in the
-// detail pane. They are different lengths for different places, and an empty
-// tip falls back to the why.
-ChainStage fixedRow(const QString& id, const QString& name, const QString& detail,
-                    const QString& why, const QString& tip = QString())
-{
-    ChainStage row;
-    row.id = id;
-    row.name = name;
-    row.kind = QStringLiteral("fixed");
-    row.fixed = true;
-    row.enabled = true;
-    row.detail = detail;
-    row.why = why;
-    row.tip = tip.isEmpty() ? why : tip;
-    return row;
-}
-
-ChainStage wordSelectRow(const QString& id, const QString& name, const QString& key,
-                         const QString& value, const QStringList& choices,
-                         bool enabled, const QString& detail, const QString& tip)
-{
-    ChainStage row;
-    row.id = id;
-    row.name = name;
-    row.kind = QStringLiteral("select");
-    row.enabled = enabled;
-    row.detail = detail;
-    row.tip = tip;
-    row.value = value;
-    for (const QString& choice : choices)
-        row.options.append({choice, choice, QString()});
-    row.actionRoute = QStringLiteral("/filter/set");
-    row.actionQuery = key + QLatin1Char('=');
-    return row;
-}
-
-// The roofing menus operators already know, in the order the design lists
-// them (§0). They are the APP's contribution to the digital roof row: the
-// gate has no opinion about what an FTdx101MP's filter set is, and a bare list
-// of hertz is not the menu anybody learned.
-struct RadioPresets {
-    const char* radio;
-    const int*  widths;
-    int         count;
-};
-
-const int kFtdx101[] = {12000, 3000, 1200, 600, 300};
-const int kK3[]      = {13000, 6000, 2800, 2700, 1800, 1000, 500, 400, 250, 200};
-const int kPt8000[]  = {12000, 6000, 2400, 500};
-const int kIc7851[]  = {12000, 6000, 3000, 1200};
-const int kFtdx10[]  = {12000, 3000, 500};
-
-const RadioPresets kRadios[] = {
-    {"Yaesu FTdx101MP", kFtdx101, int(sizeof(kFtdx101) / sizeof(int))},
-    {"Elecraft K3",     kK3,      int(sizeof(kK3) / sizeof(int))},
-    {"Hilberling PT-8000A", kPt8000, int(sizeof(kPt8000) / sizeof(int))},
-    {"Icom IC-7851",    kIc7851,  int(sizeof(kIc7851) / sizeof(int))},
-    {"Yaesu FTdx10",    kFtdx10,  int(sizeof(kFtdx10) / sizeof(int))},
-};
-
-// Group the widths by the radio whose menu they come from. When the gate sent
-// its own `options`, a width that is not on that list stays on the menu and
-// goes UNPICKABLE rather than disappearing (design §0.3 item 6): an operator
-// who knows his K3 has a 250 Hz filter is owed "this receiver cannot make
-// one", not a menu that quietly lost it. When the gate sent no options at all
-// (every gate shipping today) everything is pickable and the gate refuses what
-// it cannot do, which is the same answer one round trip later and never a
-// number invented on screen.
-QList<ChainOption> roofingPresets(const QList<double>& gateOptions)
-{
-    QList<ChainOption> out;
-    for (const RadioPresets& radio : kRadios) {
-        for (int i = 0; i < radio.count; ++i) {
-            const double hz = double(radio.widths[i]);
-            const bool offered = gateOptions.isEmpty() || gateOptions.contains(hz);
-            out.append({formatWidth(hz), QString::number(radio.widths[i]),
-                        QString::fromLatin1(radio.radio), offered});
-        }
-    }
-    return out;
-}
-
-// The numbers in a gate `options` array, as doubles.
-QList<double> numericOptions(const QJsonArray& options)
-{
-    QList<double> out;
-    for (const QJsonValue& v : options) {
-        if (v.isDouble())
-            out.append(v.toDouble());
-    }
-    return out;
-}
-
-QList<ChainOption> plainOptions(const QJsonArray& options)
-{
-    QList<ChainOption> out;
-    for (const QJsonValue& v : options) {
-        if (v.isDouble())
-            out.append({formatWidth(v.toDouble()), QString::number(v.toDouble(), 'f', 0),
-                        QString()});
-        else if (v.isString())
-            out.append({v.toString(), v.toString(), QString()});
-    }
-    return out;
-}
-
-// One entry of the gate's own chain[]. Everything is optional except id/name:
-// a row the app has never seen renders from its name, its detail and its
-// action, which is the entire reason the array is gate-authored.
-ChainStage stageFromJson(const QJsonObject& obj)
-{
-    ChainStage row;
-    row.id = word(obj, "id");
-    row.name = word(obj, "name");
-    row.kind = word(obj, "kind");
-    if (row.kind.isEmpty())
-        row.kind = QStringLiteral("fixed");
-    row.fixed = flag(obj, "fixed") || row.kind == QLatin1String("fixed");
-    row.enabled = obj.value(QStringLiteral("enabled")).toBool(true);
-    row.detail = word(obj, "detail");
-    row.why = word(obj, "why");
-
-    const QJsonValue value = obj.value(QStringLiteral("value"));
-    if (value.isDouble())
-        row.value = QString::number(value.toDouble(), 'f', 0);
-    else if (value.isString())
-        row.value = value.toString();
-
-    const QJsonArray options = obj.value(QStringLiteral("options")).toArray();
-    const QList<double> numeric = numericOptions(options);
-    // The roofing rows get the radio menu of §0; everything else gets exactly
-    // what the gate listed, in the gate's order.
-    if (row.id.startsWith(QStringLiteral("roof")) && !numeric.isEmpty()
-        && row.id.contains(QStringLiteral("digital"))) {
-        row.options = roofingPresets(numeric);
-    } else {
-        row.options = plainOptions(options);
-    }
-    row.freeEntryHz = row.id.contains(QStringLiteral("digital"))
-                      && row.kind == QLatin1String("select");
-
-    const QJsonObject measured = obj.value(QStringLiteral("measured")).toObject();
-    const QJsonValue inDb = measured.value(QStringLiteral("in_db"));
-    const QJsonValue outDb = measured.value(QStringLiteral("out_db"));
-    row.hasIn = inDb.isDouble();
-    row.inDb = inDb.toDouble();
-    row.hasOut = outDb.isDouble();
-    row.outDb = outDb.toDouble();
-
-    const QJsonObject action = obj.value(QStringLiteral("action")).toObject();
-    row.actionLabel = word(action, "label");
-    row.actionRoute = word(action, "route");
-    row.actionQuery = word(action, "query");
-
-    row.tip = row.why.isEmpty()
-                  ? (row.actionRoute.isEmpty()
-                         ? row.detail
-                         : QCoreApplication::translate(
-                               "AetherGateChainStrip", "GET %1?%2 on the gate.")
-                               .arg(row.actionRoute, row.actionQuery))
-                  : row.why;
-    return row;
+    return 0;
 }
 
 } // namespace
-
-// --------------------------------------------------------------------------
-// The fallback: 13 rows out of a chain-less /filter
-// --------------------------------------------------------------------------
-
-QList<ChainStage> chainFallback(const QJsonObject& f)
-{
-    QList<ChainStage> rows;
-
-    const QJsonObject roofing = f.value(QStringLiteral("roofing")).toObject();
-    const double analogueHz = num(roofing, "analogue_hz");
-    const double digitalHz = num(roofing, "digital_hz");
-    const QList<double> analogueOptions =
-        numericOptions(roofing.value(QStringLiteral("analogue_options")).toArray());
-    const QList<double> digitalOptions =
-        numericOptions(roofing.value(QStringLiteral("digital_options")).toArray());
-
-    const QString rfDetail = analogueHz > 0.0
-                                 ? (analogueHz <= 200000.0
-                                        ? tr_("200 kHz — the narrowest this hardware has")
-                                        : formatWidth(analogueHz))
-                                 : emDash();
-    const QString rfTip =
-        tr_("The analogue IF filter inside the receiver, ahead of the ADC. It "
-            "protects the converter, not your ear: an FTdx101MP's 300 Hz roofing "
-            "filter is two orders of magnitude narrower and there is no analogue "
-            "path to it here. It follows the sample rate unless the gate offers "
-            "an analogue_options list, and until it does nothing in the product "
-            "can move it.");
-
-    // 1 -- the analogue IF filter. Two rows in one, decided by the gate rather
-    // than by hope: a gate that lists `analogue_options` gets a real menu on
-    // roof_hz, and a gate that does not gets a DIMMED tile whose own face says
-    // so (design §0.3 item 6). The alternative -- a live-looking combo that
-    // answers every choice with an error -- is the failure the operator
-    // reported.
-    if (analogueOptions.isEmpty()) {
-        rows << fixedRow(QStringLiteral("roof_rf"), tr_("ROOFING · RF"), rfDetail,
-                         tr_("gate does not offer this yet"), rfTip);
-    } else {
-        ChainStage rf;
-        rf.id = QStringLiteral("roof_rf");
-        rf.name = tr_("ROOFING · RF");
-        rf.kind = QStringLiteral("select");
-        rf.enabled = true;
-        rf.detail = rfDetail;
-        rf.tip = rfTip;
-        rf.value = QString::number(analogueHz, 'f', 0);
-        for (double hz : analogueOptions)
-            rf.options.append({formatWidth(hz), QString::number(hz, 'f', 0), QString(), true});
-        rf.actionRoute = QStringLiteral("/filter/set");
-        rf.actionQuery = QStringLiteral("roof_hz=");
-        rows << rf;
-    }
-
-    // 2 -- the digital roof, which IS the menu operators know.
-    ChainStage digital;
-    digital.id = QStringLiteral("roof_digital");
-    digital.name = tr_("ROOFING · DIGITAL");
-    digital.kind = QStringLiteral("select");
-    digital.enabled = true;
-    digital.detail = digitalHz > 0.0 ? formatWidth(digitalHz) : emDash();
-    digital.value = digitalHz > 0.0 ? QString::number(digitalHz, 'f', 0) : QString();
-    digital.options = roofingPresets(digitalOptions);
-    digital.freeEntryHz = true;
-    digital.actionRoute = QStringLiteral("/filter/set");
-    digital.actionQuery = QStringLiteral("digital_roof_hz=");
-    digital.tip = tr_("The decimation filters ahead of the slice filter — the DSP "
-                      "IF bandwidth. This is where a roofing filter of the width "
-                      "you are used to would live. A gate that has not built the "
-                      "stage yet answers with an error and the row does not move: "
-                      "nothing here is optimistic.");
-    rows << digital;
-
-    // 3 -- the noise blanker, at the full IQ rate where an IF blanker belongs.
-    const QJsonObject nb = f.value(QStringLiteral("nb")).toObject();
-    rows << toggleRow(QStringLiteral("nb"), tr_("NB"), QStringLiteral("nb"),
-                      flag(nb, "enabled"),
-                      QStringLiteral("%1 · %2 dB · %3 %")
-                          .arg(onOff(flag(nb, "enabled")),
-                               QString::number(num(nb, "threshold_db"), 'f', 1),
-                               QString::number(num(nb, "blanked_pct"), 'f', 1)),
-                      tr_("Impulse blanking, run at the full sample rate before any "
-                          "filter can smear an impulse into a thud. Level only — "
-                          "there is no width control, unlike the NB on a radio."));
-
-    // 4 -- the passband. Two edges, both movable, which is twin PBT; they are
-    // moved by dragging the curve on the Diversity window's FILTER page, so
-    // this row states them rather than duplicating that control.
-    rows << fixedRow(QStringLiteral("passband"), tr_("PASSBAND"),
-                     QStringLiteral("%1–%2 Hz · asked %3–%4")
-                         .arg(QString::number(num(f, "low_hz"), 'f', 0),
-                              QString::number(num(f, "high_hz"), 'f', 0),
-                              QString::number(num(f, "set_low_hz"), 'f', 0),
-                              QString::number(num(f, "set_high_hz"), 'f', 0)),
-                     tr_("Both edges of the slice filter, independently placed — "
-                         "twin PBT, an IC-7851 would call it. Drag them on the "
-                         "FILTER page's curve; the numbers in force can differ from "
-                         "the numbers asked for when AUTO WIDTH is fitting them."));
-
-    // 5 -- shape.
-    rows << wordSelectRow(QStringLiteral("shape"), tr_("SHAPE"),
-                          QStringLiteral("shape"), word(f, "shape"),
-                          {QStringLiteral("soft"), QStringLiteral("sharp")}, true,
-                          QStringLiteral("%1 · %2 taps · %3 Hz skirt")
-                              .arg(word(f, "shape"),
-                                   QString::number(num(f, "taps"), 'f', 0),
-                                   QString::number(num(f, "transition_hz"), 'f', 0)),
-                          tr_("How steep the passband edges are. SOFT is a 255-tap "
-                              "Hamming design, SHARP a 1023-tap Kaiser — Icom's own "
-                              "words for the same choice."));
-
-    // 6 -- notches, manual and automatic. One row, because they are one filter.
-    const QJsonObject anf = f.value(QStringLiteral("anf")).toObject();
-    const int manual = f.value(QStringLiteral("notches")).toArray().size();
-    const int found = anf.value(QStringLiteral("found_hz")).toArray().size();
-    rows << toggleRow(QStringLiteral("notch"), tr_("NOTCH · DNF"),
-                      QStringLiteral("anf"), flag(anf, "enabled"),
-                      QStringLiteral("%1 manual · ANF %2, %3 %4")
-                          .arg(QString::number(manual), onOff(flag(anf, "enabled")),
-                               QString::number(found),
-                               found == 1 ? tr_("tone") : tr_("tones")),
-                      tr_("The manual notches you placed and the automatic one that "
-                          "hunts heterodynes — Yaesu's DNF, Icom's AN. Both sit "
-                          "inside the slice filter, which is ahead of the AGC, so a "
-                          "notched carrier cannot pump the gain."));
-
-    // 7 -- contour.
-    const QJsonObject contour = f.value(QStringLiteral("contour")).toObject();
-    rows << toggleRow(QStringLiteral("contour"), tr_("CONTOUR"),
-                      QStringLiteral("contour"), flag(contour, "enabled"),
-                      flag(contour, "enabled")
-                          ? QStringLiteral("%1 · %2 Hz · %3 dB")
-                                .arg(flag(contour, "auto") ? tr_("auto") : tr_("manual"),
-                                     QString::number(num(contour, "hz"), 'f', 0),
-                                     QString::number(num(contour, "db"), 'f', 1))
-                          : onOff(false),
-                      tr_("A broad bell in or out of the passband — Yaesu's own word "
-                          "for it. On AUTO it is fitted from the talker's own voice "
-                          "print against an average speech spectrum, which no radio "
-                          "does."));
-
-    // 8 -- APF.
-    const QJsonObject apf = f.value(QStringLiteral("apf")).toObject();
-    rows << toggleRow(QStringLiteral("apf"), tr_("APF"), QStringLiteral("apf"),
-                      flag(apf, "enabled"),
-                      QStringLiteral("%1 · %2 Hz · %3 Hz wide")
-                          .arg(onOff(flag(apf, "enabled")),
-                               QString::number(num(apf, "hz"), 'f', 0),
-                               QString::number(num(apf, "width_hz"), 'f', 0)),
-                      tr_("The audio peak filter: a narrow resonance for digging one "
-                          "CW note out of noise. Same control, same default region "
-                          "(600 Hz), as the APF on an FTdx101 or an IC-7851."));
-
-    // 9 -- automatic width.
-    const QJsonObject autoWidth = f.value(QStringLiteral("auto")).toObject();
-    rows << toggleRow(QStringLiteral("auto_width"), tr_("AUTO WIDTH"),
-                      QStringLiteral("auto"), flag(autoWidth, "enabled"),
-                      flag(autoWidth, "enabled")
-                          ? QStringLiteral("%1 · %2–%3 Hz")
-                                .arg(word(autoWidth, "source").isEmpty()
-                                         ? emDash()
-                                         : word(autoWidth, "source"),
-                                     QString::number(num(autoWidth, "low_hz"), 'f', 0),
-                                     QString::number(num(autoWidth, "high_hz"), 'f', 0))
-                          : onOff(false),
-                      tr_("One fit per over: the gate measures where this station's "
-                          "energy actually is and moves both passband edges to it. "
-                          "No radio has a counterpart."));
-
-    // 10 -- the automatic RX EQ tilt.
-    const QJsonObject eq = f.value(QStringLiteral("auto_eq")).toObject();
-    rows << toggleRow(QStringLiteral("auto_eq"), tr_("RX EQ"),
-                      QStringLiteral("auto_eq"), flag(eq, "enabled"),
-                      QStringLiteral("%1 · tilt %2 · lean %3 dB")
-                          .arg(onOff(flag(eq, "enabled")),
-                               QString::number(num(eq, "tilt_db"), 'f', 1),
-                               QString::number(num(eq, "lean_db"), 'f', 1)),
-                      tr_("One automatic tilt between 550 Hz and 2 kHz, not a "
-                          "multi-band equaliser. It flattens a station that is all "
-                          "bass or all edge; it does not let you shape the audio to "
-                          "taste."));
-
-    // 11 -- the audio AGC.
-    const QJsonObject agc = f.value(QStringLiteral("agc")).toObject();
-    rows << wordSelectRow(
-        QStringLiteral("agc"), tr_("AGC"), QStringLiteral("agc"), word(agc, "mode"),
-        {QStringLiteral("fast"), QStringLiteral("med"), QStringLiteral("slow"),
-         QStringLiteral("long"), QStringLiteral("off")},
-        word(agc, "mode") != QLatin1String("off"),
-        QStringLiteral("%1 · %2/%3/%4 ms · AGC-T %5 · %6 dB")
-            .arg(word(agc, "mode"), QString::number(num(agc, "attack_ms"), 'f', 0),
-                 QString::number(num(agc, "decay_ms"), 'f', 0),
-                 QString::number(num(agc, "hang_ms"), 'f', 0),
-                 QString::number(num(agc, "threshold_db"), 'f', 0),
-                 QString::number(num(agc, "gain_db"), 'f', 1)),
-        tr_("Attack, decay and hang in real milliseconds, which is unusually "
-            "explicit — most radios give you three words. The threshold is "
-            "Elecraft's AGC-T, and the last number is the gain the AGC is "
-            "applying right now."));
-
-    // 12 -- per-talker recall.
-    const QJsonObject talker = f.value(QStringLiteral("talker")).toObject();
-    rows << toggleRow(
-        QStringLiteral("talker"), tr_("PER TALKER"), QStringLiteral("talker"),
-        flag(talker, "enabled"),
-        QStringLiteral("%1 · %2 · id %3 · %4 kept")
-            .arg(onOff(flag(talker, "enabled")), word(talker, "snap"),
-                 QString::number(int(num(talker, "id"))),
-                 QString::number(
-                     talker.value(QStringLiteral("remembered")).toArray().size())),
-        tr_("The gate remembers the AUTOMATIC settings — fitted edges, EQ tilt, the "
-            "contour bell — per voice it recognises. Your own settings are "
-            "deliberately not per talker."));
-
-    // 13 -- the full stop. Where the chain leaves the gate, so "why is there
-    // no NR on this page" never becomes a question.
-    rows << fixedRow(QStringLiteral("voice"), tr_("→ AETHER VOICE"),
-                     tr_("NR and compression run in the app"),
-                     tr_("Noise reduction and compression are AetherSDR's own, "
-                         "downstream of everything above and after the audio has "
-                         "left the gate. They are on the Aetherial Voice panel, and "
-                         "the gate deliberately never duplicates them."));
-
-    return rows;
-}
-
-QList<ChainStage> chainFromFilter(const QJsonObject& filter, bool* fromGate)
-{
-    const QJsonValue chain = filter.value(QStringLiteral("chain"));
-    if (chain.isArray()) {
-        if (fromGate)
-            *fromGate = true;
-        QList<ChainStage> rows;
-        const QJsonArray array = chain.toArray();
-        for (const QJsonValue& v : array) {
-            if (v.isObject())
-                rows.append(stageFromJson(v.toObject()));
-        }
-        return rows;
-    }
-    if (fromGate)
-        *fromGate = false;
-    return chainFallback(filter);
-}
-
-// --------------------------------------------------------------------------
-// AetherGateChainStrip
-// --------------------------------------------------------------------------
 
 AetherGateChainStrip::AetherGateChainStrip(QWidget* parent)
     : QWidget(parent)
@@ -526,48 +65,147 @@ AetherGateChainStrip::AetherGateChainStrip(QWidget* parent)
     setObjectName(QStringLiteral("gateChainStrip"));
     setAccessibleName(tr("Filter chain, in signal order"));
     // The strip itself takes focus, so the arrow keys have somewhere to land
-    // that is not one particular tile's switch.
+    // that is not one particular card's switch.
     setFocusPolicy(Qt::StrongFocus);
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(6);
 
-    auto* mine = new QWidget(this);
-    mine->setObjectName(QStringLiteral("gateChainStripGrid"));
-    mine->setAccessibleName(tr("Stages for this mode"));
-    m_grid = new QGridLayout(mine);
-    m_grid->setContentsMargins(0, 0, 0, 0);
-    m_grid->setHorizontalSpacing(kTileSpacing);
-    m_grid->setVerticalSpacing(kTileSpacing);
-    root->addWidget(mine);
+    buildColumns(root);
 
-    // The group the mode puts aside. Collapsed by default and never empty of
-    // meaning: an APF on phone is not broken, it is not what you reach for.
-    m_asideToggle = new QPushButton(this);
-    m_asideToggle->setObjectName(QStringLiteral("gateChainNotForModeToggle"));
-    m_asideToggle->setAccessibleName(tr("Show the stages that are not for this mode"));
-    m_asideToggle->setToolTip(tr("The stages this mode does not normally reach for. "
-                                 "They are still running and still switchable -- "
-                                 "the mode chooses what is on the strip, it does "
-                                 "not turn anything off."));
-    m_asideToggle->setAccessibleDescription(m_asideToggle->toolTip());
-    m_asideToggle->setCursor(Qt::PointingHandCursor);
-    m_asideToggle->setCheckable(true);
-    ThemeManager::instance().applyStyleSheet(m_asideToggle,
-                                             QString::fromLatin1(kAsideStyle));
-    connect(m_asideToggle, &QPushButton::clicked, this, [this] { relayout(); });
-    root->addWidget(m_asideToggle);
+    // The stages the mode does not reach for. Collapsed by default and never
+    // empty of meaning: an APF on phone is not broken, it is not what you
+    // reach for.
+    m_foldToggle = new QPushButton(this);
+    m_foldToggle->setObjectName(QStringLiteral("gateChainNotForModeToggle"));
+    m_foldToggle->setAccessibleName(tr("Show the stages this mode does not use"));
+    m_foldToggle->setToolTip(tr("The stages this mode does not normally reach "
+                                "for. They are still running and still "
+                                "switchable: the mode chooses what is on the "
+                                "diagram, it does not turn anything off."));
+    m_foldToggle->setAccessibleDescription(m_foldToggle->toolTip());
+    m_foldToggle->setCursor(Qt::PointingHandCursor);
+    m_foldToggle->setCheckable(true);
+    ThemeManager::instance().applyStyleSheet(m_foldToggle,
+                                             QString::fromLatin1(kFoldStyle));
+    connect(m_foldToggle, &QPushButton::clicked, this, [this] { relayout(); });
+    root->addWidget(m_foldToggle);
 
-    m_aside = new QWidget(this);
-    m_aside->setObjectName(QStringLiteral("gateChainNotForMode"));
-    m_aside->setAccessibleName(tr("Not for this mode"));
-    m_asideGrid = new QGridLayout(m_aside);
-    m_asideGrid->setContentsMargins(0, 0, 0, 0);
-    m_asideGrid->setHorizontalSpacing(kTileSpacing);
-    m_asideGrid->setVerticalSpacing(kTileSpacing);
-    m_aside->setVisible(false);
-    root->addWidget(m_aside);
+    m_fold = new QWidget(this);
+    m_fold->setObjectName(QStringLiteral("gateChainNotForMode"));
+    m_fold->setAccessibleName(tr("Stages this mode does not use"));
+    m_foldGrid = new QGridLayout(m_fold);
+    m_foldGrid->setContentsMargins(0, 0, 0, 0);
+    m_foldGrid->setHorizontalSpacing(kCardSpacing);
+    m_foldGrid->setVerticalSpacing(kCardSpacing);
+    m_fold->setVisible(false);
+    root->addWidget(m_fold);
+}
+
+// Four labelled columns and the three arrows between them. Built once; only
+// the cards inside them ever change.
+void AetherGateChainStrip::buildColumns(QVBoxLayout* root)
+{
+    auto* rowHost = new QWidget(this);
+    rowHost->setObjectName(QStringLiteral("gateChainGroups"));
+    rowHost->setAccessibleName(tr("The chain, in four groups"));
+    auto* row = new QHBoxLayout(rowHost);
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(0);
+
+    for (int i = 0; i < kGroupCount; ++i) {
+        const ChainGroup group = kGroups[i];
+        const QString id = chainGroupId(group);
+
+        if (i > 0) {
+            // The one mark that says this is a chain and not a grid. It is
+            // named for the group it LEAVES, so the name reads the way the
+            // signal travels.
+            auto* arrow = DiversityWidgets::makeValue(
+                QStringLiteral("gateChainArrow_") + chainGroupId(kGroups[i - 1]),
+                QStringLiteral("→"), rowHost);
+            arrow->setText(QStringLiteral("→"));
+            arrow->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+            arrow->setContentsMargins(0, kArrowDrop, 0, 0);
+            arrow->setFixedWidth(kArrowGutter);
+            arrow->setAccessibleName(tr("then"));
+            arrow->setToolTip(tr("The signal goes this way."));
+            arrow->setAccessibleDescription(arrow->toolTip());
+            row->addWidget(arrow, 0, Qt::AlignTop);
+        }
+
+        Column& column = m_columns[i];
+        column.host = new QWidget(rowHost);
+        column.host->setObjectName(QStringLiteral("gateChainGroup_") + id);
+        column.host->setAccessibleName(chainGroupLabel(group));
+        auto* box = new QVBoxLayout(column.host);
+        box->setContentsMargins(0, 0, 0, 0);
+        box->setSpacing(4);
+
+        auto* caption = DiversityWidgets::makeCaption(chainGroupLabel(group),
+                                                      column.host);
+        caption->setObjectName(QStringLiteral("gateChainGroupCaption_") + id);
+        caption->setAccessibleName(chainGroupLabel(group));
+        caption->setToolTip(chainGroupTip(group));
+        caption->setAccessibleDescription(caption->toolTip());
+        box->addWidget(caption);
+
+        if (group == ChainGroup::FrontEnd) {
+            // ONE card, a line per item, and a single hint underneath. Seven
+            // tiles that each said "set on the setup page" was the operator's
+            // own complaint: six dead tiles taking a quarter of the window to
+            // say one thing once.
+            auto* card = new QFrame(column.host);
+            card->setObjectName(QStringLiteral("gateChainFrontEndCard"));
+            card->setAccessibleName(chainGroupLabel(group));
+            card->setToolTip(chainGroupTip(group));
+            card->setAccessibleDescription(card->toolTip());
+            card->setFixedWidth(kChainSummaryWidth);
+            auto* inner = new QVBoxLayout(card);
+            inner->setContentsMargins(7, 5, 7, 5);
+            inner->setSpacing(3);
+
+            column.body = new QWidget(card);
+            column.body->setObjectName(QStringLiteral("gateChainFrontEndRows"));
+            column.body->setAccessibleName(tr("What the receiver does first"));
+            column.grid = new QGridLayout(column.body);
+            column.grid->setContentsMargins(0, 0, 0, 0);
+            column.grid->setHorizontalSpacing(kCardSpacing);
+            column.grid->setVerticalSpacing(1);
+            inner->addWidget(column.body);
+
+            column.hint = DiversityWidgets::makeFieldLabel(
+                tr("ALL SET ON THE SETUP PAGE"), card);
+            column.hint->setObjectName(QStringLiteral("gateChainFrontEndHint"));
+            column.hint->setAccessibleName(tr("Where the front end is set"));
+            column.hint->setToolTip(tr("None of this is changed from here. The "
+                                       "antenna port, the traps, the gain and "
+                                       "the sample rate all belong to the "
+                                       "setup page."));
+            column.hint->setAccessibleDescription(column.hint->toolTip());
+            inner->addWidget(column.hint);
+            box->addWidget(card);
+        } else {
+            column.body = new QWidget(column.host);
+            column.body->setObjectName(QStringLiteral("gateChainGroupBody_") + id);
+            column.body->setAccessibleName(chainGroupLabel(group));
+            column.grid = new QGridLayout(column.body);
+            column.grid->setContentsMargins(0, 0, 0, 0);
+            column.grid->setHorizontalSpacing(kCardSpacing);
+            column.grid->setVerticalSpacing(kCardSpacing);
+            box->addWidget(column.body);
+        }
+        box->addStretch(1);
+        row->addWidget(column.host, 0, Qt::AlignTop);
+    }
+    row->addStretch(1);
+    root->addWidget(rowHost);
+}
+
+AetherGateChainStrip::Column& AetherGateChainStrip::columnFor(ChainGroup group)
+{
+    return m_columns[groupIndex(group)];
 }
 
 AetherGateChainTile* AetherGateChainStrip::tileAt(int index) const
@@ -620,8 +258,10 @@ void AetherGateChainStrip::setMode(ChainMode mode)
     if (m_mode == mode)
         return;
     m_mode = mode;
+    // A card's shape depends on its group, not on the mode, so nothing has to
+    // be rebuilt: only where each one sits changes.
     relayout();
-    // A selection that has just dropped into the collapsed group is a
+    // A selection that has just dropped into the collapsed fold is a
     // selection nobody can see. Move it to the first stage the mode DOES show.
     const QList<AetherGateChainTile*> mine = tilesInMode();
     if (mine.isEmpty())
@@ -641,14 +281,22 @@ void AetherGateChainStrip::clear()
     rebuild();
 }
 
+// A card in FRONT END is a LINE inside the summary card; everywhere else it is
+// a card of its own. That is the only thing the group decides about a stage.
 void AetherGateChainStrip::rebuild()
 {
     for (AetherGateChainTile* t : m_tiles)
         t->deleteLater();
     m_tiles.clear();
 
+    ChainGroup previous = ChainGroup::FrontEnd;
     for (int i = 0; i < m_stages.size(); ++i) {
-        auto* t = new AetherGateChainTile(m_stages.at(i), this);
+        const ChainGroup group = chainStageGroup(m_stages.at(i).id, previous);
+        previous = group;
+        const ChainTileShape shape = group == ChainGroup::FrontEnd
+                                         ? ChainTileShape::Line
+                                         : ChainTileShape::Card;
+        auto* t = new AetherGateChainTile(m_stages.at(i), shape, this);
         connect(t, &AetherGateChainTile::clicked, this, [this](const QString& id) {
             setFocus(Qt::MouseFocusReason);
             selectStage(id);
@@ -660,8 +308,8 @@ void AetherGateChainStrip::rebuild()
     relayout();
 }
 
-// Both grids, from scratch, in gate order. Cheap enough to do on a mode change
-// and on a rebuild, and there is no second source of truth about which tile is
+// Every grid, from scratch, in gate order. Cheap enough to do on a mode change
+// and on a rebuild, and there is no second source of truth about which card is
 // where.
 void AetherGateChainStrip::relayout()
 {
@@ -669,33 +317,67 @@ void AetherGateChainStrip::relayout()
         while (QLayoutItem* item = grid->takeAt(0))
             delete item;
     };
-    drain(m_grid);
-    drain(m_asideGrid);
+    for (Column& column : m_columns)
+        drain(column.grid);
+    drain(m_foldGrid);
 
-    int mine = 0;
-    int aside = 0;
+    // Pass one: which group each card is in, and how many each ends up with.
+    // PASSBAND cannot be placed until its total is known, because that total
+    // is what decides whether it is one column or two.
+    QList<ChainGroup> groups;
+    groups.reserve(m_tiles.size());
+    for (Column& column : m_columns)
+        column.count = 0;
+    ChainGroup previous = ChainGroup::FrontEnd;
     for (AetherGateChainTile* t : m_tiles) {
-        const bool forMode = chainStageInMode(t->id(), m_mode);
-        QGridLayout* grid = forMode ? m_grid : m_asideGrid;
-        const int n = forMode ? mine++ : aside++;
-        grid->addWidget(t, n / kColumns, n % kColumns, Qt::AlignLeft | Qt::AlignTop);
-        // Always shown in its own grid; the collapsed group hides its children
-        // wholesale, so a tile never carries a visibility of its own to get
-        // out of step with.
+        const ChainGroup group = chainStageGroup(t->id(), previous);
+        previous = group;
+        groups.append(group);
+        if (chainStageInMode(t->id(), m_mode))
+            ++columnFor(group).count;
+    }
+
+    const int passbandTotal = columnFor(ChainGroup::Passband).count;
+    const int passbandCols = passbandTotal > kPassbandSplitAt ? 2 : 1;
+    const int passbandRows = passbandCols == 1
+                                 ? passbandTotal
+                                 : (passbandTotal + passbandCols - 1) / passbandCols;
+
+    int placed[kGroupCount] = {0, 0, 0, 0};
+    int folded = 0;
+    for (int i = 0; i < m_tiles.size(); ++i) {
+        AetherGateChainTile* t = m_tiles.at(i);
+        if (!chainStageInMode(t->id(), m_mode)) {
+            m_foldGrid->addWidget(t, folded / kFoldColumns, folded % kFoldColumns,
+                                  Qt::AlignLeft | Qt::AlignTop);
+            ++folded;
+            t->setVisible(true);
+            continue;
+        }
+        const int index = groupIndex(groups.at(i));
+        const int n = placed[index]++;
+        // Down the column, then across: reading order stays signal order.
+        const int rowAt = (groups.at(i) == ChainGroup::Passband && passbandRows > 0)
+                              ? n % passbandRows
+                              : n;
+        const int colAt = (groups.at(i) == ChainGroup::Passband && passbandRows > 0)
+                              ? n / passbandRows
+                              : 0;
+        m_columns[index].grid->addWidget(t, rowAt, colAt,
+                                         Qt::AlignLeft | Qt::AlignTop);
         t->setVisible(true);
     }
-    for (int c = 0; c < kColumns; ++c) {
-        m_grid->setColumnStretch(c, 0);
-        m_asideGrid->setColumnStretch(c, 0);
-    }
-    m_grid->setColumnStretch(kColumns, 1);
-    m_asideGrid->setColumnStretch(kColumns, 1);
 
-    m_asideToggle->setVisible(aside > 0);
-    m_aside->setVisible(aside > 0 && m_asideToggle->isChecked());
-    m_asideToggle->setText(m_asideToggle->isChecked()
-                               ? tr("NOT FOR THIS MODE (%1) — HIDE").arg(aside)
-                               : tr("NOT FOR THIS MODE (%1) — SHOW").arg(aside));
+    // A group with nothing in it says so by not being there at all: an empty
+    // labelled column is a promise of a stage that does not exist.
+    for (int i = 0; i < kGroupCount; ++i)
+        m_columns[i].host->setVisible(m_columns[i].count > 0);
+
+    m_foldToggle->setVisible(folded > 0);
+    m_fold->setVisible(folded > 0 && m_foldToggle->isChecked());
+    m_foldToggle->setText(m_foldToggle->isChecked()
+                              ? tr("STAGES THIS MODE DOES NOT USE (%1) - HIDE").arg(folded)
+                              : tr("STAGES THIS MODE DOES NOT USE (%1) - SHOW").arg(folded));
 }
 
 void AetherGateChainStrip::selectStage(const QString& id)
@@ -706,10 +388,9 @@ void AetherGateChainStrip::selectStage(const QString& id)
     emit stageSelected(id);
 }
 
-// Reading order, which is signal order: right/down step forward, left/up step
-// back, and the walk stops at both ends rather than wrapping -- a strip that
-// wrapped from the last stage to the first would be claiming the chain is a
-// loop.
+// Signal order, forwards and backwards, stopping at both ends rather than
+// wrapping -- a diagram that wrapped from the last stage to the first would be
+// claiming the chain is a loop.
 void AetherGateChainStrip::moveSelection(int delta)
 {
     const QList<AetherGateChainTile*> mine = tilesInMode();
@@ -730,20 +411,18 @@ void AetherGateChainStrip::moveSelection(int delta)
 void AetherGateChainStrip::keyPressEvent(QKeyEvent* event)
 {
     switch (event->key()) {
+    // The diagram is columns, so down and right are the same move: the next
+    // stage the signal reaches.
     case Qt::Key_Right:
+    case Qt::Key_Down:
         moveSelection(1);
         return;
     case Qt::Key_Left:
+    case Qt::Key_Up:
         moveSelection(-1);
         return;
-    case Qt::Key_Down:
-        moveSelection(kColumns);
-        return;
-    case Qt::Key_Up:
-        moveSelection(-kColumns);
-        return;
     case Qt::Key_Space:
-        // One press, one write -- the tile's own switch, with the tile's own
+        // One press, one write -- the card's own switch, with the card's own
         // "nothing optimistic" rule and its own busy latch behind it.
         if (AetherGateChainTile* t = tile(m_selected))
             t->activateSwitch();

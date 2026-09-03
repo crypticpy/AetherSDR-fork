@@ -18,20 +18,22 @@ namespace AetherSDR {
 
 namespace {
 
-// The frame. The minimum is what four tiles across need before the strip
-// starts wrapping into another row; the initial size is chosen so that NOTHING
-// scrolls when the window first opens -- the operator should not have to
-// discover a scrollbar to find the second half of his own receiver.
+// The frame. The initial size is the one the whole layout is arithmetic for:
+// the four groups measure 1094 px across (236 + 196 + 400 + 196, plus three
+// 22 px arrow gutters) and the diagram plus the inspector clear 820 px of
+// height, so NOTHING scrolls when the window first opens. The minimum is
+// smaller on purpose -- below the initial size the scroll area is what keeps
+// every stage reachable.
 constexpr int kMinWidth = 960;
 constexpr int kMinHeight = 560;
 constexpr int kInitialWidth = 1120;
-constexpr int kInitialHeight = 760;
+constexpr int kInitialHeight = 820;
 
-// The detail area's sentence field. Wide enough for a whole explanation and
-// fixed, because a label that grew with its text would move the control under
-// it every time the selection changed.
-constexpr int kTipWidth = 700;
-constexpr int kDetailTextWidth = 420;
+// The inspector's sentence fields. Fixed, because a label that grew with its
+// text would move the control under it every time the selection changed, and
+// wide enough that the sentences in AetherGateChainModes.cpp fit whole.
+constexpr int kTipWidth = 1020;
+constexpr int kDetailTextWidth = 1020;
 
 // How long a write's settling window stays open. The poller bounds every
 // request at 2 s (DiversityBandPoller.cpp kTransferTimeoutMs), so past that
@@ -44,7 +46,23 @@ const char* kWindowStyle =
     "QWidget { background: {{color.background.0}}; color: {{color.text.primary}}; }"
     "QFrame#stripGroupBox { border: 1px solid {{color.background.1}};"
     " border-radius: 4px; background: transparent; }"
+    // The FRONT END summary card is drawn as ONE block, so it carries the
+    // frame its seven rows do not.
+    "QFrame#gateChainFrontEndCard { border: 1px solid {{color.background.1}};"
+    " border-radius: 4px; background: transparent; }"
     "QScrollArea { background: transparent; border: none; }";
+
+// The one line that says what you would hear WITHOUT the selected stage. Dim,
+// because it describes something that is not happening.
+const char* kOffStyle =
+    "QLabel { color: {{color.text.secondary}}; font-size: 11px;"
+    " background: transparent; }";
+
+// The receiver's own words when it refuses. The only warning-coloured thing in
+// the inspector, and hidden entirely when there is nothing to refuse.
+const char* kNoteStyle =
+    "QLabel { color: {{color.accent.warning}}; font-size: 11px;"
+    " background: transparent; }";
 
 const char* kStatusStyle =
     "QLabel { color: {{color.text.secondary}}; font-size: 10px;"
@@ -127,18 +145,8 @@ AetherGateChainWindow::AetherGateChainWindow(QWidget* parent)
 
     buildModeRow(root);
 
-    m_source = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainSourceLabel"),
-        tr("13 stages · assembled by the app from this gate's filter status"),
-        tr("Whether the rows came from the gate's own chain[] array -- in which "
-           "case a stage the app has never heard of still renders -- or from the "
-           "app's built-in fallback, which is everything a gate with no chain[] "
-           "can honestly describe."),
-        bodyWidget());
-    root->addWidget(m_source);
-
     // Everything below the caption scrolls, so the window can be dragged
-    // smaller than its natural content height without a tile becoming
+    // smaller than its natural content height without a card becoming
     // unreachable. At the initial size nothing scrolls.
     auto* host = new QWidget;
     host->setObjectName(QStringLiteral("gateChainScrollHost"));
@@ -154,6 +162,32 @@ AetherGateChainWindow::AetherGateChainWindow(QWidget* parent)
             &AetherGateChainWindow::onWriteRequested);
     hostBox->addWidget(m_strip);
 
+    buildInspector(hostBox, host);
+    hostBox->addStretch(1);
+
+    auto* scroll = new QScrollArea;
+    scroll->setObjectName(QStringLiteral("gateChainScroll"));
+    scroll->setWidget(host);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    root->addWidget(scroll, 1);
+
+    m_status = new QLabel(this);
+    m_status->setObjectName(QStringLiteral("gateChainStatusLabel"));
+    m_status->setAccessibleName(tr("Connection"));
+    ThemeManager::instance().applyStyleSheet(m_status, QString::fromLatin1(kStatusStyle));
+    root->addWidget(m_status);
+
+    setLink(ChainLink::Gone);
+    showStage(QString());
+}
+
+// The bottom pane. It answers four questions in the order an operator asks
+// them: what is this, what is it doing, can I change it, and what would I hear
+// without it. It never repeats the card's one line verbatim -- the card has
+// the short form, this has the whole of it.
+void AetherGateChainWindow::buildInspector(QVBoxLayout* hostBox, QWidget* host)
+{
     QVBoxLayout* detailBody = nullptr;
     QFrame* detailFrame = DiversityWidgets::makeGroupBox(
         tr("THIS STAGE"), QStringLiteral("gateChainDetail"), detailBody, host);
@@ -167,73 +201,75 @@ AetherGateChainWindow::AetherGateChainWindow(QWidget* parent)
     m_detailName = new QLabel(emDash(), pane);
     m_detailName->setObjectName(QStringLiteral("gateChainDetailName"));
     m_detailName->setAccessibleName(tr("Selected stage"));
-    m_detailName->setToolTip(tr("The stage the strip has selected. Its tile carries "
-                                "a frame in this same colour."));
+    m_detailName->setWordWrap(false);
+    m_detailName->setToolTip(tr("The stage the diagram has selected. Its card "
+                                "carries a frame in this same colour."));
     m_detailName->setAccessibleDescription(m_detailName->toolTip());
     ThemeManager::instance().applyStyleSheet(m_detailName,
                                              QString::fromLatin1(kSelectedTitleStyle));
     paneBox->addWidget(m_detailName);
 
-    // The first line under the title is what the stage IS (design §0.3 item 7),
-    // then its control, then what the gate measured through it.
+    // 1. What it is, in terms of the sound.
     m_detailTip = DiversityWidgets::makeReadoutLine(
         QStringLiteral("gateChainDetailTip"), QString(),
-        tr("What this stage is, and what a radio's manual would call it."), pane);
-    m_detailTip->setAccessibleName(tr("Selected stage explanation"));
+        tr("What this stage does to what you hear."), pane);
+    m_detailTip->setAccessibleName(tr("What this stage does"));
     m_detailTip->setFixedWidth(kTipWidth);
     paneBox->addWidget(m_detailTip);
 
+    // 2. What it is doing now -- the card's line, spelled out whole.
     m_detailText = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainDetailText"),
-        QStringLiteral("med · 5000/5000/5000 ms · AGC-T 60 · -99.9 dB"),
-        tr("What this stage is doing right now, in the gate's own words."), pane);
-    m_detailText->setAccessibleName(tr("Selected stage detail"));
+        QStringLiteral("gateChainDetailText"), QString(),
+        tr("What this stage is set to right now, in full. The card beside it "
+           "shows the short form of the same thing."),
+        pane);
+    m_detailText->setAccessibleName(tr("Selected stage now"));
+    m_detailText->setFixedWidth(kDetailTextWidth);
     paneBox->addWidget(m_detailText);
 
+    // 3. The control, at full size.
     m_detailControlBox = new QVBoxLayout;
     m_detailControlBox->setContentsMargins(0, 0, 0, 0);
     m_detailControlBox->setSpacing(4);
     paneBox->addLayout(m_detailControlBox);
 
+    // 4. What you would hear without it.
+    m_detailOff = new QLabel(pane);
+    m_detailOff->setObjectName(QStringLiteral("gateChainDetailOff"));
+    m_detailOff->setAccessibleName(tr("With this stage off"));
+    m_detailOff->setWordWrap(false);
+    m_detailOff->setFixedWidth(kDetailTextWidth);
+    ThemeManager::instance().applyStyleSheet(m_detailOff, QString::fromLatin1(kOffStyle));
+    paneBox->addWidget(m_detailOff);
+
     m_detailLevels = DiversityWidgets::makeReadoutLine(
         QStringLiteral("gateChainDetailLevels"), chainLevelWorstCase(),
-        tr("What the gate measured going into this stage and coming out of it. An "
-           "em dash is a leg the gate does not measure, never a zero."),
+        tr("What the receiver measured going into this stage and coming out of "
+           "it. A dash is a leg nothing measures, never a zero."),
         pane);
     m_detailLevels->setAccessibleName(tr("Selected stage levels"));
     paneBox->addWidget(m_detailLevels);
 
+    // The receiver's own words when it says no. Hidden until there are any.
+    m_detailNote = new QLabel(pane);
+    m_detailNote->setObjectName(QStringLiteral("gateChainDetailNote"));
+    m_detailNote->setAccessibleName(tr("What the receiver said"));
+    m_detailNote->setWordWrap(false);
+    m_detailNote->setFixedWidth(kDetailTextWidth);
+    m_detailNote->setVisible(false);
+    ThemeManager::instance().applyStyleSheet(m_detailNote,
+                                             QString::fromLatin1(kNoteStyle));
+    paneBox->addWidget(m_detailNote);
+
     detailBody->addWidget(pane);
     hostBox->addWidget(detailFrame);
-    hostBox->addStretch(1);
-
-    auto* scroll = new QScrollArea;
-    scroll->setObjectName(QStringLiteral("gateChainScroll"));
-    scroll->setWidget(host);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    root->addWidget(scroll, 1);
-
-    m_status = new QLabel(tr("gate not answering"), bodyWidget());
-    m_status->setObjectName(QStringLiteral("gateChainStatusLabel"));
-    m_status->setAccessibleName(tr("Gate status"));
-    m_status->setToolTip(tr("Whether the Aether-gate bridge is answering, and what "
-                            "it said about the last write. A stage that refuses a "
-                            "value says so here AND on its own tile."));
-    m_status->setAccessibleDescription(m_status->toolTip());
-    ThemeManager::instance().applyStyleSheet(m_status, QString::fromLatin1(kStatusStyle));
-    root->addWidget(m_status);
-
-    setStatus(tr("gate not answering"), false);
-    setElided(m_detailTip, tr("Pick a stage on the strip above."), kTipWidth);
-    setElided(m_detailText, emDash(), kDetailTextWidth);
-    setElided(m_detailLevels, emDash(), kDetailTextWidth);
 }
 
-// PHONE · CW · DATA/OTHER, and the one set each mode offers. Three mode
-// buttons and three set buttons, all built here and all named, because the
-// automation bridge addresses them by objectName and a button that appeared
-// only in one mode would be a name that sometimes does not exist.
+// MODE: a segmented PHONE / CW / DATA, then ONE button that names the mode it
+// would set up. Three mode buttons and three set buttons are built, and only
+// the set for the current mode is visible -- the automation bridge and the
+// screen reader address them by objectName, and a name that existed only in
+// one mode would be a name that sometimes is not there.
 void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
 {
     auto* row = new QWidget(bodyWidget());
@@ -262,21 +298,23 @@ void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
         box->addWidget(button);
     }
 
-    box->addSpacing(10);
+    box->addSpacing(14);
 
     for (ChainMode mode : kModes) {
         auto* button = new QPushButton(chainSetLabel(mode), row);
         button->setObjectName(QStringLiteral("gateChainSetButton_") + chainModeId(mode));
-        button->setAccessibleName(tr("Apply the %1").arg(chainSetLabel(mode)));
+        button->setAccessibleName(chainSetLabel(mode));
         const QList<ChainPresetWrite> writes = chainPreset(mode);
-        const QString tip =
-            writes.isEmpty()
-                ? tr("No set for this mode: the gate has no data-specific stage, "
-                     "and a button that wrote nothing would be a lie.")
-                : tr("%1 writes to /filter/set, in order, each one waited for "
-                     "before the next goes out. Every line is a parameter this "
-                     "gate accepts today; nothing here is a bulk route.")
-                      .arg(writes.size());
+        // What the button DOES, in the operator's terms. The first build put
+        // the number of writes and the route here, which is the app talking
+        // to itself about its own plumbing.
+        const QString tip = writes.isEmpty()
+                                ? tr("No set for data yet.")
+                                : tr("Sets up the whole chain for %1. It changes "
+                                     "one stage at a time and waits for the "
+                                     "receiver after each one, so you can watch "
+                                     "it happen on the diagram.")
+                                      .arg(chainModeLabel(mode));
         button->setToolTip(tip);
         button->setAccessibleDescription(tip);
         button->setCursor(Qt::PointingHandCursor);
@@ -284,7 +322,13 @@ void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
         button->setEnabled(!writes.isEmpty());
         ThemeManager::instance().applyStyleSheet(button,
                                                  QString::fromLatin1(kSetButtonStyle));
-        connect(button, &QPushButton::clicked, this, [this, mode] {
+        connect(button, &QPushButton::clicked, this, [this, button, mode] {
+            // The button says what it is doing while it does it. A set is
+            // thirteen writes and several seconds; a button that still read
+            // "SET UP FOR PHONE" throughout would look like nothing happened.
+            button->setText(chainSetBusyLabel());
+            setSetProgress(chainSetBusyLabel());
+            setNote(QString());
             m_preset->start(chainPreset(mode), chainSetLabel(mode));
         });
         m_setButtons.append(button);
@@ -294,26 +338,48 @@ void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
     box->addStretch(1);
     root->addWidget(row);
 
+    // One plain line about what the set does to the SOUND. Not a paragraph,
+    // and never a word about the control port.
     m_modeTip = DiversityWidgets::makeReadoutLine(
         QStringLiteral("gateChainModeTipLabel"), QString(),
-        tr("What this mode puts on the strip, and what its set does."), bodyWidget());
-    m_modeTip->setAccessibleName(tr("Mode explanation"));
+        tr("What setting up for this mode does to what you hear."), bodyWidget());
+    m_modeTip->setAccessibleName(tr("What this set does"));
     m_modeTip->setFixedWidth(kTipWidth);
     root->addWidget(m_modeTip);
+
+    // Where a running set narrates itself, so the status line can stay the
+    // three words it is meant to be.
+    m_setProgress = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("gateChainSetProgressLabel"), QString(),
+        tr("How far a set has got, and which stage it is on."), bodyWidget());
+    m_setProgress->setAccessibleName(tr("Set progress"));
+    m_setProgress->setFixedWidth(kTipWidth);
+    m_setProgress->setVisible(false);
+    root->addWidget(m_setProgress);
 
     m_preset = new AetherGateChainPreset(this);
     connect(m_preset, &AetherGateChainPreset::requestWrite, this,
             &AetherGateChainWindow::onWriteRequested);
     connect(m_preset, &AetherGateChainPreset::progress, this,
             [this](const QString& name, int done, int total, const QString& why) {
-                setStatus(tr("%1: %2 of %3 — %4").arg(name).arg(done).arg(total).arg(why),
-                          true);
+                Q_UNUSED(name)
+                setSetProgress(tr("step %1 of %2: %3").arg(done).arg(total).arg(why));
+                setLink(ChainLink::Applying);
             });
     connect(m_preset, &AetherGateChainPreset::finished, this,
             [this](const QString& name, bool ok, const QString& reason) {
-                setStatus(ok ? tr("%1 applied").arg(name)
-                             : tr("%1 stopped: %2").arg(name, reason),
-                          ok);
+                Q_UNUSED(name)
+                if (ok) {
+                    setSetProgress(tr("done"));
+                } else {
+                    // The receiver's own words go where the operator is
+                    // looking, not onto a status line reduced to three states.
+                    setSetProgress(tr("stopped"));
+                    setNote(reason);
+                }
+                for (int i = 0; i < m_setButtons.size() && i < kModeCount; ++i)
+                    m_setButtons.at(i)->setText(chainSetLabel(kModes[i]));
+                setLink(m_present ? ChainLink::Live : ChainLink::Gone);
             });
 
     setMode(m_mode);
@@ -327,12 +393,15 @@ void AetherGateChainWindow::setMode(ChainMode mode)
     for (int i = 0; i < m_setButtons.size() && i < kModeCount; ++i)
         m_setButtons.at(i)->setVisible(kModes[i] == mode);
     if (m_modeTip)
-        setElided(m_modeTip, chainModeTip(mode), kTipWidth);
+        setElided(m_modeTip, chainModeSound(mode), kTipWidth);
     if (m_strip)
         m_strip->setMode(mode);
     // A set that was mid-flight belongs to the mode it was started from.
     if (m_preset && m_preset->running())
         m_preset->abort();
+    for (int i = 0; i < m_setButtons.size() && i < kModeCount; ++i)
+        m_setButtons.at(i)->setText(chainSetLabel(kModes[i]));
+    setSetProgress(QString());
 }
 
 // Every write in this window goes through here so that exactly one place
@@ -362,6 +431,8 @@ void AetherGateChainWindow::onWriteRequested(const QString& route, const QUrlQue
             break;
         }
     }
+    // A new attempt clears the last refusal: the note is about THIS write.
+    setNote(QString());
     applyBusyToTiles();
     emit requestWrite(route, query);
 }
@@ -449,7 +520,7 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
         if (m_preset->running())
             m_preset->noteError(error);
         else
-            setStatus(tr("gate refused: %1").arg(error), true);
+            setNote(error);
         return;
     }
     if (!looksLikeFilterStatus(filter))
@@ -460,17 +531,11 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
     m_fromGate = fromGate;
     m_strip->setStages(stages);
     applyBusyToTiles();
-    setElided(m_source,
-              fromGate ? tr("%1 stages · authored by the gate").arg(stages.size())
-                       : tr("%1 stages · assembled by the app from this gate's "
-                            "filter status")
-                             .arg(stages.size()),
-              kTipWidth);
     showStage(m_strip->selectedId());
     if (m_preset->running())
         m_preset->noteFilterBody();
     else
-        setStatus(tr("gate answering"), true);
+        setLink(ChainLink::Live);
 }
 
 void AetherGateChainWindow::setPresent(bool present)
@@ -479,7 +544,7 @@ void AetherGateChainWindow::setPresent(bool present)
         return;
     m_present = present;
     if (present) {
-        setStatus(tr("gate answering"), true);
+        setLink(ChainLink::Live);
         return;
     }
     m_preset->abort();
@@ -487,11 +552,15 @@ void AetherGateChainWindow::setPresent(bool present)
     m_lastWriteStage.clear();
     m_strip->clear();
     m_fromGate = false;
-    setElided(m_source, emDash(), kTipWidth);
+    setSetProgress(QString());
     showStage(QString());
-    setStatus(tr("gate not answering"), false);
+    setLink(ChainLink::Gone);
 }
 
+// The inspector, in the order the questions get asked: what is this, what is
+// it doing, can I change it, what would I hear without it. The "doing" line is
+// the WHOLE of what the card shortened, which is why the two never read as a
+// repetition.
 void AetherGateChainWindow::showStage(const QString& id)
 {
     const AetherGateChainTile* tile = id.isEmpty() ? nullptr : m_strip->tile(id);
@@ -501,20 +570,29 @@ void AetherGateChainWindow::showStage(const QString& id)
     }
     if (!tile) {
         m_detailName->setText(emDash());
-        setElided(m_detailText, emDash(), kDetailTextWidth);
-        setElided(m_detailLevels, emDash(), kDetailTextWidth);
-        setElided(m_detailTip, tr("Pick a stage on the strip above."), kTipWidth);
+        setElided(m_detailTip, tr("Click a stage."), kTipWidth);
+        setElided(m_detailText, QString(), kDetailTextWidth);
+        setElided(m_detailLevels, QString(), kDetailTextWidth);
+        m_detailOff->setVisible(false);
         return;
     }
 
     const ChainStage& stage = tile->stage();
-    m_detailName->setText(tr("SELECTED: %1").arg(stage.name));
-    m_detailName->setAccessibleDescription(m_detailName->text());
-    setElided(m_detailText, stage.detail.isEmpty() ? emDash() : stage.detail,
-              kDetailTextWidth);
-    setElided(m_detailLevels, chainLevelText(stage), kDetailTextWidth);
-    const QString tip = stage.tip.isEmpty() ? stage.why : stage.tip;
-    setElided(m_detailTip, tip.isEmpty() ? emDash() : tip, kTipWidth);
+    m_detailName->setText(stage.name);
+    m_detailName->setAccessibleDescription(stage.name);
+
+    // What it does to the sound. The app's own sentence when it knows the
+    // stage; the row's own words when a newer receiver sent one the app has
+    // never heard of.
+    QString sound = chainSoundSentence(stage.id);
+    if (sound.isEmpty())
+        sound = stage.tip.isEmpty() ? stage.why : stage.tip;
+    setElided(m_detailTip, sound.isEmpty() ? emDash() : sound, kTipWidth);
+
+    // What it is doing NOW. The card shows the short form of this line; here
+    // it is whole, prefixed so the two cannot be mistaken for each other.
+    const QString now = stage.detail.isEmpty() ? emDash() : stage.detail;
+    setElided(m_detailText, tr("now: %1").arg(now), kDetailTextWidth);
 
     m_detailControl = new AetherGateChainControl(stage, QStringLiteral("gateChainDetail"),
                                                  /*large=*/true, nullptr);
@@ -522,13 +600,55 @@ void AetherGateChainWindow::showStage(const QString& id)
             &AetherGateChainWindow::onWriteRequested);
     auto it = m_pending.constFind(stage.id);
     m_detailControl->setBusy(it != m_pending.constEnd() && !it->confirmed);
-    m_detailControlBox->addWidget(m_detailControl);
+    m_detailControlBox->addWidget(m_detailControl, 0, Qt::AlignLeft);
+
+    // One dim line, and which of two things it says depends on whether the
+    // stage can move at all. A switchable stage gets "what you would hear
+    // without it"; a stage nothing here can change gets the reason, which the
+    // card no longer prints on a FRONT END row. Never both, because for any
+    // one stage only one of them is true.
+    QString aside = stage.actionable() ? chainOffSentence(stage.id) : QString();
+    if (aside.isEmpty() && !stage.actionable())
+        aside = stage.why;
+    m_detailOff->setVisible(!aside.isEmpty());
+    if (!aside.isEmpty())
+        setElided(m_detailOff, aside, kDetailTextWidth);
+
+    setElided(m_detailLevels, chainLevelText(stage), kDetailTextWidth);
 }
 
-void AetherGateChainWindow::setStatus(const QString& text, bool live)
+// Three states, and only three. The first build put refusals, set progress
+// and connection on one line and the operator read none of it; a refusal now
+// goes to the inspector and a set narrates itself under the mode row.
+void AetherGateChainWindow::setLink(ChainLink link)
 {
+    m_link = link;
+    QString text;
+    switch (link) {
+    case ChainLink::Live:     text = tr("live"); break;
+    case ChainLink::Applying: text = tr("applying..."); break;
+    case ChainLink::Gone:     text = tr("no connection"); break;
+    }
     m_status->setText(text);
-    DiversityWidgets::setLive(m_status, live);
+    m_status->setToolTip(tr("Whether the receiver is connected right now."));
+    m_status->setAccessibleDescription(text);
+    DiversityWidgets::setLive(m_status, link != ChainLink::Gone);
+}
+
+void AetherGateChainWindow::setNote(const QString& text)
+{
+    if (!m_detailNote)
+        return;
+    m_detailNote->setVisible(!text.isEmpty());
+    setElided(m_detailNote, text, kDetailTextWidth);
+}
+
+void AetherGateChainWindow::setSetProgress(const QString& text)
+{
+    if (!m_setProgress)
+        return;
+    m_setProgress->setVisible(!text.isEmpty());
+    setElided(m_setProgress, text, kTipWidth);
 }
 
 } // namespace AetherSDR

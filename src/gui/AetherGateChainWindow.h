@@ -15,22 +15,25 @@
 // when the gate sends them, and the window shows whatever /filter says
 // regardless of device.
 //
-// WHAT IS ON SCREEN
+// WHAT IS ON SCREEN, top to bottom
 //
-//   * the MODE row -- PHONE, CW, DATA/OTHER -- and the one set button that
-//     mode offers. The mode decides which stages are on the strip and which
-//     drop into the collapsed "not for this mode" group; the set button
-//     applies that mode's ordered list of writes, one at a time, each waited
-//     for. See AetherGateChainModes.h for both tables.
-//   * the strip -- one tile per row of the gate's chain[], in the gate's own
-//     order, which IS signal order. Name, the gate's headline value, an
-//     optional in/out level from `measured`, and the control the gate
-//     nominated: a switch on a toggle, a menu on a select, nothing at all on a
-//     fixed row (whose `why` is printed on its face). See
-//     AetherGateChainStrip.h for the array contract and the built-in fallback.
-//   * the detail area -- "SELECTED: <NAME>" in the same accent as the selected
-//     tile's frame, the stage's one-sentence description, its control again
-//     larger, and the measured in/out.
+//   * MODE -- a segmented PHONE / CW / DATA, and ONE button beside it that
+//     reads "SET UP FOR PHONE" or "SET UP FOR CW". The mode decides which
+//     stages are drawn and which fold into "stages this mode does not use";
+//     the button applies that mode's ordered list of writes. Under the row,
+//     one plain line about what the set does to the SOUND -- not to the
+//     control port. See AetherGateChainModes.h.
+//   * the DIAGRAM -- four labelled groups read left to right with an arrow
+//     between them: FRONT END (one summary card, because none of it is
+//     switched from here), PAIR, PASSBAND, OUT. Every live stage is a card
+//     with its NAME big and bright, ONE measured line that always fits, and
+//     one control. See AetherGateChainStrip.h.
+//   * the INSPECTOR -- the selected stage's name, one sentence of what it
+//     does to the sound, what it is doing now spelled out in full, its
+//     control at full size, one line of what you would hear with it off, and
+//     the levels the gate measured. It never repeats the card verbatim, and
+//     when the receiver refuses a write it is where the receiver's own words
+//     are printed.
 //
 // IT OWNS NO TRANSPORT. AetherGateApplet is still the one place a gate request
 // is built: /filter arrives here through the applet's DiversityBandPoller (the
@@ -109,8 +112,17 @@ signals:
 
 private:
     void buildModeRow(QVBoxLayout* root);
+    void buildInspector(QVBoxLayout* hostBox, QWidget* host);
     void showStage(const QString& id);
-    void setStatus(const QString& text, bool live);
+    // The status line says one of exactly three things -- live, applying,
+    // no connection -- because a status line that also carried refusals and
+    // set progress was a line nobody read.
+    enum class ChainLink { Live, Applying, Gone };
+    void setLink(ChainLink link);
+    // What the receiver said when it refused. Printed in the inspector, where
+    // the operator is already looking, and on the tile that asked.
+    void setNote(const QString& text);
+    void setSetProgress(const QString& text);
     void onWriteRequested(const QString& route, const QUrlQuery& query);
     // The rows one body describes, with any stage still inside its settling
     // window held at the setting the strip is already showing.
@@ -125,15 +137,17 @@ private:
     };
 
     AetherGateChainStrip*   m_strip{nullptr};
-    QLabel*                 m_source{nullptr};
     QLabel*                 m_detailName{nullptr};
-    QLabel*                 m_detailText{nullptr};
-    QLabel*                 m_detailTip{nullptr};
+    QLabel*                 m_detailText{nullptr};   // what it is doing now
+    QLabel*                 m_detailTip{nullptr};    // what it does to the sound
+    QLabel*                 m_detailOff{nullptr};    // what you would hear without it
+    QLabel*                 m_detailNote{nullptr};   // the receiver's refusal
     QLabel*                 m_detailLevels{nullptr};
     QVBoxLayout*            m_detailControlBox{nullptr};
     AetherGateChainControl* m_detailControl{nullptr};
     QLabel*                 m_status{nullptr};
     QLabel*                 m_modeTip{nullptr};
+    QLabel*                 m_setProgress{nullptr};
     // Indexed by int(ChainMode); one entry per mode, always three.
     QList<QPushButton*>     m_modeButtons;
     QList<QPushButton*>     m_setButtons;
@@ -141,6 +155,7 @@ private:
     QHash<QString, PendingWrite> m_pending;
     QString                 m_lastWriteStage;
     ChainMode               m_mode{ChainMode::Phone};
+    ChainLink               m_link{ChainLink::Gone};
     bool                    m_fromGate{false};
     bool                    m_present{false};
 };

@@ -498,6 +498,75 @@ Both write immediately through `/diversity/set` (`post=off|on|v2`,
 reply is the next `/diversity` poll's answer, and a button's checked
 state simply follows whatever that poll reports.
 
+## The CHAIN window
+
+`OPEN CHAIN` at the top of the FILTER page opens it. It is a separate
+window rather than a fifth page because the receive chain is not a pair
+feature: an RSPdx has a passband, a blanker and an AGC just as an RSPduo
+does, and the window renders whatever `/filter` reports on either.
+
+It is read left to right, as a block diagram, in four labelled groups
+with an arrow between them.
+
+**FRONT END** is one summary card, not seven boxes. Antenna port,
+broadcast traps, PRE/ATT, RF GAIN, RF AGC, the analogue roofing filter
+and the sample rate: one line each, and one hint under all of them —
+`ALL SET ON THE SETUP PAGE`. Nothing in that card is changed from this
+window except the roofing filter, on a receiver whose driver offers its
+IF bandwidths.
+
+**PAIR** is what the two loops do together: ALIGN, NB, COMBINER,
+SUB-BAND NULL, POST-FILTER. On a single-tuner device the gate does not
+send those rows and the column is simply not there.
+
+**PASSBAND** is the filter you actually tune: the digital roof, the
+slice filter, the passband itself, AUTO WIDTH, SHAPE, IF NOTCH,
+ANF/DNF, CONTOUR, APF and the RX EQ tilt. It is the long group, so past
+seven stages it draws in two columns rather than growing a scrollbar.
+
+**OUT** is the detector, the AGC and the hand-off to the app's own noise
+reduction.
+
+Every live stage is one card: the stage's NAME, one measured line, and
+one control — a switch, a menu, or a button where the gate offered a
+verb (`REALIGN`). The measured line is the part worth knowing about. The
+gate writes a whole sentence per stage (`track · φ 157.3° · -4.6 dB ·
+SNR a 15.2 / b 12.9 → 16.4 dB`), and a card that printed it would have
+to cut it off mid-word. So each stage names which of that sentence's
+fields it keeps, and the card drops whole fields and then whole *words*
+until what is left fits. **A card never ends in an ellipsis.** The whole
+sentence is on the hover and in the inspector, always.
+
+**MODE** at the top is `PHONE` / `CW` / `DATA`, and it does two things.
+It decides which stages are drawn — the rest collapse into `STAGES THIS
+MODE DOES NOT USE (n)`, which is a disclosure, not a switch: expanding
+it turns nothing on. And it offers one button, `SET UP FOR PHONE` or
+`SET UP FOR CW`, which applies that mode's ordered list of writes one at
+a time, waiting for the receiver after each. The line under the button
+says what that does to the sound. `DATA` is deliberately dead, with `No
+set for data yet.` on its hover: the gate has no data-specific stage and
+a button that wrote nothing would be a lie.
+
+**THIS STAGE**, the pane along the bottom, is the inspector. Click any
+card and it answers four questions in order: what the stage does to what
+you hear, what it is doing now (the card's line spelled out whole), the
+control at full size, and what you would hear with it off. Underneath,
+the levels the gate measured through it — `in -97.4 · out -101.2 dB`,
+with a dash for a leg nothing measures, never a zero. With nothing
+selected it says `Click a stage.`
+
+Arrow keys walk the diagram in signal order and stop at both ends; space
+presses the selected stage's switch.
+
+Two things about writes are worth knowing. **Nothing is optimistic.** A
+switch moves when the receiver says the stage changed, never when you
+press it, and while a write is out the control is greyed. **A refusal is
+quoted.** When the receiver says no, its own words appear in the
+inspector and on the card that asked, and the row does not move — a
+refused value never happened. The status line in the corner says only
+one of three things: `live`, `applying...`, or `no connection`.
+
+
 ## A working session
 
 This is the order the FLOW line encodes, and the order to work in. Each step

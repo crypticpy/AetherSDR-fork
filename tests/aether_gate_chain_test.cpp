@@ -199,11 +199,18 @@ void testAFixedRowCarriesNoControlAndSaysWhyOnItsOwnFace()
         CHECK(tile->cursor().shape() == Qt::ArrowCursor);
         CHECK(tile->property("fixed").toBool());
     }
+    // Its reason is the one the FRONT END card prints ONCE, under all of its
+    // rows, so the row itself stays quiet: seven rows each repeating "set on
+    // the setup page" was what the operator read as noise.
     QLabel* why = label(w, QStringLiteral("gateChainWhy_lna"));
     CHECK(why != nullptr);
-    if (why) {
-        CHECK(why->isVisibleTo(w));
-        CHECK(why->toolTip() == QStringLiteral("set on the setup page"));
+    if (why)
+        CHECK(!why->isVisibleTo(w));
+    QLabel* hint = label(w, QStringLiteral("gateChainFrontEndHint"));
+    CHECK(hint != nullptr);
+    if (hint) {
+        CHECK(hint->isVisibleTo(w));
+        CHECK(hint->text().contains(QStringLiteral("SETUP PAGE")));
     }
     // And an ACTIONABLE row carries the hand it promises.
     AetherGateChainTile* live = strip(w)->tile(QStringLiteral("nb"));
@@ -222,19 +229,27 @@ void testAnAbsentMeasurementIsADashAndNeverAZero()
     if (!w)
         return;
 
+    // The levels moved off the card and into the inspector: a card has room
+    // for ONE measured line and the setting is the one an operator reads.
+    CHECK(w->findChild<QLabel*>(QStringLiteral("gateChainLevels_roof_rf")) == nullptr);
+
     // roof_rf's in_db is null and its out_db is -97.4: one dash, one number.
-    auto* levels = w->findChild<QLabel*>(QStringLiteral("gateChainLevels_roof_rf"));
+    QTest::mouseClick(strip(w)->tile(QStringLiteral("roof_rf")), Qt::LeftButton);
+    settle();
+    QLabel* levels = label(w, QStringLiteral("gateChainDetailLevels"));
     CHECK(levels != nullptr);
     if (levels) {
         CHECK(levels->toolTip().contains(QStringLiteral("—")));
         CHECK(levels->toolTip().contains(QStringLiteral("-97.4")));
         CHECK(!levels->toolTip().contains(QStringLiteral("0.0 · out")));
     }
-    // A row with no `measured` at all shows no meter rather than an empty one.
-    auto* none = w->findChild<QLabel*>(QStringLiteral("gateChainLevels_steer"));
-    CHECK(none != nullptr);
-    if (none)
-        CHECK(!none->isVisibleTo(w));
+    // A row with no `measured` at all shows dashes rather than a plausible zero.
+    QTest::mouseClick(strip(w)->tile(QStringLiteral("steer")), Qt::LeftButton);
+    settle();
+    if (levels) {
+        CHECK(levels->toolTip().contains(QStringLiteral("—")));
+        CHECK(!levels->toolTip().contains(QStringLiteral("0.0")));
+    }
 }
 
 void testAChainlessGateStillGetsThirteenHonestRows()
@@ -298,19 +313,34 @@ void testSelectingATileFillsTheDetailAreaAndSharesItsAccent()
 
     // The pane's title names the stage (design §0.3 item 7) and the tile it
     // names is the one wearing the accent frame.
-    CHECK(labelText(w, "gateChainDetailName") == QStringLiteral("SELECTED: AGC"));
+    CHECK(labelText(w, "gateChainDetailName") == QStringLiteral("AGC"));
     CHECK(tile->isSelected());
     CHECK(tile->property("selected").toBool());
     CHECK(!strip(w)->tile(QStringLiteral("nb"))->property("selected").toBool());
 
-    // First the sentence that says what the stage IS, then its control, then
-    // what the gate measured.
+    // The inspector answers four questions in order: what it does to the
+    // SOUND, what it is doing now, the control, and what you would hear
+    // without it. None of them repeats the card verbatim.
     auto* tip = w->findChild<QLabel*>(QStringLiteral("gateChainDetailTip"));
     CHECK(tip != nullptr);
-    if (tip)
-        CHECK(tip->toolTip().contains(QStringLiteral("AGC-T")));
-    CHECK(labelText(w, "gateChainDetailText").startsWith(QStringLiteral("med")));
+    if (tip) {
+        CHECK(tip->toolTip().contains(QStringLiteral("gain follows the signal")));
+        CHECK(!tip->toolTip().contains(QStringLiteral("AGC-T")));
+    }
+    CHECK(labelText(w, "gateChainDetailText").startsWith(QStringLiteral("now: med")));
     CHECK(w->findChild<QComboBox*>(QStringLiteral("gateChainDetailSelect_agc")) != nullptr);
+    QLabel* off = label(w, QStringLiteral("gateChainDetailOff"));
+    CHECK(off != nullptr);
+    if (off) {
+        CHECK(off->isVisibleTo(w));
+        CHECK(off->text().startsWith(QStringLiteral("off:")));
+    }
+
+    // Nothing selected: the pane asks for a click rather than showing a dash
+    // where a sentence goes.
+    strip(w)->selectStage(QString());
+    settle();
+    CHECK(labelText(w, "gateChainDetailTip") == QStringLiteral("Click a stage."));
 }
 
 void testNothingScrollsOnTheChainWindowAtTheInitialSize()
@@ -323,7 +353,7 @@ void testNothingScrollsOnTheChainWindowAtTheInitialSize()
     CHECK(w != nullptr);
     if (!w)
         return;
-    w->resize(1120, 760);
+    w->resize(1120, 820);
     settle();
     w->grab();   // forces a full layout pass on an offscreen platform
 

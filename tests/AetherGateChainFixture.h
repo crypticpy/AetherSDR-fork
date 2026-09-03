@@ -97,6 +97,106 @@ QByteArray chainFilterNbOn()
     return body;
 }
 
+// The WHOLE chain, exactly as aether_gate/adapters/chainstatus.py writes it on
+// a dual-tuner device: twenty-five rows in signal order, ids and names and
+// `detail` shapes copied from that module's own golden list
+// (aether_gate/tests/test_chain_status.py GOLDEN_IDS). This is what the four
+// groups, the front-end summary card and the primary-line format table are
+// measured against -- a five-row payload cannot show that the diagram fits.
+const QByteArray kChainFullFilter = R"JSON({
+  "low_hz": 350, "high_hz": 2400, "width_hz": 2050, "mode": "USB",
+  "roofing": {"analogue_hz": 200000.0, "digital_hz": 12000, "samp_rate_hz": 62500},
+  "chain": [
+    {"id": "antenna", "name": "ANTENNA", "kind": "fixed", "fixed": true,
+     "enabled": true, "detail": "Antenna B · 1 of 3 ports",
+     "why": "set on the setup page"},
+    {"id": "traps", "name": "BC / DAB TRAP", "kind": "fixed", "fixed": true,
+     "enabled": true, "detail": "MW/FM on · DAB off",
+     "why": "set on the setup page"},
+    {"id": "lna", "name": "PRE / ATT · LNA", "kind": "fixed", "fixed": true,
+     "enabled": true, "detail": "state 4 of 0-9", "why": "set on the setup page"},
+    {"id": "ifgr", "name": "RF GAIN · IFGR", "kind": "fixed", "fixed": true,
+     "enabled": true, "detail": "47 dB of 20-59", "why": "set on the setup page"},
+    {"id": "rf_agc", "name": "RF AGC", "kind": "fixed", "fixed": true,
+     "enabled": false, "detail": "off · set-point -30 dBfs",
+     "why": "set on the setup page"},
+    {"id": "roof_rf", "name": "ROOFING · RF", "kind": "select", "enabled": true,
+     "detail": "200 kHz · following the sample rate", "value": 200000,
+     "options": [200000, 300000, 600000, 1536000],
+     "measured": {"in_db": null, "out_db": -97.4},
+     "action": {"label": "SET", "route": "/filter/set", "query": "roof_hz="}},
+    {"id": "adc", "name": "ADC · SAMPLE RATE", "kind": "fixed", "fixed": true,
+     "enabled": true, "detail": "62.5 kS/s", "value": 62500,
+     "why": "the resolution control sets it (/resolution?rate=)"},
+
+    {"id": "align", "name": "ALIGN", "kind": "value", "enabled": true,
+     "detail": "lag 4158 samples · locked · peak 0.82", "value": 4158,
+     "action": {"label": "REALIGN", "route": "/diversity/align", "query": ""}},
+    {"id": "nb", "name": "NB", "kind": "toggle", "enabled": true,
+     "detail": "12.0 dB · 0.43 % blanked · auto: idle",
+     "action": {"label": "OFF", "route": "/filter/set", "query": "nb=off"}},
+    {"id": "roof_digital", "name": "ROOFING · DIGITAL", "kind": "select",
+     "enabled": true, "detail": "12 kHz · 255 taps", "value": 12000,
+     "options": [12000, 6000, 3000, 1200, 600, 300],
+     "measured": {"in_db": -97.4, "out_db": -101.2},
+     "action": {"label": "SET", "route": "/filter/set", "query": "digital_roof_hz="}},
+    {"id": "combiner", "name": "COMBINER", "kind": "select", "enabled": true,
+     "detail": "track · φ 157.3° · -4.6 dB · SNR a 15.2 / b 12.9 → 16.4 dB",
+     "value": "track", "options": ["off", "manual", "null", "track"],
+     "measured": {"in_db": 15.2, "out_db": 16.4},
+     "action": {"label": "SET", "route": "/diversity/set", "query": "mode="}},
+    {"id": "subband", "name": "SUB-BAND NULL", "kind": "toggle", "enabled": true,
+     "detail": "24 bins · +2.7 dB",
+     "action": {"label": "OFF", "route": "/diversity/set", "query": "subband=off"}},
+    {"id": "post", "name": "POST-FILTER", "kind": "toggle", "enabled": true,
+     "detail": "floor -16.0 dB · mean -18.5 dB",
+     "measured": {"in_db": null, "out_db": -18.5},
+     "action": {"label": "OFF", "route": "/diversity/set", "query": "post=off"}},
+
+    {"id": "slice", "name": "SLICE FILTER", "kind": "toggle", "enabled": true,
+     "detail": "255 taps · soft",
+     "action": {"label": "BYPASS", "route": "/filter/set", "query": "bypass=on"}},
+    {"id": "passband", "name": "PASSBAND (twin PBT)", "kind": "value",
+     "enabled": true, "detail": "350-2400 Hz · asked 300-2700 · USB",
+     "value": 2050, "why": "both edges move on the curve"},
+    {"id": "auto", "name": "AUTO WIDTH", "kind": "toggle", "enabled": true,
+     "detail": "print · 350-2400 Hz",
+     "action": {"label": "OFF", "route": "/filter/set", "query": "auto=off"}},
+    {"id": "shape", "name": "SHAPE", "kind": "select", "enabled": true,
+     "detail": "SOFT · 255 taps · 196 Hz skirt", "value": "soft",
+     "options": ["soft", "sharp"],
+     "action": {"label": "SET", "route": "/filter/set", "query": "shape="}},
+    {"id": "notch", "name": "IF NOTCH", "kind": "toggle", "enabled": true,
+     "detail": "2 set · 1200 Hz, 1850 Hz",
+     "measured": {"in_db": null, "out_db": -41.0},
+     "action": {"label": "OFF", "route": "/filter/set", "query": "notches=off"}},
+    {"id": "anf", "name": "ANF · DNF", "kind": "toggle", "enabled": true,
+     "detail": "980 Hz, 1460 Hz",
+     "measured": {"in_db": null, "out_db": -33.5},
+     "action": {"label": "OFF", "route": "/filter/set", "query": "anf=off"}},
+    {"id": "contour", "name": "CONTOUR", "kind": "toggle", "enabled": true,
+     "detail": "auto · 1450 Hz -2.9 dB, 300 Hz wide",
+     "action": {"label": "OFF", "route": "/filter/set",
+                "query": "auto_contour=off"}},
+    {"id": "apf", "name": "APF", "kind": "toggle", "enabled": false,
+     "detail": "600 Hz · 150 Hz wide",
+     "action": {"label": "ON", "route": "/filter/set", "query": "apf=on"}},
+    {"id": "auto_eq", "name": "RX EQ (auto tilt)", "kind": "toggle",
+     "enabled": true, "detail": "tilt +1.5 dB · lean -0.8 dB",
+     "action": {"label": "OFF", "route": "/filter/set", "query": "auto_eq=off"}},
+
+    {"id": "detect", "name": "DETECTOR", "kind": "fixed", "fixed": true,
+     "enabled": true, "detail": "USB product detector",
+     "why": "the mode decides it"},
+    {"id": "agc", "name": "AGC", "kind": "select", "enabled": true,
+     "detail": "med · 5/250/250 ms · AGC-T 20 · -5.8 dB", "value": "med",
+     "options": ["fast", "med", "slow", "long", "off"],
+     "action": {"label": "SET", "route": "/filter/set", "query": "agc="}},
+    {"id": "app", "name": "→ AETHER VOICE", "kind": "fixed", "fixed": true,
+     "enabled": true, "detail": "noise reduction and compression run in the app",
+     "why": "the app's own chain, downstream of the receiver"}
+  ]})JSON";
+
 // GET /filter on the live gate, 2026-09-03: no chain[] anywhere in it. This is
 // the payload the fallback exists for. CONTOUR is ON here, which makes it the
 // row the "several clicks" case switches OFF.

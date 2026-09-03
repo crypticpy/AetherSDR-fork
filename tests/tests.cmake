@@ -2878,7 +2878,9 @@ add_executable(aether_gate_applet_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -2930,7 +2932,9 @@ add_executable(diversity_window_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -2983,7 +2987,9 @@ add_executable(diversity_band_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3036,7 +3042,9 @@ add_executable(aether_gate_chain_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3089,7 +3097,9 @@ add_executable(aether_gate_chain_ux_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3143,7 +3153,9 @@ add_executable(diversity_site_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3195,7 +3207,9 @@ add_executable(diversity_filter_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3248,7 +3262,9 @@ add_executable(diversity_filter_hold_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3301,7 +3317,9 @@ add_executable(diversity_filter_layout_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3353,7 +3371,9 @@ add_executable(diversity_site_actions_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3402,7 +3422,9 @@ add_executable(diversity_beacon_sweep_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3453,7 +3475,9 @@ add_executable(diversity_talker_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3504,7 +3528,9 @@ add_executable(diversity_flow_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp
@@ -3554,7 +3580,9 @@ add_executable(diversity_flow_line_test
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp

@@ -41,20 +41,326 @@ struct ModeRow {
 };
 
 const ModeRow kModeTable[] = {
+    // The front end and the converter are ahead of any mode decision.
+    {"antenna",      true,  true,  true},
+    {"traps",        true,  true,  true},
+    {"lna",          true,  true,  true},
+    {"ifgr",         true,  true,  true},
+    {"rf_agc",       true,  true,  true},
     {"roof_rf",      true,  true,  true},
-    {"roof_digital", true,  true,  true},
+    {"adc",          true,  true,  true},
+    // The pair. Two loops help on every mode.
+    {"align",        true,  true,  true},
     {"nb",           true,  true,  true},
+    {"combiner",     true,  true,  true},
+    {"subband",      true,  true,  true},
+    {"post",         true,  true,  true},
+    // The slice filter.
+    {"roof_digital", true,  true,  true},
+    {"slice",        true,  true,  true},
     {"passband",     true,  true,  true},
+    {"auto",         true,  false, false},
+    {"auto_width",   true,  false, false},   // the app's own fallback spelling
     {"shape",        true,  true,  true},
     {"notch",        true,  true,  true},
+    {"anf",          true,  true,  true},
     {"contour",      true,  false, false},
     {"apf",          false, true,  false},
-    {"auto_width",   true,  false, false},
     {"auto_eq",      true,  false, false},
-    {"agc",          true,  true,  true},
     {"talker",       true,  false, false},
-    {"voice",        true,  true,  true},
+    // Out of the gate.
+    {"detect",       true,  true,  true},
+    {"agc",          true,  true,  true},
+    {"app",          true,  true,  true},
+    {"voice",        true,  true,  true},    // the app's own fallback spelling
 };
+
+// ---------------------------------------------------------------------------
+// Which group a stage is drawn in
+// ---------------------------------------------------------------------------
+//
+// Signal order is the gate's; the GROUP is the app's reading of it, and it is
+// the only thing in this window that rearranges anything -- four columns
+// instead of one wall of tiles. Within a column the gate's order is kept
+// exactly.
+
+struct GroupRow {
+    const char* id;
+    ChainGroup  group;
+};
+
+const GroupRow kGroupTable[] = {
+    {"antenna",      ChainGroup::FrontEnd},
+    {"traps",        ChainGroup::FrontEnd},
+    {"lna",          ChainGroup::FrontEnd},
+    {"ifgr",         ChainGroup::FrontEnd},
+    {"rf_agc",       ChainGroup::FrontEnd},
+    {"roof_rf",      ChainGroup::FrontEnd},
+    {"adc",          ChainGroup::FrontEnd},
+
+    {"align",        ChainGroup::Pair},
+    {"nb",           ChainGroup::Pair},
+    {"combiner",     ChainGroup::Pair},
+    {"subband",      ChainGroup::Pair},
+    {"post",         ChainGroup::Pair},
+
+    {"roof_digital", ChainGroup::Passband},
+    {"slice",        ChainGroup::Passband},
+    {"passband",     ChainGroup::Passband},
+    {"auto",         ChainGroup::Passband},
+    {"auto_width",   ChainGroup::Passband},
+    {"shape",        ChainGroup::Passband},
+    {"notch",        ChainGroup::Passband},
+    {"anf",          ChainGroup::Passband},
+    {"contour",      ChainGroup::Passband},
+    {"apf",          ChainGroup::Passband},
+    {"auto_eq",      ChainGroup::Passband},
+    {"talker",       ChainGroup::Passband},
+
+    {"detect",       ChainGroup::Out},
+    {"agc",          ChainGroup::Out},
+    {"app",          ChainGroup::Out},
+    {"voice",        ChainGroup::Out},
+};
+
+// ---------------------------------------------------------------------------
+// The one line a card shows
+// ---------------------------------------------------------------------------
+//
+// The gate writes `detail` as fields joined by " - ": the whole truth about
+// the stage, and far too much of it for a 196 px card. Each row below names
+// which of those fields the card keeps, in the order they should be read, and
+// how many characters each may spend. `budget` 0 means "as written".
+//
+// The picks are chosen so the card answers the question the stage raises and
+// nothing else: ALIGN is asked "is it locked?" before "by how much", so
+// `locked` comes first and the lag is trimmed to its number. COMBINER is
+// asked "what is it doing, and is it doing anything?", which is the mode, the
+// phase and the ratio -- the four SNR numbers behind them are a whole sentence
+// and belong in the inspector.
+
+constexpr int kPicks = 3;
+
+struct PrimaryRow {
+    const char* id;
+    const char* verbatim;        // a row whose detail is prose, not fields
+    int         pick[kPicks];    // index into the detail's fields, -1 to stop
+    int         budget[kPicks];  // characters, 0 for "as written"
+};
+
+const PrimaryRow kPrimaryTable[] = {
+    {"antenna",      nullptr, {0, -1, -1}, {0,  0, 0}},
+    {"traps",        nullptr, {0,  1, -1}, {0,  0, 0}},
+    {"lna",          nullptr, {0, -1, -1}, {0,  0, 0}},
+    {"ifgr",         nullptr, {0, -1, -1}, {0,  0, 0}},
+    // "off" is the answer; the set-point is a number for the inspector.
+    {"rf_agc",       nullptr, {0, -1, -1}, {0,  0, 0}},
+    // The menu beside it already shows the width, so the line says the thing
+    // the menu cannot: whether this is as narrow as the hardware goes, or
+    // whether the sample rate is choosing it.
+    {"roof_rf",      nullptr, {1, -1, -1}, {0,  0, 0}},
+    {"adc",          nullptr, {0, -1, -1}, {0,  0, 0}},
+
+    // "locked" answers the question; "lag -63 samples" trims to "lag -63".
+    {"align",        nullptr, {1,  0, -1}, {0,  8, 0}},
+    {"nb",           nullptr, {0,  1, -1}, {0, 14, 0}},
+    {"combiner",     nullptr, {0,  1,  2}, {0,  0, 0}},
+    {"subband",      nullptr, {0,  1, -1}, {0,  0, 0}},
+    {"post",         nullptr, {0,  1, -1}, {0,  0, 0}},
+
+    // Same again: the width is on the menu, so the line is the tap count.
+    {"roof_digital", nullptr, {1, -1, -1}, {0,  0, 0}},
+    {"slice",        nullptr, {0,  1, -1}, {0,  0, 0}},
+    // Both edges. "asked 100-2900" is the AUTO WIDTH story and lives there.
+    {"passband",     nullptr, {0, -1, -1}, {0,  0, 0}},
+    {"auto",         nullptr, {0,  1, -1}, {0,  0, 0}},
+    {"auto_width",   nullptr, {0,  1, -1}, {0,  0, 0}},
+    // The word and the skirt; the tap count is a consequence of the word.
+    {"shape",        nullptr, {0,  2, -1}, {0,  0, 0}},
+    {"notch",        nullptr, {0,  1, -1}, {0,  0, 0}},
+    {"anf",          nullptr, {0, -1, -1}, {0,  0, 0}},
+    {"contour",      nullptr, {0,  1, -1}, {0, 16, 0}},
+    {"apf",          nullptr, {0,  1, -1}, {0,  0, 0}},
+    {"auto_eq",      nullptr, {0,  1, -1}, {10, 0, 0}},
+    {"talker",       nullptr, {0,  1, -1}, {0,  0, 0}},
+
+    {"detect",       nullptr, {0, -1, -1}, {0,  0, 0}},
+    {"agc",          nullptr, {0,  1, -1}, {0,  0, 0}},
+    // The only row whose detail is a sentence with no numbers in it at all.
+    // Trimming it by words gives "noise reduction and", which is worse than
+    // saying the one thing that matters: this stage is not the gate's.
+    {"app",          QT_TR_NOOP("runs in the app"), {-1, -1, -1}, {0, 0, 0}},
+    {"voice",        QT_TR_NOOP("runs in the app"), {-1, -1, -1}, {0, 0, 0}},
+};
+
+// The longest line the table above can produce, measured against the gate's
+// own worst case: COMBINER in track with three digits of phase and a signed
+// ratio. Every card in the window is built to this width, so a stage that
+// gains a digit cannot move the diagram.
+const char* kPrimaryWorst = QT_TR_NOOP("floor -16.0 dB \u00b7 mean -18.5 dB");
+
+// One field of a detail, trimmed to `budget` characters by dropping WHOLE
+// words off the end -- never a cut through the middle of a number -- and then
+// stripped of the punctuation the cut left behind.
+QString trimField(const QString& field, int budget)
+{
+    QString out = field.trimmed();
+    if (budget <= 0 || out.size() <= budget)
+        return out;
+    while (out.size() > budget && out.contains(QLatin1Char(' '))) {
+        out.truncate(out.lastIndexOf(QLatin1Char(' ')));
+        out = out.trimmed();
+        while (out.endsWith(QLatin1Char(',')) || out.endsWith(QLatin1Char(':')))
+            out.chop(1);
+        out = out.trimmed();
+    }
+    return out;
+}
+
+const PrimaryRow* primaryRowFor(const QString& id)
+{
+    for (const PrimaryRow& row : kPrimaryTable) {
+        if (id == QLatin1String(row.id))
+            return &row;
+    }
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// What the inspector says
+// ---------------------------------------------------------------------------
+//
+// Two sentences per stage, both about the SOUND. Neither repeats the card:
+// the card says what the stage is DOING, these say what it is FOR and what
+// its absence would cost. A stage nothing can switch has no "off" line --
+// there is no off.
+
+struct WordsRow {
+    const char* id;
+    const char* sound;
+    const char* off;     // nullptr where the stage cannot be switched
+};
+
+const WordsRow kWordsTable[] = {
+    {"antenna",
+     QT_TR_NOOP("The port the receiver is listening on."), nullptr},
+    {"traps",
+     QT_TR_NOOP("Notches for the broadcast bands, so a local transmitter "
+                "cannot flatten everything else."), nullptr},
+    {"lna",
+     QT_TR_NOOP("The front-end amplifier and attenuator. Too much and strong "
+                "signals distort; too little and you hear the receiver."),
+     nullptr},
+    {"ifgr",
+     QT_TR_NOOP("How much gain the IF is running. Take it down when the band "
+                "is loud and the noise floor will follow it down."), nullptr},
+    {"rf_agc",
+     QT_TR_NOOP("The receiver's own gain control, ahead of anything the "
+                "filters do."), nullptr},
+    {"roof_rf",
+     QT_TR_NOOP("The analogue filter inside the receiver. It protects the "
+                "converter, not your ear."), nullptr},
+    {"adc",
+     QT_TR_NOOP("How fast the receiver samples. Everything after it is "
+                "bounded by this number."), nullptr},
+
+    {"align",
+     QT_TR_NOOP("Slides one loop against the other until the same wavefront "
+                "arrives at both at the same instant."),
+     QT_TR_NOOP("adrift: the two loops add noise instead of signal.")},
+    {"nb",
+     QT_TR_NOOP("Cuts impulse noise -- ignition, a fence charger -- before "
+                "any filter can smear the click into a thud."),
+     QT_TR_NOOP("off: every impulse arrives as a thud across the passband.")},
+    {"combiner",
+     QT_TR_NOOP("Adds the two loops with the phase and gain that make the "
+                "wanted signal loudest and the local noise quietest."),
+     QT_TR_NOOP("off: you are listening to one loop.")},
+    {"subband",
+     QT_TR_NOOP("Steers a separate null onto each narrow slice of the "
+                "passband, so one carrier can be nulled without moving the "
+                "rest."),
+     QT_TR_NOOP("off: an interfering carrier inside the voice stays at full "
+                "strength.")},
+    {"post",
+     QT_TR_NOOP("A gentle floor after the pair, so the combiner's own hiss "
+                "does not breathe behind the voice."),
+     QT_TR_NOOP("off: a little more hiss between syllables.")},
+
+    {"roof_digital",
+     QT_TR_NOOP("The DSP IF bandwidth, ahead of everything you tune. Narrow "
+                "it and a strong neighbour stops reaching the gain control."),
+     QT_TR_NOOP("wide open: a loud station a few kilohertz away can pump the "
+                "gain.")},
+    {"slice",
+     QT_TR_NOOP("The receive filter itself. Every stage below it happens "
+                "inside this filter."),
+     QT_TR_NOOP("bypassed: the whole IF reaches your ears unfiltered.")},
+    {"passband",
+     QT_TR_NOOP("The two edges of the filter, placed independently. This is "
+                "what decides how wide the voice sounds."), nullptr},
+    {"auto",
+     QT_TR_NOOP("Measures where this station's energy actually is and moves "
+                "both edges onto it, once per over."),
+     QT_TR_NOOP("off: the edges stay exactly where you put them.")},
+    {"auto_width",
+     QT_TR_NOOP("Measures where this station's energy actually is and moves "
+                "both edges onto it, once per over."),
+     QT_TR_NOOP("off: the edges stay exactly where you put them.")},
+    {"shape",
+     QT_TR_NOOP("How steep the edges are. Soft is kinder on speech; sharp "
+                "cuts a close neighbour harder and rings a little."),
+     nullptr},
+    {"notch",
+     QT_TR_NOOP("The notches you placed by hand, cut out of the same filter "
+                "rather than added after it."),
+     QT_TR_NOOP("off: every carrier you notched comes back.")},
+    {"anf",
+     QT_TR_NOOP("Hunts steady heterodynes on its own and notches them as "
+                "they appear."),
+     QT_TR_NOOP("off: a drifting whistle stays with you.")},
+    {"contour",
+     QT_TR_NOOP("A broad lift or dip inside the passband, fitted to this "
+                "talker's own voice."),
+     QT_TR_NOOP("off: the station keeps whatever bass or edge it arrived "
+                "with.")},
+    {"apf",
+     QT_TR_NOOP("A narrow resonance at the CW note, for digging one signal "
+                "out of the noise around it."),
+     QT_TR_NOOP("off: the note sits at the level of the noise beside it.")},
+    {"auto_eq",
+     QT_TR_NOOP("One automatic tilt between 550 Hz and 2 kHz, to flatten a "
+                "station that is all bass or all edge."),
+     QT_TR_NOOP("off: a bassy station stays bassy.")},
+    {"talker",
+     QT_TR_NOOP("Remembers the automatic settings for each voice the receiver "
+                "recognises, so a station you worked last night comes back "
+                "sounding the same."),
+     QT_TR_NOOP("off: every station starts from the same settings.")},
+
+    {"detect",
+     QT_TR_NOOP("Turns the tuned slice into audio. The mode decides which "
+                "detector."), nullptr},
+    {"agc",
+     QT_TR_NOOP("How fast the gain follows the signal. Medium suits speech; "
+                "fast suits keying; slow rides out a flutter."),
+     QT_TR_NOOP("off: a loud signal arrives at full strength.")},
+    {"app",
+     QT_TR_NOOP("Noise reduction and compression happen here in the app, "
+                "after everything above."), nullptr},
+    {"voice",
+     QT_TR_NOOP("Noise reduction and compression happen here in the app, "
+                "after everything above."), nullptr},
+};
+
+const WordsRow* wordsRowFor(const QString& id)
+{
+    for (const WordsRow& row : kWordsTable) {
+        if (id == QLatin1String(row.id))
+            return &row;
+    }
+    return nullptr;
+}
 
 // ---------------------------------------------------------------------------
 // THE TWO SETS
@@ -153,7 +459,7 @@ QString chainModeLabel(ChainMode mode)
     switch (mode) {
     case ChainMode::Phone: return tr_("PHONE");
     case ChainMode::Cw:    return tr_("CW");
-    case ChainMode::Data:  return tr_("DATA/OTHER");
+    case ChainMode::Data:  return tr_("DATA");
     }
     return tr_("PHONE");
 }
@@ -162,20 +468,35 @@ QString chainModeTip(ChainMode mode)
 {
     switch (mode) {
     case ChainMode::Phone:
-        return tr_("Voice. The stages that shape speech stay on the strip; the "
-                   "CW-only ones go into the group below it. VOICE SET applies "
-                   "a 350-2750 Hz passband, the contour, the automatic EQ and a "
-                   "medium AGC, one write at a time.");
+        return tr_("Voice. The stages that shape speech stay on the diagram; "
+                   "the CW-only ones fold away under it.");
     case ChainMode::Cw:
-        return tr_("CW. The audio peak filter comes onto the strip and the "
-                   "speech-fitted stages -- contour, RX EQ, auto width, per "
-                   "talker -- go into the group below it. CW SET applies a "
-                   "500 Hz passband centred on 600 Hz, the APF and a fast AGC.");
+        return tr_("CW. The audio peak filter comes onto the diagram and the "
+                   "stages that fit themselves to speech fold away under it.");
     case ChainMode::Data:
-        return tr_("Data, and anything else. Only the stages that are ahead of "
-                   "any mode decision stay on the strip; the speech and CW ones "
-                   "go below. There is no data set: the gate has no data stage "
-                   "of its own, and a button that wrote nothing would be a lie.");
+        return tr_("Data, and anything else. Only the stages that are ahead "
+                   "of any mode decision stay on the diagram.");
+    }
+    return QString();
+}
+
+// The line under the set button. It is about the SOUND and about nothing
+// else: an operator who presses this wants to know what his receiver will
+// sound like afterwards, not how many parameters moved.
+QString chainModeSound(ChainMode mode)
+{
+    switch (mode) {
+    case ChainMode::Phone:
+        return tr_("Opens the passband to 350-2750 Hz with soft edges, puts "
+                   "the auto notch, the contour and the blanker on, and sets "
+                   "a medium AGC.");
+    case ChainMode::Cw:
+        return tr_("Narrows the passband to 500 Hz around 600, sharpens the "
+                   "edges, puts the peak filter on the note and sets a fast "
+                   "AGC.");
+    case ChainMode::Data:
+        return tr_("No set for data yet: nothing in the chain is specific to "
+                   "a modem, so there is nothing honest to apply.");
     }
     return QString();
 }
@@ -197,11 +518,138 @@ bool chainStageInMode(const QString& id, ChainMode mode)
 QString chainSetLabel(ChainMode mode)
 {
     switch (mode) {
-    case ChainMode::Phone: return tr_("VOICE SET");
-    case ChainMode::Cw:    return tr_("CW SET");
-    case ChainMode::Data:  return tr_("DATA SET");
+    case ChainMode::Phone: return tr_("SET UP FOR PHONE");
+    case ChainMode::Cw:    return tr_("SET UP FOR CW");
+    case ChainMode::Data:  return tr_("SET UP FOR DATA");
     }
     return QString();
+}
+
+QString chainSetBusyLabel()
+{
+    return tr_("SETTING UP...");
+}
+
+// ---------------------------------------------------------------------------
+// The four groups
+// ---------------------------------------------------------------------------
+
+QString chainGroupId(ChainGroup group)
+{
+    switch (group) {
+    case ChainGroup::FrontEnd: return QStringLiteral("frontend");
+    case ChainGroup::Pair:     return QStringLiteral("pair");
+    case ChainGroup::Passband: return QStringLiteral("passband");
+    case ChainGroup::Out:      return QStringLiteral("out");
+    }
+    return QStringLiteral("passband");
+}
+
+QString chainGroupLabel(ChainGroup group)
+{
+    switch (group) {
+    case ChainGroup::FrontEnd: return tr_("FRONT END");
+    case ChainGroup::Pair:     return tr_("PAIR");
+    case ChainGroup::Passband: return tr_("PASSBAND");
+    case ChainGroup::Out:      return tr_("OUT");
+    }
+    return QString();
+}
+
+QString chainGroupTip(ChainGroup group)
+{
+    switch (group) {
+    case ChainGroup::FrontEnd:
+        return tr_("What the antenna and the receiver do to the signal before "
+                   "any of this reaches the filters. None of it is switched "
+                   "from here, so it is one card rather than seven.");
+    case ChainGroup::Pair:
+        return tr_("What the two loops do together: line them up, blank the "
+                   "impulses, add them the way that helps, and tidy up after.");
+    case ChainGroup::Passband:
+        return tr_("The filter you actually tune. Everything here happens "
+                   "inside the receive filter, ahead of the gain control.");
+    case ChainGroup::Out:
+        return tr_("What leaves the receiver for your ears.");
+    }
+    return QString();
+}
+
+ChainGroup chainStageGroup(const QString& id, ChainGroup previous)
+{
+    for (const GroupRow& row : kGroupTable) {
+        if (id == QLatin1String(row.id))
+            return row.group;
+    }
+    return previous;
+}
+
+// ---------------------------------------------------------------------------
+// The one line a card shows
+// ---------------------------------------------------------------------------
+
+QStringList chainPrimaryParts(const ChainStage& stage)
+{
+    const QStringList fields =
+        stage.detail.split(QStringLiteral(" \u00b7 "), Qt::SkipEmptyParts);
+    const PrimaryRow* row = primaryRowFor(stage.id);
+
+    QStringList parts;
+    if (row && row->verbatim) {
+        parts << tr_(row->verbatim);
+    } else if (row) {
+        for (int i = 0; i < kPicks; ++i) {
+            const int at = row->pick[i];
+            if (at < 0 || at >= fields.size())
+                continue;
+            const QString part = trimField(fields.at(at), row->budget[i]);
+            if (!part.isEmpty())
+                parts << part;
+        }
+    } else {
+        // A stage the app has never heard of: its first two fields, which is
+        // the gate's own idea of what matters most about it.
+        for (int i = 0; i < fields.size() && i < 2; ++i)
+            parts << fields.at(i).trimmed();
+    }
+
+    // A control already says what it is set to. A line that opened by saying
+    // it again would be spending a third of the card on something the
+    // operator can see -- so drop it, as long as something else is left to
+    // read. A switch says on or off; a menu says the value in force.
+    if (parts.size() > 1 && stage.kind == QLatin1String("toggle")
+        && (parts.first() == tr_("on") || parts.first() == tr_("off"))) {
+        parts.removeFirst();
+    }
+    if (parts.size() > 1 && stage.kind == QLatin1String("select")
+        && !stage.value.isEmpty()
+        && parts.first().compare(stage.value, Qt::CaseInsensitive) == 0) {
+        parts.removeFirst();
+    }
+    if (parts.isEmpty() && !stage.detail.isEmpty())
+        parts << stage.detail;
+    return parts;
+}
+
+QString chainPrimaryWorstCase()
+{
+    return tr_(kPrimaryWorst);
+}
+
+// ---------------------------------------------------------------------------
+// What the inspector says
+// ---------------------------------------------------------------------------
+
+QString chainSoundSentence(const QString& id)
+{
+    const WordsRow* row = wordsRowFor(id);
+    return row ? tr_(row->sound) : QString();
+}
+
+QString chainOffSentence(const QString& id)
+{
+    const WordsRow* row = wordsRowFor(id);
+    return (row && row->off) ? tr_(row->off) : QString();
 }
 
 QList<ChainPresetWrite> chainPreset(ChainMode mode)
@@ -232,7 +680,7 @@ AetherGateChainPreset::AetherGateChainPreset(QObject* parent)
     connect(m_guard, &QTimer::timeout, this, [this] {
         const QString name = m_name;
         m_index = -1;
-        emit finished(name, false, tr("the gate stopped answering mid-set"));
+        emit finished(name, false, tr("the receiver stopped replying part way through"));
     });
 }
 

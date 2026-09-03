@@ -26,6 +26,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QFontMetrics>
+#include <QFrame>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QStandardItem>
@@ -65,31 +67,145 @@ void testNoBlueDotAnywhereOnTheStrip()
     }
 }
 
-void testTilesAreFourAcrossAndBigEnoughToRead()
+// The redesign: FOUR labelled groups, left to right, with the seven front-end
+// rows collapsed into ONE summary card instead of seven tiles that each said
+// "set on the setup page".
+void testTheDiagramIsFourGroupsLeftToRight()
 {
     FakeGate net;
     AetherGateApplet applet(nullptr, &net);
-    connectGate(applet, net, kChainlessFilter);
+    connectGate(applet, net, kChainFullFilter);
     AetherGateChainWindow* w = openChain(applet);
     CHECK(w != nullptr);
     if (!w)
         return;
-    w->resize(1120, 760);
+    w->resize(1120, 820);
     settle();
     w->grab();
 
-    AetherGateChainStrip* s = strip(w);
-    const QList<AetherGateChainTile*> mine = s->tilesInMode();
-    CHECK(mine.size() >= 5);
-    if (mine.size() < 5)
-        return;
-    for (AetherGateChainTile* t : mine) {
-        CHECK(t->width() == AetherSDR::kChainTileWidth);
-        CHECK(t->height() >= AetherSDR::kChainTileHeight);
+    QWidget* columns[4] = {
+        w->findChild<QWidget*>(QStringLiteral("gateChainGroup_frontend")),
+        w->findChild<QWidget*>(QStringLiteral("gateChainGroup_pair")),
+        w->findChild<QWidget*>(QStringLiteral("gateChainGroup_passband")),
+        w->findChild<QWidget*>(QStringLiteral("gateChainGroup_out"))};
+    for (QWidget* column : columns) {
+        CHECK(column != nullptr);
+        if (!column)
+            return;
+        CHECK(column->isVisibleTo(w));
     }
-    // Four across: the first four share a row and the fifth starts the next.
-    CHECK(mine.at(0)->y() == mine.at(3)->y());
-    CHECK(mine.at(4)->y() > mine.at(0)->y());
+    // Left to right, in signal order, with an arrow in each gutter.
+    for (int i = 1; i < 4; ++i)
+        CHECK(columns[i]->mapTo(w, QPoint(0, 0)).x()
+              > columns[i - 1]->mapTo(w, QPoint(0, 0)).x());
+    for (const QString& id : {QStringLiteral("frontend"), QStringLiteral("pair"),
+                              QStringLiteral("passband")}) {
+        CHECK(label(w, QStringLiteral("gateChainArrow_") + id) != nullptr);
+    }
+
+    // The front end is one card with rows in it, not seven cards.
+    auto* card = w->findChild<QFrame*>(QStringLiteral("gateChainFrontEndCard"));
+    CHECK(card != nullptr);
+    for (const QString& id : {QStringLiteral("lna"), QStringLiteral("roof_rf"),
+                              QStringLiteral("adc")}) {
+        AetherGateChainTile* t = strip(w)->tile(id);
+        CHECK(t != nullptr);
+        if (t) {
+            CHECK(t->shape() == AetherSDR::ChainTileShape::Line);
+            CHECK(card != nullptr && card->isAncestorOf(t));
+        }
+    }
+    CHECK(label(w, QStringLiteral("gateChainFrontEndHint")) != nullptr);
+
+    // Every LIVE stage outside the front end is a card of the one width the
+    // primary-line format was measured against.
+    int cards = 0;
+    for (AetherGateChainTile* t : strip(w)->tilesInMode()) {
+        if (t->shape() != AetherSDR::ChainTileShape::Card)
+            continue;
+        ++cards;
+        CHECK(t->width() == AetherSDR::kChainCardWidth);
+        CHECK(t->height() >= AetherSDR::kChainCardHeight);
+    }
+    CHECK(cards >= 12);
+}
+
+// The rule the whole format table exists for: the one measured line on a card
+// is shortened by whole parts and then whole words, so it NEVER ends in an
+// ellipsis and never runs past the card.
+void testNoCardEverElidesItsMeasuredLine()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kChainFullFilter);
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    w->resize(1120, 820);
+    settle();
+    w->grab();
+
+    for (AetherGateChainTile* t : strip(w)->tilesInMode()) {
+        const QString line = t->primaryText();
+        CHECK(!line.contains(QChar(0x2026)));       // no "..." glyph
+        CHECK(!line.endsWith(QStringLiteral("...")));
+        QLabel* value = t->findChild<QLabel*>(QStringLiteral("gateChainValue_") + t->id());
+        CHECK(value != nullptr);
+        if (value && value->isVisibleTo(w)) {
+            const QFontMetrics fm(value->font());
+            CHECK(fm.horizontalAdvance(line) <= value->width());
+        }
+    }
+}
+
+// The initial size is arithmetic, not hope: at 1120x820 the whole diagram and
+// the inspector are on screen and neither scrollbar is up.
+void testNothingScrollsAtTheInitialSize()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kChainFullFilter);
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    w->resize(1120, 820);
+    settle();
+    w->grab();
+
+    auto* scroll = w->findChild<QScrollArea*>(QStringLiteral("gateChainScroll"));
+    CHECK(scroll != nullptr);
+    if (!scroll)
+        return;
+    CHECK(scroll->widget()->minimumSizeHint().width() <= scroll->viewport()->width());
+    CHECK(scroll->widget()->minimumSizeHint().height() <= scroll->viewport()->height());
+    CHECK(!scroll->verticalScrollBar()->isVisible());
+    CHECK(!scroll->horizontalScrollBar()->isVisible());
+}
+
+// The evidence. With CHAIN_RENDER_PNG set, the window is rendered offscreen
+// against the twenty-five-row payload and written out, so the redesign can be
+// LOOKED at rather than only asserted about.
+void testRenderTheWindowWhenAsked()
+{
+    const QByteArray path = qgetenv("CHAIN_RENDER_PNG");
+    if (path.isEmpty())
+        return;
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kChainFullFilter);
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    w->resize(1120, 820);
+    settle();
+    strip(w)->selectStage(QStringLiteral("combiner"));
+    settle();
+    const QPixmap shot = w->grab();
+    CHECK(!shot.isNull());
+    CHECK(shot.save(QString::fromLocal8Bit(path)));
 }
 
 // --------------------------------------------------------------------------
@@ -196,11 +312,17 @@ void testTheRfRoofSaysOnItsOwnFaceThatTheGateHasNotBuiltItYet()
     CHECK(tile->cursor().shape() == Qt::ArrowCursor);
     CHECK(w->findChild<QComboBox*>(QStringLiteral("gateChainSelect_roof_rf")) == nullptr);
 
-    QLabel* why = label(w, QStringLiteral("gateChainWhy_roof_rf"));
-    CHECK(why != nullptr);
-    if (why) {
-        CHECK(why->isVisibleTo(w));
-        CHECK(why->toolTip() == QStringLiteral("gate does not offer this yet"));
+    // It is a FRONT END row, so its reason is not printed a second time under
+    // the summary card's own hint -- it is on the hover, and spelled out in
+    // the inspector the moment the row is clicked.
+    CHECK(tile->stage().why == QStringLiteral("this receiver does not offer it yet"));
+    QTest::mouseClick(tile, Qt::LeftButton);
+    settle();
+    QLabel* aside = label(w, QStringLiteral("gateChainDetailOff"));
+    CHECK(aside != nullptr);
+    if (aside) {
+        CHECK(aside->isVisibleTo(w));
+        CHECK(aside->toolTip() == QStringLiteral("this receiver does not offer it yet"));
     }
 }
 
@@ -295,7 +417,15 @@ void testARefusedWriteLandsOnTheTileAndTheRowDoesNotMove()
         CHECK(why->toolTip().contains(QStringLiteral("digital_roof_hz")));
         CHECK(why->property("live").toBool());     // warning-coloured
     }
-    CHECK(labelText(w, "gateChainStatusLabel").contains(QStringLiteral("refused")));
+    // The receiver's own words are in the INSPECTOR, where the operator is
+    // already looking. The status line stays the three words it is meant to be.
+    QLabel* note = label(w, QStringLiteral("gateChainDetailNote"));
+    CHECK(note != nullptr);
+    if (note) {
+        CHECK(note->isVisibleTo(w));
+        CHECK(note->toolTip().contains(QStringLiteral("digital_roof_hz")));
+    }
+    CHECK(labelText(w, "gateChainStatusLabel") == QStringLiteral("live"));
 
     // And it survives the next poll: a refusal that flashed for 500 ms would
     // be no better than the status line nobody read.
@@ -325,6 +455,8 @@ void testTheModeChoosesWhatIsOnTheStrip()
     CHECK(s->tile(QStringLiteral("apf")) != nullptr);      // still built...
     CHECK(!s->tile(QStringLiteral("apf"))->isVisibleTo(w)); // ...just not on the strip
     CHECK(button(w, QStringLiteral("gateChainSetButton_phone"))->isVisibleTo(w));
+    CHECK(button(w, QStringLiteral("gateChainSetButton_phone"))->text()
+          == QStringLiteral("SET UP FOR PHONE"));
     CHECK(!button(w, QStringLiteral("gateChainSetButton_cw"))->isVisibleTo(w));
 
     // CW: the APF comes up and the speech-fitted stages go into the group.
@@ -338,6 +470,7 @@ void testTheModeChoosesWhatIsOnTheStrip()
     CHECK(aside != nullptr);
     if (aside) {
         CHECK(aside->text().contains(QStringLiteral("(4)")));
+        CHECK(aside->text().startsWith(QStringLiteral("STAGES THIS MODE DOES NOT USE")));
         // Collapsed by default; expanding it brings the tiles back into view
         // without turning anything on or off.
         aside->click();
@@ -355,6 +488,7 @@ void testTheModeChoosesWhatIsOnTheStrip()
     if (dataSet) {
         CHECK(dataSet->isVisibleTo(w));
         CHECK(!dataSet->isEnabled());
+        CHECK(dataSet->toolTip() == QStringLiteral("No set for data yet."));
     }
     CHECK(chainPreset(ChainMode::Data).isEmpty());
 }
@@ -375,6 +509,9 @@ void testTheModeSetsSendTheirTableInOrderOneWriteAtATime()
     const int before = net.log.size();
     button(w, QStringLiteral("gateChainSetButton_phone"))->click();
 
+    // The button says what it is doing while it does it.
+    CHECK(button(w, QStringLiteral("gateChainSetButton_phone"))->text()
+          == QStringLiteral("SETTING UP..."));
     // One write leaves at a time: before any reply there is exactly one.
     CHECK(net.log.size() == before + 1);
     CHECK(net.log.last() == QStringLiteral("/filter/set?auto=off"));
@@ -390,7 +527,7 @@ void testTheModeSetsSendTheirTableInOrderOneWriteAtATime()
     CHECK(sent.size() == voice.size());
     for (int i = 0; i < voice.size() && i < sent.size(); ++i)
         CHECK(sent.at(i) == voice.at(i).query);
-    CHECK(labelText(w, "gateChainStatusLabel").contains(QStringLiteral("VOICE SET")));
+    CHECK(labelText(w, "gateChainSetProgressLabel") == QStringLiteral("done"));
 
     // The CW table is its own list and reaches the gate the same way.
     const QList<AetherSDR::ChainPresetWrite> cw = chainPreset(ChainMode::Cw);
@@ -422,7 +559,8 @@ void testASetStopsWhenTheGateRefusesALine()
     // ploughed on through a receiver that had already said no would be
     // applying half a preset.
     CHECK(net.count(QStringLiteral("/filter/set")) == 1);
-    CHECK(labelText(w, "gateChainStatusLabel").contains(QStringLiteral("stopped")));
+    CHECK(labelText(w, "gateChainSetProgressLabel") == QStringLiteral("stopped"));
+    CHECK(labelText(w, "gateChainDetailNote").contains(QStringLiteral("bad value")));
 }
 
 // --------------------------------------------------------------------------
@@ -444,20 +582,18 @@ void testArrowKeysMoveTheSelectionAndSpaceSwitchesTheStage()
     s->setFocus();
     settle();
 
+    // The diagram is columns now, so DOWN and RIGHT are the same move: the
+    // next stage the signal reaches. The walk stops at both ends rather than
+    // wrapping -- the chain is not a loop.
     QTest::keyClick(s, Qt::Key_Right);
     CHECK(s->selectedId() == QStringLiteral("roof_digital"));
-    QTest::keyClick(s, Qt::Key_Right);
+    QTest::keyClick(s, Qt::Key_Down);
     CHECK(s->selectedId() == QStringLiteral("nb"));
     QTest::keyClick(s, Qt::Key_Left);
     CHECK(s->selectedId() == QStringLiteral("roof_digital"));
-    // Down is one whole row of four, and the walk stops at the ends rather
-    // than wrapping: the chain is not a loop.
-    QTest::keyClick(s, Qt::Key_Down);
-    CHECK(s->selectedId() == QStringLiteral("notch"));
     QTest::keyClick(s, Qt::Key_Up);
-    CHECK(s->selectedId() == QStringLiteral("roof_digital"));
-    QTest::keyClick(s, Qt::Key_Left);
-    QTest::keyClick(s, Qt::Key_Left);
+    CHECK(s->selectedId() == QStringLiteral("roof_rf"));
+    QTest::keyClick(s, Qt::Key_Up);
     CHECK(s->selectedId() == QStringLiteral("roof_rf"));
 
     // Space presses the selected stage's switch -- one write, and nothing on
@@ -482,7 +618,10 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
 
     testNoBlueDotAnywhereOnTheStrip();
-    testTilesAreFourAcrossAndBigEnoughToRead();
+    testTheDiagramIsFourGroupsLeftToRight();
+    testNoCardEverElidesItsMeasuredLine();
+    testNothingScrollsAtTheInitialSize();
+    testRenderTheWindowWhenAsked();
     testOneClickSwitchesAStageEvenWhenAStalePollLandsAfterTheWriteReply();
     testAStalePollBeforeTheWriteReplyStillEndsInTheNewState();
     testTheRfRoofSaysOnItsOwnFaceThatTheGateHasNotBuiltItYet();
