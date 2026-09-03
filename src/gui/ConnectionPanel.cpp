@@ -2367,11 +2367,15 @@ void ConnectionPanel::updateManualFamilyHints()
         if (m_manualIpEdit && m_manualIpEdit->text().isEmpty())
             m_manualIpEdit->setText(IcomSettings::lastHost());
         if (m_manualIcomPassEdit && m_manualIcomPassEdit->text().isEmpty()) {
-            QPointer<QLineEdit> field(m_manualIcomPassEdit);
-            IcomCredentials::load(this, [field](const QString& password) {
-                if (field && field->text().isEmpty())
-                    field->setText(password);
-            });
+            // Fill from this session's cache only. A keychain read here runs at
+            // construction time, before the operator has asked for anything,
+            // and on macOS that is a login-keychain prompt on every launch (an
+            // ad-hoc-signed build cannot hold an "Always Allow" ACL). The
+            // connect path reads the keychain when the password is actually
+            // needed, which is the one moment a prompt is fair.
+            const QString cached = IcomCredentials::sessionPassword();
+            if (!cached.isEmpty())
+                m_manualIcomPassEdit->setText(cached);
         }
     }
 
