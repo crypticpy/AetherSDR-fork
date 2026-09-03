@@ -38,6 +38,14 @@ class AetherGateDiversityPanel;
 // transport; see DiversityBandPoller.h for why it is a separate file.
 class DiversityBandPoller;
 
+// CHAIN -- the filter chain as a block diagram, opened from the button beside
+// the Diversity one. Owned here rather than by the diversity panel because the
+// chain is a receiver feature and not a two-tuner one: it works on any device
+// the gate fronts. It owns no transport either -- /filter reaches it through
+// the same DiversityBandPoller the FILTER page uses, and its writes come back
+// as onChainRequestWrite(). See AetherGateChainWindow.h.
+class AetherGateChainWindow;
+
 // GATE — Aether-gate device controls.
 //
 // Aether-gate presents non-Flex hardware (an SDRplay RSP, an HPSDR, an Icom) to
@@ -85,6 +93,10 @@ public:
     // way; this exists for the handful of behaviours (wantsMapPoll()) that
     // are not a widget property.
     AetherGateDiversityPanel* diversityPanel() const { return m_diversityPanel; }
+
+    // The CHAIN window, or null until the button has been pressed once. Built
+    // lazily for the same reason the Diversity window is.
+    AetherGateChainWindow* chainWindow() const;
 
 signals:
     void gatePresenceChanged(bool present);
@@ -138,6 +150,12 @@ private:
     // none is marked active. Null with no radio model or no slices.
     SliceModel* activeSlice() const;
     void onDiversityRequestTune(double hz);
+
+    // CHAIN -- built on first use and then kept; every write it makes is one
+    // GET on the gate's own route, sent through the filter poller so the reply
+    // IS the read-back the window redraws from.
+    void toggleChainWindow();
+    void onChainRequestWrite(QString route, QUrlQuery query);
     // Starts or stops the band poller from the panel's wantsBandPoll().
     void updateBandPoll();
 
@@ -152,6 +170,10 @@ private:
 
     // Header
     QLabel* m_status{nullptr};
+
+    // CHAIN -- the door and the window behind it.
+    QPushButton*                   m_openChainButton{nullptr};
+    QPointer<AetherGateChainWindow> m_chainWindow;
 
     // Resolution — hidden when the gate predates the "res" status field.
     QWidget*   m_resBox{nullptr};

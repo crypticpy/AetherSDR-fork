@@ -1,6 +1,7 @@
 #include "AetherGateApplet.h"
 
 #include "core/ThemeManager.h"
+#include "gui/AetherGateChainWindow.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/DiversityBandPoller.h"
 #include "models/RadioModel.h"
@@ -10,6 +11,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QDialog>
 #include <QHideEvent>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -19,6 +21,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPushButton>
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QSpinBox>
@@ -77,6 +80,16 @@ static constexpr double kUnboundedDouble = 1.0e9;
 // would have visibly darkened them against every sibling applet. TunerApplet
 // and ProfileSwitcherApplet still carry their own copy of the old literal;
 // converging all three on this token is a follow-up, not this PR's business.
+// The CHAIN door. Same shape as the Diversity panel's own open-window button
+// (AetherGateDiversityPanel.cpp), so the two doors read as a pair rather than
+// as one button and one afterthought.
+static const char* kOpenChainStyle =
+    "QPushButton { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold; "
+    "background: transparent; border: 1px solid {{color.border.subtle}}; "
+    "border-radius: 3px; padding: 4px 6px; text-align: left; }"
+    "QPushButton:hover { background: {{color.background.1}}; }"
+    "QPushButton:pressed { background: {{color.background.3}}; }";
+
 static const char* kRowLabelStyle =
     "QLabel { color: {{color.text.secondary}}; font-size: 10px; font-weight: bold; }";
 
@@ -260,6 +273,25 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
             &AetherGateApplet::onDiversityRequestMemoryName);
     root->addWidget(m_diversityPanel);
 
+    // --- the other door --------------------------------------------------
+    // CHAIN sits beside the Diversity one and is NOT inside the diversity
+    // panel: that panel hides itself until a gate reports two tuners, and the
+    // chain is a receiver feature that works on one. See
+    // AetherGateChainWindow.h.
+    m_openChainButton = new QPushButton(tr("Open Chain window"), this);
+    m_openChainButton->setObjectName(QStringLiteral("gateOpenChainWindowButton"));
+    m_openChainButton->setAccessibleName(tr("Open the filter chain window"));
+    m_openChainButton->setToolTip(tr("Every stage between the antenna and your "
+                                     "ears, in signal order, with the switch for "
+                                     "each one the gate says it has."));
+    m_openChainButton->setAccessibleDescription(m_openChainButton->toolTip());
+    m_openChainButton->setCursor(Qt::PointingHandCursor);
+    ThemeManager::instance().applyStyleSheet(m_openChainButton,
+                                             QString::fromLatin1(kOpenChainStyle));
+    connect(m_openChainButton, &QPushButton::clicked, this,
+            &AetherGateApplet::toggleChainWindow);
+    root->addWidget(m_openChainButton);
+
     root->addStretch(1);
 
     m_net = net ? net : new QNetworkAccessManager(this);
@@ -429,9 +461,13 @@ void AetherGateApplet::setPresent(bool present)
         // comment on why that one is unconditional) — is the panel's own
         // job now.
         m_diversityPanel->setPresent(false);
+        if (m_chainWindow)
+            m_chainWindow->setPresent(false);
     } else {
         m_status->setToolTip(QString());
         m_diversityPanel->setPresent(true);
+        if (m_chainWindow)
+            m_chainWindow->setPresent(true);
     }
     emit gatePresenceChanged(present);
     updateBandPoll();
@@ -808,9 +844,62 @@ void AetherGateApplet::pollDiversity()
 void AetherGateApplet::updateBandPoll()
 {
     m_bandPoller->setBaseUrl(baseUrl());
+    // /filter has two customers now: the Diversity window's FILTER page and
+    // the CHAIN window. Either one being on screen is a reason to poll it, and
+    // neither being on screen is a reason to stop.
+    const bool wantFilter = m_diversityPanel->wantsFilterPoll()
+                            || (m_chainWindow && m_chainWindow->isVisible());
     m_bandPoller->setPages(m_present && m_diversityPanel->wantsBandPoll(),
                            m_present && m_diversityPanel->wantsSitePoll(),
-                           m_present && m_diversityPanel->wantsFilterPoll());
+                           m_present && wantFilter);
+}
+
+AetherGateChainWindow* AetherGateApplet::chainWindow() const
+{
+    return m_chainWindow.data();
+}
+
+// Built once and then kept, exactly as AetherGateDiversityPanel::toggleWindow()
+// keeps the Diversity window: rebuilding it would throw away the selected
+// stage, and the strip would flash empty every time the operator glanced at it.
+void AetherGateApplet::toggleChainWindow()
+{
+    if (!m_chainWindow) {
+        m_chainWindow = new AetherGateChainWindow(this);
+        m_chainWindow->setPresent(m_present);
+        connect(m_chainWindow, &AetherGateChainWindow::requestWrite, this,
+                &AetherGateApplet::onChainRequestWrite);
+        // The window redraws from /filter and from nothing else -- the same
+        // object the FILTER page is fed, off the same poller, so the two views
+        // can never disagree about what the receiver is doing.
+        connect(m_bandPoller, &DiversityBandPoller::filterReceived, m_chainWindow,
+                &AetherGateChainWindow::applyFilter);
+        // Closing it with the title bar's own button has to stop the poll as
+        // surely as pressing the door again does.
+        connect(m_chainWindow, &QDialog::finished, this,
+                &AetherGateApplet::updateBandPoll);
+    }
+    const bool wantVisible = !m_chainWindow->isVisible();
+    if (!wantVisible) {
+        m_chainWindow->hide();
+        updateBandPoll();
+        return;
+    }
+    m_chainWindow->show();
+    m_chainWindow->raise();
+    m_chainWindow->activateWindow();
+    updateBandPoll();
+}
+
+// The gate's own route and the gate's own query, sent verbatim on the applet's
+// one transport. sendFilter()'s reply is the status object the window redraws
+// from, so the write and the read-back after it are one request rather than
+// two -- and the window changes only when that reply says it should.
+void AetherGateApplet::onChainRequestWrite(QString route, QUrlQuery query)
+{
+    if (route.isEmpty())
+        return;
+    m_bandPoller->sendFilter(route, query);
 }
 
 // The one request in this section that never reaches the gate. The gate has no
