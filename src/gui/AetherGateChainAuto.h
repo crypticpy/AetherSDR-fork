@@ -55,6 +55,15 @@ struct ChainAutoHeld {
     double  since{0.0};
     bool    hasDelta{false};
     double  deltaDb{0.0};
+    // Optional, present only on a held "dig" (DIG has no row of its own -- see
+    // chainAutoRowIdForTool() -- so this is how its own progress reaches the
+    // AUTO CLEAN card's inspector at all). Read out of params.step: every
+    // other tool's hold is fully described by kind/why, but DIG is a whole A/B
+    // session and "why" alone cannot say which knob it is on right now.
+    QString step;
+    // Optional -- B26's scorer field, shared with ChainAutoEvent below. See
+    // that struct's own comment.
+    QString scorer;
 };
 
 // One row of governor.events[].
@@ -66,6 +75,10 @@ struct ChainAutoEvent {
     QString result;   // pending | kept | undone | released | error
     bool    hasDelta{false};
     double  deltaDb{0.0};
+    // Optional -- which objective the gate scored this move against ("snr",
+    // "depth", ...). Absent on an older gate; when present it is appended to
+    // the event line as "scored by <scorer>".
+    QString scorer;
 };
 
 // One row of governor.backoff[].
@@ -124,7 +137,38 @@ void chainAutoApplyNotes(AetherGateChainStrip* strip, const ChainAutoGovernor& g
 QStringList chainAutoEventLines(const ChainAutoGovernor& gov, int maxLines = 8);
 
 // "state · why", for the inspector's line under the AUTO CLEAN card's own
-// detail. Empty when the governor block never arrived.
+// detail. Empty when the governor block never arrived. A held or just-
+// finished dig is folded in (see chainAutoDigLine()) since DIG has no card
+// of its own to carry it.
 QString chainAutoStateLine(const ChainAutoGovernor& gov);
+
+// DIG has no chain row of its own (chainAutoRowIdForTool() answers "" for
+// it), so its own note appears nowhere chainAutoApplyNotes() decorates -- this
+// is the one place it is said at all, and chainAutoStateLine() folds it in.
+// While AUTO is holding or trying a dig: "AUTO · weak · <why>", with
+// " · dig running <step>" appended when the gate sends one and
+// " · scored by <scorer>" appended when it sends that too. Once the dig has
+// concluded -- the newest events[] entry for tool "dig" -- "dig done, kept
+// +x dB" (kept), "dig done, nothing kept" (undone), or empty for a result
+// this has nothing new to say about (released, error: the generic event
+// line already covers those). Empty when AUTO has never touched a dig.
+QString chainAutoDigLine(const ChainAutoGovernor& gov);
+
+// B25's own AUTO CLEAN ON banner, the one line every surface in
+// docs/DIVERSITY.md's "AUTO CLEAN: the chain decides" shows when the
+// governor is on: "AUTO CLEAN ON · <state> · <why>". Empty when the governor
+// block never arrived or auto is off -- the caller's job to collapse to
+// "AUTO CLEAN" alone (or hide entirely) in that case, since that decision is
+// surface-specific (a switch collapses to the bare label; a read-only header
+// just disappears).
+QString chainAutoIndicatorLine(const ChainAutoGovernor& gov);
+
+// True when the governor itself started the dig currently running or just
+// finished: a pending write for tool "dig", a held "dig", or -- once neither
+// of those is still true because the run has already landed in events[] --
+// the newest events[] entry for tool "dig" whose result is still "pending".
+// False (an operator's own DIG button) whenever none of those hold, which is
+// also the answer for a gate too old to send a governor block at all.
+bool chainAutoDigStartedByAuto(const ChainAutoGovernor& gov);
 
 } // namespace AetherSDR

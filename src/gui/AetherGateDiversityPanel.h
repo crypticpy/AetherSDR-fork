@@ -223,6 +223,14 @@ private:
 
     QLabel*      m_statusLine{nullptr};
     QComboBox*   m_mode{nullptr};
+    // B25's own switch and indicator, folded into one control per the
+    // operator's own words ("Auto clean should be an option somewhere that
+    // we can turn on and off but it should be really visible when we turn
+    // that on"): checked+labelled "AUTO CLEAN ON · <state> · <why>" while
+    // governor.auto holds, a bare "AUTO CLEAN" toggle otherwise. See
+    // gui/AetherGateChainAuto.h's chainAutoIndicatorLine(). Hidden entirely
+    // while the governor block has never arrived (an older gate).
+    QPushButton* m_autoCleanButton{nullptr};
     QPushButton* m_openWindowButton{nullptr};
     // Built and fed unconditionally; shown only when
     // AetherGateDiversityPanel_ShowScope is set. A hidden widget does not

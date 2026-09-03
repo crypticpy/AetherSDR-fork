@@ -236,6 +236,23 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     m_flow = new DiversityFlowStrip(this);
     connect(m_flow, &DiversityFlowStrip::stepActivated, this,
             &DiversityWindow::onFlowStep);
+    // B25 AUTO CLEAN's switch and B25 DIG STOP, both on the FLOW strip
+    // itself -- turned into the same writes the sidebar's own AUTO CLEAN
+    // toggle and the dig stack's own STOP button already send, by the one
+    // door every write in this window leaves through (requestSet/requestDig,
+    // wired on to the panel in createFor() below).
+    connect(m_flow, &DiversityFlowStrip::requestAutoCleanToggle, this,
+            [this](bool on) {
+                QUrlQuery q;
+                q.addQueryItem(QStringLiteral("auto"),
+                               on ? QStringLiteral("on") : QStringLiteral("off"));
+                emit requestSet(q);
+            });
+    connect(m_flow, &DiversityFlowStrip::requestDigCancel, this, [this] {
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("cancel"), QStringLiteral("1"));
+        emit requestDig(q);
+    });
     // The line is about the page in front of the operator, so it follows the
     // stack itself rather than the tab buttons: a page switch made from a FLOW
     // click or a SITE row's button reaches it the same way a tab does.

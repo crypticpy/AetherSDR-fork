@@ -886,6 +886,25 @@ with the dig's own note in the `why`, and that note blocks the next
 hand-off for 30 minutes from the dig's own end, not for ever. AUTO off
 stops a dig AUTO started and leaves one you started alone.
 
+### Seeing it, and turning it off
+
+While `governor.auto` holds, three surfaces say `AUTO CLEAN ON · <state>
+· <why>` in the same tone every emphasised readout in this window already
+wears: the sidebar's own **AUTO CLEAN** button (a checkable switch, press
+it to send `auto=on` or `auto=off`); the Diversity window's FLOW strip,
+same switch, same words, above the checklist; and the CHAIN window's
+header, read-only, with no write path of its own. Off, or on a gate too
+old to send a governor block, the sidebar and FLOW switches collapse to a
+bare `AUTO CLEAN` toggle and the CHAIN header disappears.
+
+### DIG STOP, on the line itself
+
+While a dig is running, the FLOW strip's DIG line carries a **STOP**
+button beside the sidebar's dig-stack STOP; either sends
+`GET /diversity/dig?cancel=1`. The line also says who started the run:
+"started by AUTO" when the governor is holding or trying `dig`, "started
+by you" otherwise.
+
 ## A working session
 
 This is the order the FLOW line encodes, and the order to work in. Each step

@@ -3,12 +3,16 @@
 #include "gui/AetherGateChainPresets.h"
 #include "gui/AetherGateChainStrip.h"
 #include "gui/AetherGateChainVisual.h"
+#include "gui/DiversityWindowPanels.h"
 
 #include <QFrame>
 #include <QHideEvent>
+#include <QLabel>
 #include <QScrollArea>
 #include <QShowEvent>
+#include <QSizePolicy>
 #include <QTabWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 // The two tabs, the PRESETS row, the door back from a mark on the picture, and
@@ -32,6 +36,48 @@ constexpr int kTabVisual = 1;
 
 void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
 {
+    // B25 AUTO CLEAN's read-only header, above the tabs: the third of the
+    // three surfaces docs/DIVERSITY.md's "AUTO CLEAN: the chain decides"
+    // asks the operator be able to SEE it on (the other two carry the
+    // switch itself -- gui/AetherGateDiversityPanel.cpp's sidebar toggle and
+    // gui/DiversityFlowStripAuto.cpp's FLOW banner). This window has no
+    // write path of its own for /diversity/set, so it is read-only here;
+    // the tooltip below says where to turn it on or off.
+    //
+    // m_governor is already this window's own member, kept current by
+    // applyFilter() (AetherGateChainWindow.cpp), which this header cannot
+    // be edited to hook into directly -- but a lambda defined lexically
+    // inside a genuine member function, even one whose body lives in this
+    // .cpp file, keeps full access to `this`'s private members regardless.
+    // No new poll: this timer only re-reads state /filter already delivered.
+    auto* autoBanner = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("gateChainAutoCleanBanner"),
+        QStringLiteral("AUTO CLEAN ON · settling · mains/squeeze backing off until 12:46"),
+        tr("The chain's own governor -- read-only here. Turn it on or off "
+           "from the Diversity window or the sidebar's own AUTO CLEAN switch."),
+        bodyWidget());
+    autoBanner->setAccessibleName(tr("AUTO CLEAN status"));
+    // The gate's own `why` has no true worst case -- same Ignored treatment
+    // the sidebar's and FLOW strip's own AUTO CLEAN widgets carry, so a long
+    // one clips instead of pushing this window's minimum width past the
+    // 1120 it opens at.
+    autoBanner->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    autoBanner->setMinimumWidth(0);
+    autoBanner->setVisible(false);
+    root->addWidget(autoBanner);
+
+    auto* autoTimer = new QTimer(this);
+    autoTimer->setObjectName(QStringLiteral("gateChainAutoCleanBannerTimer"));
+    autoTimer->setInterval(500);
+    connect(autoTimer, &QTimer::timeout, this, [this, autoBanner] {
+        const QString indicator = chainAutoIndicatorLine(this->m_governor);
+        autoBanner->setVisible(!indicator.isEmpty());
+        if (!indicator.isEmpty())
+            autoBanner->setText(indicator);
+        DiversityWidgets::setLive(autoBanner, !indicator.isEmpty());
+    });
+    autoTimer->start();
+
     m_tabs = new QTabWidget(bodyWidget());
     m_tabs->setObjectName(QStringLiteral("gateChainTabs"));
     m_tabs->setAccessibleName(tr("Chain or picture"));

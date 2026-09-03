@@ -71,6 +71,8 @@
 // The dig's three buttons sit on the same row but belong to the window: they
 // WRITE, and this strip does not.
 
+#include "gui/AetherGateChainAuto.h"
+
 #include <QHash>
 #include <QString>
 #include <QStringList>
@@ -80,6 +82,7 @@
 class QJsonArray;
 class QJsonObject;
 class QLabel;
+class QPushButton;
 
 namespace AetherSDR {
 
@@ -184,7 +187,32 @@ signals:
     // plus, sometimes, a gate write, and this widget knows about neither.
     void stepActivated(int step);
 
+    // B25 AUTO CLEAN -- the banner button beside this strip was pressed.
+    // `on` is the state it was pressed INTO, so the window can send exactly
+    // that as GET /diversity/set?auto=on|off through its own write path,
+    // the same way stepActivated()'s cures are turned into writes rather
+    // than this widget owning any transport of its own. See
+    // gui/DiversityFlowStripAuto.cpp.
+    void requestAutoCleanToggle(bool on);
+
+    // B25 DIG STOP -- the STOP button drawn on the DIG line itself was
+    // pressed. GET /diversity/dig?cancel=1 is the window's job, same as
+    // above; this line only ever says which of a fixed handful of things
+    // happened. See gui/DiversityFlowStripDig.cpp.
+    void requestDigCancel();
+
 private:
+    // B25 AUTO CLEAN -- (re)builds m_autoCleanButton's text/checked/visible
+    // state from m_governor. Called from applyDiversity() and clear().
+    // gui/DiversityFlowStripAuto.cpp.
+    void updateAutoCleanBanner();
+
+    // B25 DIG STOP -- shows/hides m_digStopButton from m_digRunning, and
+    // says who started the run ("you" vs "AUTO", from chainAutoDigStarted-
+    // ByAuto()) inside digState()'s own text. Called from applyDig() and
+    // clear(). gui/DiversityFlowStripDig.cpp.
+    void updateDigStopButton();
+
     // One step's derived state: the words after the "·" and whether the
     // operator still has something to do about it.
     struct State {
@@ -212,6 +240,19 @@ private:
     QVector<QString>    m_tones;
     int                 m_next{StepAlign};
     int                 m_page{PageSlice};
+
+    // --- B25 AUTO CLEAN / DIG STOP ------------------------------------------
+    // The banner button (see updateAutoCleanBanner()) and the STOP button
+    // drawn on the DIG line (see updateDigStopButton()), both built in
+    // DiversityFlowStrip's own constructor but owned and moved by the two
+    // new units above so this file stays inside AGENTS.md's 800-line budget.
+    QPushButton*        m_autoCleanButton{nullptr};
+    QPushButton*        m_digStopButton{nullptr};
+    // The governor block off the same /diversity body applyDiversity()
+    // already reads -- gui/AetherGateChainAuto.h. No poll of its own; see
+    // that header's own comment on why every target that already builds
+    // this file also builds AetherGateChainAuto.cpp.
+    ChainAutoGovernor   m_governor;
 
     // --- last /diversity ---------------------------------------------------
     bool    m_available{false};

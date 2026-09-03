@@ -30,6 +30,8 @@ ChainAutoHeld parseHeld(const QJsonObject& h)
     const QJsonValue delta = h.value(QStringLiteral("delta_db"));
     out.hasDelta = delta.isDouble();
     out.deltaDb = out.hasDelta ? delta.toDouble() : 0.0;
+    out.scorer = h.value(QStringLiteral("scorer")).toString();
+    out.step = h.value(QStringLiteral("params")).toObject().value(QStringLiteral("step")).toString();
     return out;
 }
 
@@ -44,6 +46,7 @@ ChainAutoEvent parseEvent(const QJsonObject& e)
     const QJsonValue delta = e.value(QStringLiteral("delta_db"));
     out.hasDelta = delta.isDouble();
     out.deltaDb = out.hasDelta ? delta.toDouble() : 0.0;
+    out.scorer = e.value(QStringLiteral("scorer")).toString();
     return out;
 }
 
@@ -74,18 +77,23 @@ QString timeOf(double epochSeconds, const char* fmt)
 QString eventLine(const ChainAutoEvent& e)
 {
     const QString time = timeOf(e.t, "HH:mm:ss");
+    QString line;
     if (e.result == QLatin1String("error")) {
-        return QStringLiteral("%1 · %2 · %3 · error: %4")
-            .arg(time, e.tool, e.kind, e.why);
+        line = QStringLiteral("%1 · %2 · %3 · error: %4").arg(time, e.tool, e.kind, e.why);
+    } else {
+        QString outcome = e.result;
+        if (e.result == QLatin1String("kept") || e.result == QLatin1String("undone")) {
+            outcome += QLatin1Char(' ');
+            outcome += e.hasDelta ? signedDb(e.deltaDb) + QStringLiteral(" dB")
+                                  : QStringLiteral("—");
+        }
+        line = QStringLiteral("%1 · %2 · %3 · %4 · %5").arg(time, e.tool, e.kind, outcome, e.why);
     }
-    QString outcome = e.result;
-    if (e.result == QLatin1String("kept") || e.result == QLatin1String("undone")) {
-        outcome += QLatin1Char(' ');
-        outcome += e.hasDelta ? signedDb(e.deltaDb) + QStringLiteral(" dB")
-                              : QStringLiteral("—");
-    }
-    return QStringLiteral("%1 · %2 · %3 · %4 · %5")
-        .arg(time, e.tool, e.kind, outcome, e.why);
+    // B26, optional: which objective the gate scored the move against. An
+    // older gate never sends it, and the line reads exactly as it always did.
+    if (!e.scorer.isEmpty())
+        line += QStringLiteral(" · scored by %1").arg(e.scorer);
+    return line;
 }
 
 // "backing off: mains/squeeze until 12:46".
@@ -93,6 +101,19 @@ QString backoffLine(const ChainAutoBackoff& b)
 {
     return QStringLiteral("backing off: %1/%2 until %3")
         .arg(b.kind, b.tool, timeOf(b.until, "HH:mm"));
+}
+
+// "AUTO · <kind> · <why>[ · dig running <step>][ · scored by <scorer>]" for a
+// held/pending "dig" row -- shared by chainAutoDigLine()'s held and pending
+// branches below.
+QString heldDigNote(const ChainAutoHeld& h)
+{
+    QString note = QStringLiteral("AUTO · %1 · %2").arg(h.kind, h.why);
+    if (!h.step.isEmpty())
+        note += QStringLiteral(" · dig running %1").arg(h.step);
+    if (!h.scorer.isEmpty())
+        note += QStringLiteral(" · scored by %1").arg(h.scorer);
+    return note;
 }
 
 } // namespace
@@ -209,7 +230,65 @@ QString chainAutoStateLine(const ChainAutoGovernor& gov)
 {
     if (!gov.available)
         return QString();
-    return QStringLiteral("%1 · %2").arg(gov.state, gov.why);
+    QString line = QStringLiteral("%1 · %2").arg(gov.state, gov.why);
+    const QString dig = chainAutoDigLine(gov);
+    if (!dig.isEmpty())
+        line += QStringLiteral(" · ") + dig;
+    return line;
+}
+
+QString chainAutoDigLine(const ChainAutoGovernor& gov)
+{
+    if (!gov.available)
+        return QString();
+    if (gov.hasPending && gov.pending.tool == QLatin1String("dig"))
+        return heldDigNote(gov.pending);
+    for (const ChainAutoHeld& h : gov.holding) {
+        if (h.tool == QLatin1String("dig"))
+            return heldDigNote(h);
+    }
+    // No hold left: the newest events[] entry for tool "dig", if the gate has
+    // one at all, says how the run landed.
+    for (int i = gov.events.size() - 1; i >= 0; --i) {
+        const ChainAutoEvent& e = gov.events.at(i);
+        if (e.tool != QLatin1String("dig"))
+            continue;
+        if (e.result == QLatin1String("kept")) {
+            return e.hasDelta
+                       ? QStringLiteral("dig done, kept %1 dB").arg(signedDb(e.deltaDb))
+                       : QStringLiteral("dig done, kept it");
+        }
+        if (e.result == QLatin1String("undone"))
+            return QStringLiteral("dig done, nothing kept");
+        return QString();   // pending/released/error: nothing new to say here
+    }
+    return QString();
+}
+
+QString chainAutoIndicatorLine(const ChainAutoGovernor& gov)
+{
+    if (!gov.available || !gov.autoOn)
+        return QString();
+    return QStringLiteral("AUTO CLEAN ON · %1 · %2").arg(gov.state, gov.why);
+}
+
+bool chainAutoDigStartedByAuto(const ChainAutoGovernor& gov)
+{
+    if (!gov.available)
+        return false;
+    if (gov.hasPending && gov.pending.tool == QLatin1String("dig"))
+        return true;
+    for (const ChainAutoHeld& h : gov.holding) {
+        if (h.tool == QLatin1String("dig"))
+            return true;
+    }
+    for (int i = gov.events.size() - 1; i >= 0; --i) {
+        const ChainAutoEvent& e = gov.events.at(i);
+        if (e.tool != QLatin1String("dig"))
+            continue;
+        return e.result == QLatin1String("pending");
+    }
+    return false;
 }
 
 } // namespace AetherSDR

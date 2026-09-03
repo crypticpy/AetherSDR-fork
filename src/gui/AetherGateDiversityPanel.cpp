@@ -2,8 +2,10 @@
 
 #include "core/AppSettings.h"
 #include "core/ThemeManager.h"
+#include "gui/AetherGateChainAuto.h"
 #include "gui/DiversityScope.h"
 #include "gui/DiversityWindow.h"
+#include "gui/Theme.h"
 
 #include <QAbstractItemView>
 #include <QComboBox>
@@ -219,6 +221,37 @@ AetherGateDiversityPanel::AetherGateDiversityPanel(QWidget* parent)
     modeLayout->addWidget(m_mode, 1);
     root->addWidget(modeRow);
 
+    // --- AUTO CLEAN: the switch and the indicator, one control -------------
+    // "Auto clean should be an option somewhere that we can turn on and off
+    // but it should be really visible when we turn that on" -- the operator,
+    // verbatim. A checkable button rather than a link: pressed IS on, exactly
+    // like DeviceStrip's own DIVERSITY toggle. Not optimistic -- see
+    // applyDiversity() below, which is the only place this ever moves once
+    // built.
+    m_autoCleanButton = new QPushButton(tr("AUTO CLEAN"), this);
+    m_autoCleanButton->setObjectName(QStringLiteral("gateDiversityAutoCleanButton"));
+    m_autoCleanButton->setAccessibleName(tr("AUTO CLEAN switch"));
+    m_autoCleanButton->setToolTip(
+        tr("The chain's own governor: it measures the noise profile and moves "
+           "one tool at a time, putting a move back if the audio got worse. "
+           "Off by default; off, it holds nothing."));
+    m_autoCleanButton->setCheckable(true);
+    m_autoCleanButton->setCursor(Qt::PointingHandCursor);
+    applyToggleButtonStyle(m_autoCleanButton, ToggleTribe::Warning);
+    // The gate's own `why` has no true worst case -- same Ignored treatment
+    // m_statusLine above already carries, so a long one clips rather than
+    // pushing this ~250px sidebar column wider.
+    m_autoCleanButton->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    m_autoCleanButton->setMinimumWidth(0);
+    m_autoCleanButton->setVisible(false);   // shown once a governor block arrives
+    connect(m_autoCleanButton, &QPushButton::clicked, this, [this](bool checked) {
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("auto"),
+                       checked ? QStringLiteral("on") : QStringLiteral("off"));
+        emit requestSet(q);
+    });
+    root->addWidget(m_autoCleanButton);
+
     // --- the door ----------------------------------------------------------
     m_openWindowButton = new QPushButton(tr("Open Diversity window"), this);
     m_openWindowButton->setObjectName(QStringLiteral("gateDiversityOpenWindowButton"));
@@ -309,6 +342,10 @@ void AetherGateDiversityPanel::setPresent(bool present)
     setVisible(false);
     m_statusLine->setText(emDash());
     m_scope->clear();
+    m_autoCleanButton->setVisible(false);
+    const QSignalBlocker block(m_autoCleanButton);
+    m_autoCleanButton->setChecked(false);
+    m_autoCleanButton->setText(tr("AUTO CLEAN"));
 }
 
 void AetherGateDiversityPanel::restoreCompareHold()
@@ -344,7 +381,26 @@ void AetherGateDiversityPanel::applyDiversity(const QJsonObject& d, bool isJson)
     if (!available) {
         m_statusLine->setText(emDash());
         m_scope->clear();
+        m_autoCleanButton->setVisible(false);
+        const QSignalBlocker block(m_autoCleanButton);
+        m_autoCleanButton->setChecked(false);
+        m_autoCleanButton->setText(tr("AUTO CLEAN"));
         return;
+    }
+
+    // AUTO CLEAN's own indicator/switch. The governor block rides on this
+    // same /diversity body under "governor" (docs/DIVERSITY.md "AUTO CLEAN:
+    // the chain decides") -- no new poll, the existing one just gets read
+    // twice. Hidden entirely until a governor block has arrived at all (an
+    // older gate); blocked while set so pressing it does not read back
+    // whatever this same poll already answered as a second click.
+    {
+        const ChainAutoGovernor gov = chainAutoParseGovernor(d);
+        m_autoCleanButton->setVisible(gov.available);
+        const QSignalBlocker block(m_autoCleanButton);
+        m_autoCleanButton->setChecked(gov.autoOn);
+        const QString indicator = chainAutoIndicatorLine(gov);
+        m_autoCleanButton->setText(indicator.isEmpty() ? tr("AUTO CLEAN") : indicator);
     }
 
     // Written from a poll only when the combo is neither focused nor has its

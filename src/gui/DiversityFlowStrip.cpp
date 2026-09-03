@@ -255,6 +255,10 @@ DiversityFlowStrip::DiversityFlowStrip(QWidget* parent)
 
     m_tones = QVector<QString>(StepCount);
     rebuild();
+
+    // B25 banner + STOP button; built in the two new units, not here.
+    updateAutoCleanBanner();
+    updateDigStopButton();
 }
 
 // A finished run that has not been judged. Cancelled and errored runs are NOT
@@ -273,6 +277,11 @@ bool DiversityFlowStrip::digAwaitingVerdict() const
 void DiversityFlowStrip::applyDiversity(const QJsonObject& d, bool available)
 {
     m_available = available;
+    // The governor block off this same body -- gui/AetherGateChainAuto.h --
+    // no separate poll. Default-constructed (available false) clears the
+    // banner the same way every other field above resets on a dropped poll.
+    m_governor = available ? chainAutoParseGovernor(d) : ChainAutoGovernor();
+    updateAutoCleanBanner();
     if (!available) {
         m_aligned = false;
         m_realigning = false;
@@ -393,6 +402,7 @@ void DiversityFlowStrip::applyDig(const QJsonObject& dig)
     m_digMarginDb = dig.value(QStringLiteral("margin_db")).toDouble();
     m_digUnsteady = dig.value(QStringLiteral("unsteady")).toBool();
     m_digSpreadDb = dig.value(QStringLiteral("baseline_spread_db")).toDouble();
+    updateDigStopButton();
     rebuild();
 }
 
@@ -450,6 +460,9 @@ void DiversityFlowStrip::clear()
     m_digMarginDb = 0.0;
     m_digUnsteady = false;
     m_digSpreadDb = 0.0;
+    m_governor = ChainAutoGovernor();
+    updateAutoCleanBanner();
+    updateDigStopButton();
     rebuild();
 }
 
@@ -568,6 +581,10 @@ DiversityFlowStrip::State DiversityFlowStrip::digState() const
             text += tr(" · sampling the baseline");
         else if (!m_digLastKnob.isEmpty())
             text += tr(" · trying %1").arg(m_digLastKnob);
+        // B25: who started this run -- the governor's own holding/pending/
+        // events say so; see chainAutoDigStartedByAuto()'s own comment.
+        text += chainAutoDigStartedByAuto(m_governor) ? tr(" · started by AUTO")
+                                                       : tr(" · started by you");
         return {text, true};
     }
     // A refusal, and a run put back: both are about a chain that is on the

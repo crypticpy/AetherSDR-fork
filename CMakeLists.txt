@@ -1000,6 +1000,8 @@ set(GUI_SOURCES
     src/gui/DiversityEventLog.cpp
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFlowStripAuto.cpp
+    src/gui/DiversityFlowStripDig.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFilterPanelPaint.cpp
     src/gui/DiversityFilterPanelSqueeze.cpp
