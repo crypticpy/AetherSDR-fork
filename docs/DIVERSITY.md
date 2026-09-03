@@ -71,6 +71,23 @@ Never probe the SDRplay service by opening devices on trial and error: the
 SoapySDRPlay3 driver leaks a lock on failure and the service must then be
 restarted.
 
+**Active loops with a control box (K-480WLA and its relatives).** These
+loops put a band selector and a 0-30 dB gain control in the box at the
+receiver end, with an indicator per band (MW, SW, FM, AIR, 6M, UV and a
+full-band position on the K-480WLA; the SW position covers 2-30 MHz and
+switches the medium-wave and FM band-stop filters in). Everything this
+window measures is measured *through* those switches: a beacon slot that
+hears nothing on 12 m may mean the band is closed, or that one box was
+left on MW or full-band with the broadcast filters out, and a gain knob
+set 10 dB apart on the two boxes shows up as a permanent B-minus-A
+offset in the pattern dial. So keep both boxes on the same band position
+and near the same gain, note what they are set to whenever you change
+them (`/diversity/set?antenna=<free text>` stamps the note on every site
+log line from then on, so a sweep can be read against the switch
+positions it was made with), and treat the beacon sweep as valid only
+for the band the boxes were set to. The loop head has no controls; the
+box is where the mistakes are made.
+
 ## The sidebar
 
 The sidebar entry is deliberately small: one status line (mode, the live
@@ -609,6 +626,12 @@ The gate's HTTP control port (default 8731) serves:
 - `GET /diversity/set?grid=<locator>` sets the station's Maidenhead
   locator (four or six characters); `grid=off` forgets it. Replies with the
   diversity status, or `{"error": "not a Maidenhead locator: 'ZZ99'"}`.
+- `GET /diversity/set?antenna=<free text>` records what the antenna side
+  is set to (which loops, which box switch positions, gain), up to 80
+  characters; every beacon and noise line the site log writes from then on
+  carries it as `antenna`, and a changed note is itself a new noise
+  verdict. `antenna=off` clears it. The current note is in `/diversity`
+  under `sitelog` with the log's `written`, `skipped` and `error`.
 - `python -m aether_gate.replay CAPTURE.npz` (in the gate) — the replay
   lab: a capture through the live combiner path as A / B / wideband /
   per-bin WAVs at one gain, plus `summary.json`.
