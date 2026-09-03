@@ -362,6 +362,9 @@ private:
     QPushButton*  m_realignButton{nullptr};
     QPushButton*  m_captureButton{nullptr};
     QSpinBox*     m_captureSpin{nullptr};
+    // What the MAIN panadapter is drawing, given pan= and whether the two
+    // tuners are aligned yet -- display only, fed in applyChainStatus().
+    QLabel*       m_spectrumLine{nullptr};
     QString       m_compareResumeMode;
     bool          m_compareDown{false};
     // REALIGN's answer. m_lastLagSamples is the lag from the poll before the

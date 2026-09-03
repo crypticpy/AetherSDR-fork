@@ -107,6 +107,18 @@ seconds. The footer strip is the one line visible from every page, which is
 why both answers go there: on any page but SLICE there was previously no
 sign either button had done anything at all.
 
+A `pan:` readout sits at the right of the same row, display only. HEAR
+is audio and is always the combiner's live output; the main panadapter's FFT
+is a separate choice (the PAN buttons on the noise tools page) that normally
+mirrors it — loop A and loop B added with the active slice's own weight — but
+before the two tuners are aligned there is no weight yet, so a panadapter set
+to `combined` reads `pan: A, not aligned` and shows loop A alone until REALIGN
+settles; once aligned it reads `pan: A+B`. Pointed at one leg or the
+null on purpose it reads `pan: A only`, `B only` or `nulled`; an older
+gate that has never sent `pan` reads `pan: —`. Kept to a few words
+because the row is already at the window's own 1120 px opening width, with
+the fuller explanation in the readout's tooltip instead.
+
 **The FLOW line — at the foot of the window, not the top.** Five steps in
 the order that gets the best signal, on one line above the gate status
 strip:

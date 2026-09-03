@@ -289,6 +289,65 @@ void testRealignThatIsNeverAnsweredGivesTheButtonBack()
 }
 
 // --------------------------------------------------------------------------
+// (f2) The PAIR strip's spectrum line answers "what is the panadapter
+// actually drawing", which pan= and aligned alone do not: pan "combined"
+// before the two tuners are aligned is loop A, not the sum.
+// --------------------------------------------------------------------------
+
+void testSpectrumLineFollowsPanAndAlignment()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    // kDiversityStatusWithKinds carries no "pan" key at all -- the older-gate
+    // case -- and starts aligned.
+    const QByteArray anchor = "\"aligned\": true, \"corr_peak\": 0.91,";
+    const QByteArray combinedAligned =
+        with(kDiversityStatusWithKinds, anchor.constData(),
+             (anchor + " \"pan\": \"combined\",").constData());
+    connectGate(a, net, combinedAligned);
+    DiversityWindow* w = openWindow(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* spectrum = child<QLabel>(w, "diversityWindowSpectrumLine");
+    CHECK(spectrum != nullptr);
+    if (!spectrum)
+        return;
+    CHECK_EQ(spectrum->text(), QStringLiteral("pan: A+B"));
+
+    // MUTATION: the same pan choice, but not yet aligned -- the wire value
+    // alone would still say "combined", which is why the line has to look at
+    // aligned too.
+    const QByteArray combinedUnaligned =
+        with(combinedAligned, "\"aligned\": true, \"corr_peak\": 0.91,",
+             "\"aligned\": false, \"corr_peak\": null,");
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, combinedUnaligned};
+    tick(a);
+    CHECK_EQ(spectrum->text(), QStringLiteral("pan: A, not aligned"));
+
+    // MUTATION: pan pointed at the null leg on purpose, aligned again -- a
+    // plain wire value with nothing for the readout to second-guess.
+    const QByteArray nulled = with(kDiversityStatusWithKinds, anchor.constData(),
+                                   (anchor + " \"pan\": \"nulled\",").constData());
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, nulled};
+    tick(a);
+    CHECK_EQ(spectrum->text(), QStringLiteral("pan: nulled"));
+
+    // MUTATION: an older gate that has never sent "pan" at all -- nothing may
+    // be guessed in its place.
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
+                                                kDiversityStatusWithKinds};
+    tick(a);
+    CHECK_EQ(spectrum->text(), QStringLiteral("pan: —"));
+
+    w->close();
+    settle();
+    closedToStart();
+}
+
+// --------------------------------------------------------------------------
 // (g) CAPTURE answers, from every page
 // --------------------------------------------------------------------------
 
@@ -509,6 +568,7 @@ int main(int argc, char** argv)
 
     testRealignNarratesOnItsOwnFace();
     testRealignThatIsNeverAnsweredGivesTheButtonBack();
+    testSpectrumLineFollowsPanAndAlignment();
     testCaptureCountsDownAndNamesTheFileEverywhere();
     testAgcThresholdSpinReadsAndWrites();
     testNothingScrollsOnAnyPageAtTheInitialSize();

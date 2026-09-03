@@ -42,6 +42,7 @@
 
 #include <QAbstractButton>
 #include <QButtonGroup>
+#include <QCoreApplication>
 #include <QFileInfo>
 #include <QFontMetrics>
 #include <QHBoxLayout>
@@ -81,6 +82,32 @@ QString dash()
 qint64 roundLag(double lag)
 {
     return qint64(std::llround(lag));
+}
+
+// What the MAIN panadapter is drawing, not this window's own scope: the gate
+// serves both the audio and the panadapter FFT from the same combiner, but
+// they answer two different questions, and an operator who has only ever
+// watched the spectrum has no way to know that "combined" on the wire can
+// silently mean "loop A, because the two tuners are not aligned yet." Spelled
+// out here rather than left to be inferred from PAIR's HEAR row, which is
+// audio only and cannot speak for what is drawn.
+QString spectrumSourceText(const QJsonObject& d, bool aligned)
+{
+    if (!d.contains(QStringLiteral("pan")))
+        return QCoreApplication::translate("DiversityWindow", "pan: %1").arg(dash());
+    const QString pan = d.value(QStringLiteral("pan")).toString();
+    if (pan == QLatin1String("combined")) {
+        return aligned
+            ? QCoreApplication::translate("DiversityWindow", "pan: A+B")
+            : QCoreApplication::translate("DiversityWindow", "pan: A, not aligned");
+    }
+    if (pan == QLatin1String("a"))
+        return QCoreApplication::translate("DiversityWindow", "pan: A only");
+    if (pan == QLatin1String("b"))
+        return QCoreApplication::translate("DiversityWindow", "pan: B only");
+    if (pan == QLatin1String("nulled"))
+        return QCoreApplication::translate("DiversityWindow", "pan: nulled");
+    return QCoreApplication::translate("DiversityWindow", "pan: %1").arg(dash());
 }
 
 } // namespace
@@ -233,6 +260,31 @@ QWidget* DiversityWindow::buildChainRow()
     connect(m_realignButton, &QPushButton::clicked, this,
             &DiversityWindow::startRealign);
     layout->addWidget(m_realignButton);
+
+    // Display only -- the control that actually sets pan= lives on the noise
+    // tools panel (PAN, in DiversityWindowPanels.cpp), where it belongs beside
+    // the spectrum it draws. This line just answers the question the control
+    // itself does not: given that choice, what is the main panadapter showing
+    // RIGHT NOW, including the one case the wire value alone hides -- pan
+    // "combined" before the two tuners are aligned, when there is no weight
+    // yet to combine with and the gate falls back to loop A alone. Kept to a
+    // few words, not a sentence: this row is already at the window's own
+    // 1120 px floor (see DiversityWindow.cpp's kInitialWidth), so the fuller
+    // explanation lives in the tooltip instead of on the row.
+    m_spectrumLine = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowSpectrumLine"),
+        QStringLiteral("pan: A, not aligned"),
+        tr("What the MAIN panadapter is drawing, not this window's own scope. "
+           "The audio under HEAR is always the per-slice combiner's output. "
+           "The spectrum normally matches it -- loop A and loop B added with "
+           "the active slice's own weight -- except before the two tuners are "
+           "aligned, when there is no weight yet and the spectrum falls back "
+           "to loop A alone. \"A\", \"B\" and \"nulled\" mean the panadapter "
+           "has been pointed at one leg or the null on purpose, from the PAN "
+           "row on the noise tools page."),
+        row);
+    m_spectrumLine->setAccessibleName(tr("Panadapter spectrum source"));
+    layout->addWidget(m_spectrumLine);
 
     layout->addStretch(1);
 
@@ -444,6 +496,8 @@ void DiversityWindow::applyCaptureResult(bool ok, const QString& pathOrError)
 void DiversityWindow::applyChainStatus(const QJsonObject& d, bool aligned,
                                        bool realigning, bool haveLag, double lag)
 {
+    m_spectrumLine->setText(spectrumSourceText(d, aligned));
+
     // --- did the realign this row asked for finish? ------------------------
     // Resolved BEFORE the new lag is remembered, because the comparison is
     // against the lag from the poll before the request went out.
