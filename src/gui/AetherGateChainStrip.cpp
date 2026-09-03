@@ -34,6 +34,11 @@ constexpr int kPassbandSplitAt = 7;
 
 constexpr int kFoldColumns = 4;
 
+// What the FRONT END card's cal note has to fit inside: the card's own
+// width, less the same left/right padding the hint line under it already
+// budgets for.
+constexpr int kFrontEndCardTextWidth = kChainSummaryWidth - 14;
+
 // The four groups, in signal order, which is also left-to-right.
 const ChainGroup kGroups[] = {ChainGroup::FrontEnd, ChainGroup::Pair,
                               ChainGroup::Passband, ChainGroup::Out};
@@ -176,15 +181,28 @@ void AetherGateChainStrip::buildColumns(QVBoxLayout* root)
             inner->addWidget(column.body);
 
             column.hint = DiversityWidgets::makeFieldLabel(
-                tr("ALL SET ON THE SETUP PAGE"), card);
+                tr("THE REST IS SET ON THE SETUP PAGE"), card);
             column.hint->setObjectName(QStringLiteral("gateChainFrontEndHint"));
             column.hint->setAccessibleName(tr("Where the front end is set"));
-            column.hint->setToolTip(tr("None of this is changed from here. The "
-                                       "antenna port, the traps, the gain and "
-                                       "the sample rate all belong to the "
-                                       "setup page."));
+            column.hint->setToolTip(tr("The antenna port, the traps, the gain and "
+                                       "the sample rate all belong to the setup "
+                                       "page. GUARD is the one control on this "
+                                       "card."));
             column.hint->setAccessibleDescription(column.hint->toolTip());
             inner->addWidget(column.hint);
+
+            // The B23 linearity guard's one caveat: a guard-moved LNA state
+            // breaks the gate's own dBm calibration. Built once, kept in the
+            // warning tone permanently (setLive(true), not the ordinary
+            // role -- this is only ever shown when something needs saying)
+            // and hidden until setFrontendCalNote() has something to show.
+            column.calNote = DiversityWidgets::makeReadoutLine(
+                QStringLiteral("gateChainFrontendCalNote"), QString(), QString(),
+                card);
+            column.calNote->setAccessibleName(tr("dBm calibration note"));
+            DiversityWidgets::setLive(column.calNote, true);
+            column.calNote->setVisible(false);
+            inner->addWidget(column.calNote);
             box->addWidget(card);
         } else {
             column.body = new QWidget(column.host);
@@ -251,6 +269,19 @@ void AetherGateChainStrip::setStages(const QList<ChainStage>& stages)
         selectStage(m_stages.first().id);
     else if (!tile(m_selected) && !m_stages.isEmpty())
         selectStage(m_stages.first().id);
+}
+
+void AetherGateChainStrip::setFrontendCalNote(bool show, const QString& text)
+{
+    QLabel* note = columnFor(ChainGroup::FrontEnd).calNote;
+    if (!note)
+        return;
+    note->setVisible(show);
+    if (!show)
+        return;
+    note->setText(chainFitToWidth(note, text, kFrontEndCardTextWidth));
+    note->setToolTip(text);
+    note->setAccessibleDescription(text);
 }
 
 void AetherGateChainStrip::setMode(ChainMode mode)

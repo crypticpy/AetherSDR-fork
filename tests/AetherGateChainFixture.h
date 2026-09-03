@@ -354,6 +354,52 @@ QByteArray withStage(const QByteArray& body, const QString& id, bool enabled,
 }
 
 // --------------------------------------------------------------------------
+// B23 -- GET /device's own "frontend" key
+// --------------------------------------------------------------------------
+
+// One spec-conformant "frontend" object -- the shape /frontend and /device's
+// own frontend key both answer with. `events` is verbatim: a caller building
+// the one-event case for the inspector's "now" sentence passes it a single
+// {"t", "from", "to", "reason"} object.
+QJsonObject frontend(bool guard, const QString& floorState, const QString& lnaState,
+                     bool dbmCalibrated, double headroomDb, int clips1s,
+                     const QString& state, const QJsonArray& events = {})
+{
+    QJsonObject fe;
+    fe.insert(QStringLiteral("available"), true);
+    fe.insert(QStringLiteral("guard"), guard);
+    fe.insert(QStringLiteral("floor_state"), floorState);
+    fe.insert(QStringLiteral("max_state"), QStringLiteral("9"));
+    fe.insert(QStringLiteral("lna_state"), lnaState);
+    fe.insert(QStringLiteral("dbm_calibrated"), dbmCalibrated);
+    fe.insert(QStringLiteral("cal_state"), QStringLiteral("0"));
+    fe.insert(QStringLiteral("headroom_db"), headroomDb);
+    fe.insert(QStringLiteral("peak_dbfs"), -headroomDb);
+    fe.insert(QStringLiteral("headroom_1s_db"), headroomDb);
+    fe.insert(QStringLiteral("clips_1s"), clips1s);
+    QJsonArray perChannel;
+    QJsonObject ch;
+    ch.insert(QStringLiteral("headroom_db"), headroomDb);
+    ch.insert(QStringLiteral("clips_1s"), clips1s);
+    perChannel.append(ch);
+    fe.insert(QStringLiteral("per_channel"), perChannel);
+    fe.insert(QStringLiteral("state"), state);
+    fe.insert(QStringLiteral("hold_until"), QJsonValue());
+    fe.insert(QStringLiteral("events"), events);
+    return fe;
+}
+
+// GET /device, with `fe` (or nothing, when `fe` is a default-constructed
+// object) added under "frontend". kDevice itself carries no such key -- this
+// is the only way the fixture puts one there.
+QByteArray deviceWithFrontend(const QJsonObject& fe)
+{
+    QJsonObject root = QJsonDocument::fromJson(kDevice).object();
+    root.insert(QStringLiteral("frontend"), fe);
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+// --------------------------------------------------------------------------
 // A gate whose replies do not all arrive at once.
 //
 // DiversityGateFixture's FakeReply finishes on the next event-loop turn, which

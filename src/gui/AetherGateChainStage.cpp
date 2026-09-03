@@ -140,24 +140,6 @@ void applyTabularFigures(QLabel* label)
     label->setFont(f);
 }
 
-// Shortening that never leaves three dots behind. Whole words come off the
-// end until what is left fits; the whole string stays on the hover. An
-// elided line is the operator's own complaint -- "the content doesn't fit in
-// the box so you can't read all of it" -- and three dots do not fix it, they
-// just admit it.
-QString fitToWidth(const QLabel* label, const QString& text, int width)
-{
-    const QFontMetrics fm(label->font());
-    QString out = text;
-    while (fm.horizontalAdvance(out) > width && out.contains(QLatin1Char(' '))) {
-        out.truncate(out.lastIndexOf(QLatin1Char(' ')));
-        out = out.trimmed();
-        while (out.endsWith(QLatin1Char(',')) || out.endsWith(QLatin1Char(':')))
-            out.chop(1);
-    }
-    return out;
-}
-
 // The one reason the FRONT END card prints once, under all of its rows,
 // instead of once per row. It is the gate's own wording.
 QString frontEndSharedWhy()
@@ -200,7 +182,13 @@ QString ChainStage::shape() const
 
 QString ChainStage::settingKey() const
 {
-    return (enabled ? QStringLiteral("1") : QStringLiteral("0")) + QLatin1Char('|') + value;
+    QString key = (enabled ? QStringLiteral("1") : QStringLiteral("0")) + QLatin1Char('|') + value;
+    // The GUARD row has a second thing a write can move that `enabled`/
+    // `value` say nothing about: the floor. Folded in only for a stage that
+    // carries one, so no other row's confirmation check changes shape.
+    if (hasFloorControl)
+        key += QLatin1Char('|') + floorValue;
+    return key;
 }
 
 QString chainLevelText(const ChainStage& stage)
@@ -215,6 +203,24 @@ QString chainLevelWorstCase()
 {
     return QCoreApplication::translate("AetherGateChainStage",
                                        "in -199.9 · out -199.9 dB");
+}
+
+// Shortening that never leaves three dots behind. Whole words come off the
+// end until what is left fits; the whole string stays on the hover. An
+// elided line is the operator's own complaint -- "the content doesn't fit in
+// the box so you can't read all of it" -- and three dots do not fix it, they
+// just admit it.
+QString chainFitToWidth(const QLabel* label, const QString& text, int width)
+{
+    const QFontMetrics fm(label->font());
+    QString out = text;
+    while (fm.horizontalAdvance(out) > width && out.contains(QLatin1Char(' '))) {
+        out.truncate(out.lastIndexOf(QLatin1Char(' ')));
+        out = out.trimmed();
+        while (out.endsWith(QLatin1Char(',')) || out.endsWith(QLatin1Char(':')))
+            out.chop(1);
+    }
+    return out;
 }
 
 // --------------------------------------------------------------------------
@@ -258,7 +264,15 @@ void AetherGateChainControl::buildToggle(const QString& prefix, bool large)
     // design §0.3 item 3 is about. The gate's own label goes on the hover with
     // the query it will send.
     m_toggle = new QPushButton(m_stage.enabled ? tr("ON") : tr("OFF"), this);
-    m_toggle->setObjectName(prefix + QStringLiteral("Toggle_") + suffixFor(m_stage.id));
+    // The override name is for the CARD's control only. The detail pane
+    // builds a second, larger instance of this same class (prefix
+    // "gateChainDetail") for every stage, and it must not share an
+    // objectName with the card's -- the automation bridge and the tests
+    // both assume one name finds one widget.
+    m_toggle->setObjectName(
+        (m_stage.toggleObjectName.isEmpty() || prefix != QStringLiteral("gateChain"))
+            ? prefix + QStringLiteral("Toggle_") + suffixFor(m_stage.id)
+            : m_stage.toggleObjectName);
     m_toggle->setAccessibleName(tr("Switch %1").arg(m_stage.name));
     m_toggle->setCheckable(true);
     m_toggle->setFixedHeight(large ? kLargeRowHeight : kRowHeight);
@@ -290,6 +304,49 @@ void AetherGateChainControl::buildToggle(const QString& prefix, bool large)
         emit requestWrite(m_stage.actionRoute, m_stage.queryFor());
     });
     layout()->addWidget(m_toggle);
+
+    if (m_stage.hasFloorControl)
+        buildFloor(prefix, large);
+}
+
+// The GUARD row's second control: how far down the switch above is allowed
+// to take the LNA. Stacked under the toggle rather than beside it, the same
+// shape buildSelect() uses for the digital roof's free-entry field, so the
+// row stays the width of one switch rather than the width of a switch plus a
+// menu.
+void AetherGateChainControl::buildFloor(const QString& prefix, bool large)
+{
+    m_floor = new QComboBox(this);
+    // Same rule as the toggle's override name: the card's control only.
+    m_floor->setObjectName(
+        (m_stage.floorObjectName.isEmpty() || prefix != QStringLiteral("gateChain"))
+            ? prefix + QStringLiteral("Floor_") + suffixFor(m_stage.id)
+            : m_stage.floorObjectName);
+    m_floor->setAccessibleName(tr("%1 floor").arg(m_stage.name));
+    m_floor->setFixedHeight(large ? kLargeRowHeight : kRowHeight);
+    if (large)
+        m_floor->setMinimumWidth(kDetailControlWidth);
+    else
+        m_floor->setFixedWidth(kSwitchWidth);
+    ThemeManager::instance().applyStyleSheet(m_floor, QString::fromLatin1(kSelectStyle));
+    for (const ChainOption& opt : m_stage.floorOptions)
+        m_floor->addItem(opt.label, opt.value);
+    const QString tip = tr("The lowest LNA state the guard will step down to. "
+                           "It steps the gain back up on its own; it never "
+                           "goes below this floor.");
+    m_floor->setToolTip(tip);
+    m_floor->setAccessibleDescription(tip);
+    connect(m_floor, &QComboBox::activated, this, [this](int index) {
+        const QString wire = m_floor->itemData(index).toString();
+        if (wire.isEmpty() || m_busy) {
+            syncToGate();
+            return;
+        }
+        setBusy(true);
+        syncToGate();
+        emit requestWrite(m_stage.floorActionRoute, QUrlQuery(m_stage.floorActionQuery + wire));
+    });
+    layout()->addWidget(m_floor);
 }
 
 void AetherGateChainControl::buildSelect(const QString& prefix, bool large)
@@ -412,7 +469,7 @@ void AetherGateChainControl::buildAction(const QString& prefix, bool large)
 bool AetherGateChainControl::hasControl() const
 {
     return m_toggle != nullptr || m_select != nullptr || m_free != nullptr
-           || m_action != nullptr;
+           || m_action != nullptr || m_floor != nullptr;
 }
 
 void AetherGateChainControl::setStage(const ChainStage& stage)
@@ -446,6 +503,8 @@ void AetherGateChainControl::applyBusy()
         m_free->setEnabled(live && m_stage.actionable());
     if (m_action)
         m_action->setEnabled(live && m_stage.actionable());
+    if (m_floor)
+        m_floor->setEnabled(live && m_stage.hasFloorControl);
 }
 
 void AetherGateChainControl::syncToGate()
@@ -473,6 +532,12 @@ void AetherGateChainControl::syncToGate()
         }
         if (index >= 0)
             m_select->setCurrentIndex(index);
+    }
+    if (m_floor) {
+        const QSignalBlocker block(m_floor);
+        const int index = m_floor->findData(m_stage.floorValue);
+        if (index >= 0)
+            m_floor->setCurrentIndex(index);
     }
     applyBusy();
 }
@@ -576,7 +641,7 @@ void AetherGateChainTile::buildLine()
     m_name->setObjectName(QStringLiteral("gateChainName_") + suffixFor(m_stage.id));
     m_name->setAccessibleName(m_stage.name);
     m_name->setFixedWidth(kChainSummaryNameWidth);
-    m_name->setText(fitToWidth(m_name, m_stage.name, kChainSummaryNameWidth));
+    m_name->setText(chainFitToWidth(m_name, m_stage.name, kChainSummaryNameWidth));
     m_name->setToolTip(m_stage.name);
     m_name->setAccessibleDescription(m_stage.name);
     box->addWidget(m_name);
@@ -651,6 +716,10 @@ void AetherGateChainTile::refreshPrimary()
         text = emDash();
 
     m_value->setText(text);
+    // The FRONT END card's HEADROOM row wears the same warning tone the
+    // underline already carries for a refusal -- makeReadoutLine()'s own
+    // [live="true"] rule, not a new one.
+    DiversityWidgets::setLive(m_value, m_stage.warn);
     // The hover and the screen reader get the whole thing, always.
     const QString whole = m_stage.detail.isEmpty() ? text : m_stage.detail;
     m_value->setToolTip(whole);
@@ -680,7 +749,7 @@ void AetherGateChainTile::refreshUnderline()
         text.clear();
     m_under->setVisible(!text.isEmpty());
     DiversityWidgets::setLive(m_under, refused);
-    m_under->setText(fitToWidth(m_under, text, m_lineWidth));
+    m_under->setText(chainFitToWidth(m_under, text, m_lineWidth));
     m_under->setToolTip(text);
     m_under->setAccessibleDescription(text);
 }

@@ -570,6 +570,24 @@ and the sample rate: one line each, and one hint under all of them —
 window except the roofing filter, on a receiver whose driver offers its
 IF bandwidths.
 
+HEADROOM and GUARD are two more rows on the same card, when
+`/frontend` says a guard is fitted. HEADROOM is a measured line —
+how far the last second's strongest sample sat below full scale,
+and how many samples clipped — in the warning tone the instant it
+drops under 3 dB or anything clips. GUARD is the one control the
+card carries: a switch, ON or OFF, and beneath it a floor menu that
+limits how far down the switch is allowed to take the LNA. The
+inspector's GUARD entry names the last thing the guard actually
+did — `stepped 0 → 1 at 11:42, clipping` — rather than repeat the
+card's own on/off sentence. The hint under the card changes to
+`THE REST IS SET ON THE SETUP PAGE` once GUARD is live from here.
+When the gate's dBm scale no longer matches the LNA state GUARD
+moved it to, a one-line note says so under the hint — the numbers
+on every other card are still true, but relative rather than
+calibrated until the scale is re-trimmed. A receiver with no guard
+fitted (`available: false`) shows neither row; the card is not
+padded out with dashes for a stage that does not exist.
+
 **PAIR** is what the two loops do together: ALIGN, NB, COMBINER,
 SUB-BAND NULL, POST-FILTER. On a single-tuner device the gate does not
 send those rows and the column is simply not there.
@@ -888,6 +906,17 @@ The gate's HTTP control port (default 8731) serves:
 - `GET /diversity/memory/name?id=&name=` — label a talker (empty clears).
 - `GET /diversity/memory/clear`, `GET /diversity/align`,
   `GET /diversity/capture?seconds=`.
+- `GET /frontend` — the front-end linearity guard: `available`,
+  `guard`, `floor_state`, `max_state`, `lna_state`,
+  `dbm_calibrated`, `cal_state`, `headroom_db`, `peak_dbfs`,
+  `headroom_1s_db`, `clips_1s`, `per_channel[]` {headroom_db,
+  clips_1s}, `state`: idle|stepping_up|holding|stepping_down,
+  `hold_until` (epoch or null), and `events[]` {t, from, to,
+  reason}. `available: false` means every other key is null or
+  empty — there is no guard to read. `GET
+  /frontend/set?guard=on|off` switches the guard; `GET
+  /frontend/set?floor=<state>` sets how far down it is allowed to
+  take the LNA.
 
 `tools/diversity_recorder.py` polls the status to a CSV and
 `tools/diversity_report.py` summarises a session (hours, talk share, gain

@@ -18,6 +18,7 @@
 #include "gui/AetherGateApplet.h"
 
 #include "gui/AetherGateAppletShared.h"
+#include "gui/AetherGateChainWindow.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -110,6 +111,10 @@ void AetherGateApplet::applyDeviceControls(const QJsonObject& dev, bool isJson)
         return;
     }
     m_deviceHint->setVisible(false);
+    // The CHAIN window's FRONT END card reads HEADROOM/GUARD from the same
+    // /device payload (its `frontend` block), so feed it whenever we have one.
+    if (m_chainWindow)
+        m_chainWindow->applyDevice(dev);
     buildDeviceControls(dev);
 }
 

@@ -84,6 +84,30 @@ struct ChainStage {
     bool    hasOut{false};
     double  outDb{0.0};
 
+    // The value line wears the card's warning tone (§ kUnderStyle's role,
+    // reused rather than duplicated) instead of the ordinary one. Set by the
+    // FRONT END card's HEADROOM row when the ADC is close to full scale or
+    // has clipped; nothing else in the chain uses it today.
+    bool    warn{false};
+
+    // A second, smaller control beside a toggle's switch: the FRONT END
+    // card's GUARD row is the one stage in this window with two things to
+    // set on one line (on/off, and how far down it may go), and this is that
+    // second control rather than a second stage. Empty everywhere else.
+    bool    hasFloorControl{false};
+    QList<ChainOption> floorOptions;
+    QString floorValue;
+    QString floorActionRoute;
+    QString floorActionQuery;     // ends with "=" -- the chosen state is appended
+
+    // Explicit objectName overrides for the toggle and the floor select.
+    // Empty for every stage the GATE authors, whose widgets are named from
+    // `id`; set only on the two synthetic FRONT END rows the /device poll
+    // adds, which the automation bridge and the tests address by a name the
+    // gate did not choose.
+    QString toggleObjectName;
+    QString floorObjectName;
+
     bool actionable() const { return !fixed && !actionRoute.isEmpty(); }
 
     // The query to send. `appended` is the chosen value on a query that ends
@@ -141,6 +165,11 @@ private:
     void buildToggle(const QString& prefix, bool large);
     void buildAction(const QString& prefix, bool large);
     void buildSelect(const QString& prefix, bool large);
+    // The GUARD row's floor combo, built alongside the toggle when
+    // `stage.hasFloorControl` is set -- the same "a second widget stacks
+    // under the first" shape buildSelect() already uses for the digital
+    // roof's free-entry field.
+    void buildFloor(const QString& prefix, bool large);
     void syncToGate();
     void applyBusy();
 
@@ -149,6 +178,7 @@ private:
     QComboBox*   m_select{nullptr};
     QPushButton* m_action{nullptr};
     QLineEdit*   m_free{nullptr};
+    QComboBox*   m_floor{nullptr};
     bool         m_busy{false};
     // The value in force when it is NOT on the gate's own option list, kept so
     // the row it was shown on is replaced rather than stacked up poll on poll.
@@ -238,6 +268,13 @@ QString chainLevelText(const ChainStage& stage);
 // The widest string chainLevelText() can ever return, for the fixed field
 // width every readout in this window is built to.
 QString chainLevelWorstCase();
+
+// Shortens `text` by dropping whole WORDS off the end until it fits `width`
+// in `label`'s own font -- never a cut through a word and never followed by
+// three dots, because the whole sentence is always still one hover away.
+// Shared by every fixed-width card field in this window's family, including
+// the FRONT END card's own note line.
+QString chainFitToWidth(const QLabel* label, const QString& text, int width);
 
 // The card's own frame, in one place: the strip's no-scroll arithmetic and the
 // window's initial size are both computed from these. 196 px is measured from

@@ -1,6 +1,7 @@
 #include "gui/AetherGateChainRows.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -498,6 +499,141 @@ QList<ChainStage> chainFromFilter(const QJsonObject& filter, bool* fromGate)
 QString chainFormatWidth(double hz)
 {
     return formatWidthImpl(hz);
+}
+
+// --------------------------------------------------------------------------
+// B23 -- the front-end linearity guard, from GET /device's "frontend" key
+// --------------------------------------------------------------------------
+
+ChainFrontendStatus chainFrontendFromDevice(const QJsonObject& device)
+{
+    ChainFrontendStatus fe;
+    const QJsonValue v = device.value(QStringLiteral("frontend"));
+    if (!v.isObject())
+        return fe;
+    const QJsonObject obj = v.toObject();
+    if (!obj.value(QStringLiteral("available")).toBool())
+        return fe;
+
+    fe.available = true;
+    fe.guard = flag(obj, "guard");
+    fe.floorState = word(obj, "floor_state");
+    fe.maxState = word(obj, "max_state");
+    fe.lnaState = word(obj, "lna_state");
+    fe.dbmCalibrated = obj.value(QStringLiteral("dbm_calibrated")).toBool(true);
+    fe.calState = word(obj, "cal_state");
+    const QJsonValue headroom = obj.value(QStringLiteral("headroom_db"));
+    fe.hasHeadroom = headroom.isDouble();
+    fe.headroomDb = headroom.toDouble();
+    fe.clips1s = int(num(obj, "clips_1s"));
+    fe.state = word(obj, "state");
+
+    const QJsonArray events = obj.value(QStringLiteral("events")).toArray();
+    for (const QJsonValue& ev : events) {
+        if (!ev.isObject())
+            continue;
+        const QJsonObject e = ev.toObject();
+        ChainFrontendEvent item;
+        item.t = qint64(num(e, "t"));
+        item.from = word(e, "from");
+        item.to = word(e, "to");
+        item.reason = word(e, "reason");
+        fe.events.append(item);
+    }
+    return fe;
+}
+
+QString chainFrontendGuardValueText(const ChainFrontendStatus& fe)
+{
+    if (!fe.available)
+        return QString();
+    if (!fe.guard)
+        return tr_("off · LNA %1").arg(fe.lnaState);
+    QString text = tr_("on · LNA %1 (floor %2)").arg(fe.lnaState, fe.floorState);
+    QString stateWord;
+    if (fe.state == QLatin1String("stepping_up"))
+        stateWord = tr_("stepping up");
+    else if (fe.state == QLatin1String("stepping_down"))
+        stateWord = tr_("stepping down");
+    else if (fe.state == QLatin1String("holding"))
+        stateWord = tr_("holding");
+    if (!stateWord.isEmpty())
+        text += QStringLiteral(" · ") + stateWord;
+    return text;
+}
+
+QString chainFrontendEventSentence(const ChainFrontendStatus& fe)
+{
+    if (fe.events.isEmpty())
+        return QString();
+    const ChainFrontendEvent& e = fe.events.last();
+    const QString time =
+        QDateTime::fromSecsSinceEpoch(e.t).time().toString(QStringLiteral("HH:mm"));
+    return tr_("stepped %1 → %2 at %3, %4").arg(e.from, e.to, time, e.reason);
+}
+
+QString chainFrontendCalNoteText(const ChainFrontendStatus& fe)
+{
+    if (!fe.available || fe.dbmCalibrated)
+        return QString();
+    return tr_("dBm scale calibrated for LNA %1, now %2 — levels are relative "
+               "until re-trimmed")
+        .arg(fe.calState, fe.lnaState);
+}
+
+// HEADROOM (a measured line, no control) then GUARD (the one control this
+// card carries) -- in that order, because a card reads the number before the
+// switch that reacts to it.
+QList<ChainStage> chainFrontendRows(const ChainFrontendStatus& fe)
+{
+    QList<ChainStage> rows;
+    if (!fe.available)
+        return rows;
+
+    ChainStage headroom;
+    headroom.id = QStringLiteral("frontend_headroom");
+    headroom.name = tr_("HEADROOM");
+    headroom.kind = QStringLiteral("value");
+    headroom.enabled = true;
+    const QString headroomNum =
+        fe.hasHeadroom ? QString::number(fe.headroomDb, 'f', 1) : emDash();
+    headroom.detail = tr_("%1 dB · clips %2").arg(headroomNum).arg(fe.clips1s);
+    headroom.warn = fe.hasHeadroom && (fe.headroomDb < 3.0 || fe.clips1s > 0);
+    headroom.tip =
+        tr_("How far the strongest sample in the last second sits below full "
+            "scale, and how many of them clipped. Under 3 dB, or any clip at "
+            "all, is what the guard -- when it is on -- steps the LNA down "
+            "for.");
+    rows.append(headroom);
+
+    ChainStage guard;
+    guard.id = QStringLiteral("frontend_guard");
+    guard.name = tr_("GUARD");
+    guard.kind = QStringLiteral("toggle");
+    guard.enabled = fe.guard;
+    guard.detail = chainFrontendGuardValueText(fe);
+    guard.tip =
+        tr_("Steps the LNA state down when the ADC is within 3 dB of full "
+            "scale or has clipped, and back up 30 s after it is clear. It "
+            "never goes below the floor beside it.");
+    guard.actionRoute = QStringLiteral("/frontend/set");
+    guard.actionQuery = QStringLiteral("guard=")
+                         + (fe.guard ? QStringLiteral("off") : QStringLiteral("on"));
+    guard.toggleObjectName = QStringLiteral("gateChainFrontendGuard");
+    guard.hasFloorControl = true;
+    guard.floorObjectName = QStringLiteral("gateChainFrontendFloor");
+    guard.floorValue = fe.floorState;
+    guard.floorActionRoute = QStringLiteral("/frontend/set");
+    guard.floorActionQuery = QStringLiteral("floor=");
+    bool maxOk = false;
+    const int top = fe.maxState.toInt(&maxOk);
+    for (int i = 0; i <= (maxOk ? top : 9); ++i) {
+        const QString s = QString::number(i);
+        guard.floorOptions.append({s, s, QString()});
+    }
+    rows.append(guard);
+
+    return rows;
 }
 
 } // namespace AetherSDR

@@ -59,6 +59,12 @@ public:
     // second would eat a half-typed frequency and close an open menu.
     void setStages(const QList<ChainStage>& stages);
 
+    // FRONT END only: the dBm scale's calibration caveat -- "calibrated for
+    // LNA 0, now 1" -- shown only while the guard has moved the LNA state
+    // away from the one the scale was trimmed against. `text` is ignored
+    // when `show` is false.
+    void setFrontendCalNote(bool show, const QString& text);
+
     // Which stages stay on the diagram and which drop into the fold.
     void setMode(ChainMode mode);
     ChainMode mode() const { return m_mode; }
@@ -94,6 +100,7 @@ private:
         QWidget*     body{nullptr};
         QGridLayout* grid{nullptr};
         QLabel*      hint{nullptr};   // FRONT END only
+        QLabel*      calNote{nullptr};   // FRONT END only, the B23 cal caveat
         int          count{0};
     };
 

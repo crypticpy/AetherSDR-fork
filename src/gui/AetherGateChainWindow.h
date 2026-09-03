@@ -73,6 +73,7 @@
 // colour comes from a ThemeManager token.
 
 #include "gui/AetherGateChainModes.h"
+#include "gui/AetherGateChainRows.h"
 #include "gui/AetherGateChainStage.h"
 #include "gui/PersistentDialog.h"
 
@@ -110,6 +111,15 @@ public:
     // refusal is quoted ON THE TILE that asked for it, where the operator is
     // looking, as well as on the status line.
     void applyFilter(const QJsonObject& filter);
+
+    // GET /device's own "frontend" key -- the B23 linearity guard, which is
+    // not part of /filter's chain[] at all. Feeds the same two synthetic
+    // FRONT END rows (HEADROOM, GUARD) that applyFilter()'s merge inserts;
+    // whichever of the two answers arrives last is the one on screen; a poll
+    // is not required to bring both every time.
+    // Fed by AetherGateApplet::applyDeviceControls() on every /device
+    // read (the periodic poll and each control's read-back).
+    void applyDevice(const QJsonObject& device);
 
     // Gate presence, mirrored from the applet. Losing the gate empties the
     // strip: last minute's numbers must never sit there looking live.
@@ -168,6 +178,15 @@ private:
     // window held at the setting the strip is already showing.
     QList<ChainStage> holdPendingStages(const QList<ChainStage>& fresh);
     void applyBusyToTiles();
+    // The merge applyFilter() and applyDevice() share: m_filterStages plus
+    // the frontend guard's two synthetic rows, inserted right after the
+    // last stage the FRONT END group already owns, held through
+    // holdPendingStages() and handed to the strip -- one merge, whichever
+    // of the two answers is the one that just changed. Returns what it gave
+    // the strip, so a caller that also has to tell the presets bar what
+    // changed (applyFilter() does; applyDevice() does not) is not left
+    // recomputing the same list.
+    QList<ChainStage> refreshStrip();
 
     // One write on the wire, per stage.
     struct PendingWrite {
@@ -198,6 +217,13 @@ private:
     AetherGateChainPreset*  m_preset{nullptr};
     QHash<QString, PendingWrite> m_pending;
     QString                 m_lastWriteStage;
+    // The two halves of the merge refreshStrip() draws: /filter's own rows,
+    // and GET /device's "frontend" key parsed into ChainFrontendStatus. Kept
+    // apart rather than pre-merged so either one can arrive alone -- a
+    // /device poll must not blank the chain, and a /filter poll must not
+    // blank the guard.
+    QList<ChainStage>       m_filterStages;
+    ChainFrontendStatus     m_frontend;
     ChainMode               m_mode{ChainMode::Phone};
     // True only while a PRESET is being applied. Its own writes must not mark
     // the preset "edited" -- a preset that declared itself edited by loading

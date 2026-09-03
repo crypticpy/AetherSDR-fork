@@ -134,6 +134,30 @@ bool looksLikeFilterStatus(const QJsonObject& obj)
 const ChainMode kModes[] = {ChainMode::Phone, ChainMode::Cw, ChainMode::Data};
 constexpr int kModeCount = 3;
 
+// How many stages at the FRONT of `stages` are in the FrontEnd group -- the
+// same walk chainStageGroup() itself does inside AetherGateChainStrip's own
+// rebuild()/relayout(), starting from the same ChainGroup::FrontEnd
+// "previous". The FrontEnd group is always a leading run in gate order (it
+// is what the antenna and the receiver do before anything else), so the
+// first row that is NOT FrontEnd ends the run. That index is where the
+// frontend guard's two synthetic rows belong: right after the last row the
+// gate itself put in this group, so an unknown id (there is no id
+// "frontend_guard" in kGroupTable) inherits FrontEnd from its neighbour
+// exactly the way any other unrecognised row would.
+int chainFrontEndSpan(const QList<ChainStage>& stages)
+{
+    ChainGroup previous = ChainGroup::FrontEnd;
+    int span = 0;
+    for (int i = 0; i < stages.size(); ++i) {
+        const ChainGroup group = chainStageGroup(stages.at(i).id, previous);
+        previous = group;
+        if (group != ChainGroup::FrontEnd)
+            break;
+        span = i + 1;
+    }
+    return span;
+}
+
 } // namespace
 
 AetherGateChainWindow::AetherGateChainWindow(QWidget* parent)
@@ -404,15 +428,22 @@ void AetherGateChainWindow::setMode(ChainMode mode)
 void AetherGateChainWindow::onWriteRequested(const QString& route, const QUrlQuery& query)
 {
     m_lastWriteStage.clear();
-    // Which stage asked? The one whose control carries this route and query.
-    // A refusal stays on its tile until the operator tries THAT stage again --
-    // clearing it on the next poll would be a 500 ms flash of the one sentence
-    // that says why nothing happened.
+    // Which stage asked? The one whose control carries this route and query
+    // -- or, for the GUARD row, whose FLOOR control does, the one stage in
+    // this window where a single row's control sends two different queries
+    // to the same route. A refusal stays on its tile until the operator
+    // tries THAT stage again -- clearing it on the next poll would be a
+    // 500 ms flash of the one sentence that says why nothing happened.
+    const QString sent = query.toString();
     for (const ChainStage& stage : m_strip->stages()) {
-        if (!stage.actionable() || stage.actionRoute != route)
+        QString key;
+        if (stage.actionable() && stage.actionRoute == route)
+            key = stage.actionQuery;
+        else if (stage.hasFloorControl && stage.floorActionRoute == route
+                 && stage.floorActionQuery.endsWith(QLatin1Char('=')))
+            key = stage.floorActionQuery;
+        else
             continue;
-        const QString key = stage.actionQuery;
-        const QString sent = query.toString();
         if (sent == key || (key.endsWith(QLatin1Char('=')) && sent.startsWith(key))) {
             m_lastWriteStage = stage.id;
             PendingWrite pending;
@@ -520,11 +551,9 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
         return;
 
     bool fromGate = false;
-    const QList<ChainStage> stages = holdPendingStages(chainFromFilter(filter, &fromGate));
+    m_filterStages = chainFromFilter(filter, &fromGate);
     m_fromGate = fromGate;
-    m_strip->setStages(stages);
-    applyBusyToTiles();
-    showStage(m_strip->selectedId());
+    const QList<ChainStage> stages = refreshStrip();
     if (m_visual)
         m_visual->applyFilter(filter);
     if (m_preset->running())
@@ -537,6 +566,44 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
     // by its own hand.
     if (m_presets && !m_loadingPreset)
         m_presets->noteRows(stages);
+}
+
+// GET /device's "frontend" key. Unlike applyFilter() this never carries an
+// {"error"} of its own (a /device poll and a /frontend/set write both answer
+// with the same status object, refused or not, the way the gate's other
+// write doors do), so there is no refusal branch here -- a write this window
+// sent to /frontend/set comes back through the SAME onWriteRequested()
+// settling window every other write does, keyed by the GUARD row's
+// actionRoute/actionQuery or its floorActionRoute/floorActionQuery.
+void AetherGateChainWindow::applyDevice(const QJsonObject& device)
+{
+    if (device.isEmpty())
+        return;
+    m_frontend = chainFrontendFromDevice(device);
+    refreshStrip();
+}
+
+// What applyFilter() and applyDevice() both need done to the strip: merge
+// the gate's own chain[] rows with the frontend guard's two synthetic ones
+// (when the guard is available at all), hold anything still inside its
+// settling window, and hand the result to the strip and the inspector.
+QList<ChainStage> AetherGateChainWindow::refreshStrip()
+{
+    QList<ChainStage> merged = m_filterStages;
+    const QList<ChainStage> frontendRows = chainFrontendRows(m_frontend);
+    if (!frontendRows.isEmpty()) {
+        const int at = chainFrontEndSpan(merged);
+        for (int i = 0; i < frontendRows.size(); ++i)
+            merged.insert(at + i, frontendRows.at(i));
+    }
+
+    const QList<ChainStage> stages = holdPendingStages(merged);
+    m_strip->setStages(stages);
+    m_strip->setFrontendCalNote(m_frontend.available && !m_frontend.dbmCalibrated,
+                                chainFrontendCalNoteText(m_frontend));
+    applyBusyToTiles();
+    showStage(m_strip->selectedId());
+    return stages;
 }
 
 void AetherGateChainWindow::setPresent(bool present)
@@ -552,7 +619,10 @@ void AetherGateChainWindow::setPresent(bool present)
     m_loadingPreset = false;
     m_pending.clear();
     m_lastWriteStage.clear();
+    m_filterStages.clear();
+    m_frontend = ChainFrontendStatus();
     m_strip->clear();
+    m_strip->setFrontendCalNote(false, QString());
     if (m_visual)
         m_visual->clear();
     m_fromGate = false;
@@ -595,7 +665,18 @@ void AetherGateChainWindow::showStage(const QString& id)
 
     // What it is doing NOW. The card shows the short form of this line; here
     // it is whole, prefixed so the two cannot be mistaken for each other.
-    const QString now = stage.detail.isEmpty() ? emDash() : stage.detail;
+    // GUARD is the one row where "now" is not the card's own detail line --
+    // the card says on/off and the floor, the inspector says the last thing
+    // the guard actually DID, which is a sentence built from /device's own
+    // events[] rather than anything chainFromFilter() ever produces.
+    QString now = stage.detail;
+    if (stage.id == QLatin1String("frontend_guard")) {
+        const QString eventSentence = chainFrontendEventSentence(m_frontend);
+        if (!eventSentence.isEmpty())
+            now = eventSentence;
+    }
+    if (now.isEmpty())
+        now = emDash();
     setElided(m_detailText, tr("now: %1").arg(now), kDetailTextWidth);
 
     m_detailControl = new AetherGateChainControl(stage, QStringLiteral("gateChainDetail"),
@@ -614,6 +695,11 @@ void AetherGateChainWindow::showStage(const QString& id)
     QString aside = stage.actionable() ? chainOffSentence(stage.id) : QString();
     if (aside.isEmpty() && !stage.actionable())
         aside = stage.why;
+    // GUARD's own caveat -- a guard-moved LNA state breaks the gate's dBm
+    // calibration -- belongs here rather than an "off" sentence nothing
+    // asked for.
+    if (stage.id == QLatin1String("frontend_guard") && !m_frontend.dbmCalibrated)
+        aside = chainFrontendCalNoteText(m_frontend);
     m_detailOff->setVisible(!aside.isEmpty());
     if (!aside.isEmpty())
         setElided(m_detailOff, aside, kDetailTextWidth);

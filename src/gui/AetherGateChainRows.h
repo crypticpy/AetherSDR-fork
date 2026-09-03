@@ -21,10 +21,19 @@
 // window that rearranged the stages would be describing a receiver nobody
 // owns. What the app does do is GROUP them into four columns for reading;
 // that table is chainStageGroup() in AetherGateChainModes.h.
+//
+// A third source joins the two above: GET /device's own "frontend" key,
+// which is the linearity guard (B23) rather than anything /filter's chain[]
+// carries. It is parsed by chainFrontendFromDevice() and turned into two
+// synthetic FrontEnd-group rows (HEADROOM, GUARD) by chainFrontendRows() --
+// synthetic because no gate authors them the way it authors chain[], but
+// they are still ChainStage values and draw through the exact same tile and
+// control code every other row does.
 
 #include "gui/AetherGateChainStage.h"
 
 #include <QList>
+#include <QtGlobal>
 
 class QJsonObject;
 
@@ -43,5 +52,59 @@ QList<ChainStage> chainFallback(const QJsonObject& filter);
 // rather than a fixed choice, because a roofing menu that reads
 // "0.3 kHz / 0.6 kHz / 1.2 kHz" is not the menu on anybody's front panel.
 QString chainFormatWidth(double hz);
+
+// --------------------------------------------------------------------------
+// B23 -- the front-end linearity guard, from GET /device's "frontend" key
+// --------------------------------------------------------------------------
+
+// One line of the guard's own history: "stepped 0 -> 1 at 11:42, clipping".
+struct ChainFrontendEvent {
+    qint64  t{0};
+    QString from;
+    QString to;
+    QString reason;
+};
+
+// The whole of "frontend", transcribed rather than interpreted -- the same
+// contract chain[] rows keep. `available` false means every other field is
+// default-constructed and nothing built from this should be shown.
+struct ChainFrontendStatus {
+    bool    available{false};
+    bool    guard{false};
+    QString floorState;
+    QString maxState;
+    QString lnaState;
+    bool    dbmCalibrated{true};
+    QString calState;
+    bool    hasHeadroom{false};
+    double  headroomDb{0.0};
+    int     clips1s{0};
+    QString state;   // idle | stepping_up | holding | stepping_down
+    QList<ChainFrontendEvent> events;
+};
+
+// device.value("frontend"). Missing, not an object, or "available": false
+// all come back with `available` false.
+ChainFrontendStatus chainFrontendFromDevice(const QJsonObject& device);
+
+// HEADROOM and GUARD, in that order -- empty when the guard is not
+// available, because a summary card with one row hanging off the end of
+// seven others is worse than a card that is honestly seven rows short.
+QList<ChainStage> chainFrontendRows(const ChainFrontendStatus& fe);
+
+// The GUARD row's value sentence: "on · LNA 1 (floor 0) · stepping up",
+// "on · LNA 0 (floor 0)", "off · LNA 0". Shared by the row's tooltip and the
+// inspector, so the two can never disagree about what the guard is doing.
+QString chainFrontendGuardValueText(const ChainFrontendStatus& fe);
+
+// The last entry of `events` as one sentence, or an empty string when there
+// have been none yet -- the inspector falls back to the row's own detail in
+// that case rather than printing nothing.
+QString chainFrontendEventSentence(const ChainFrontendStatus& fe);
+
+// The calibration caveat -- empty when `dbmCalibrated` is true. Shared by
+// the FRONT END card's one-line note and the GUARD row's inspector caveat,
+// so the two sentences the operator can see about this are the same one.
+QString chainFrontendCalNoteText(const ChainFrontendStatus& fe);
 
 } // namespace AetherSDR
