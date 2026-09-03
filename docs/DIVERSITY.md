@@ -334,19 +334,34 @@ coherence 0.81 · level −97.3 dB`), from whichever row the pointer is on,
 not only the newest.
 
 **FINDER.** The activity strip is the share of the last ten minutes each
-column carried voice; the table below it is the conversations the gate
-found there, best first (at most twelve, ranked by the gate): frequency,
-**kind** — the gate's verdict on what the signal is (voice, CW, data,
-carrier or noise) with how sure it is, `voice 0.91`, and the row's hover
-says what the verdict was made of — score, SNR, syllabic rate, how long it
-has been active, how long ago it was
-last heard, arrival phase, coherence, and `gain` — the diversity gain the
-pair can actually earn on that signal, which on plain sky noise is often
-near zero and says so. The frequency is snapped to the 500 Hz grid you
-actually tune on; hover a row to see the estimate it was rounded from
-(`estimate 3860.37 kHz`), which is also how sure the gate is of it.
-**Tune** (or a double-click on the row) goes there. The strip colours each
-found signal's stretch by its kind, in the same colours the table uses.
+column carried *anything*; the payload also sends `voice_share`, the
+share it carried somebody talking, which is what the strip used to show
+on its own and why it stayed near-black on a busy band. The table below
+it is what the gate found there, best first: every window that stood at
+least 3 dB over its own **local** floor (measured per 10 kHz, so a tilted
+band or a dense digital block no longer hides the quiet stretch beside
+it) for two seconds or more, up to forty of them, ranked by score.
+
+**kind** is the gate's verdict with how sure it is (`voice 0.91`): voice,
+CW, data, RTTY, carrier, noise, and now `ft8`, `ft4` and `psk31`, named
+from the band plan, which is the only thing at 244 Hz a point that can
+tell an FT8 block from a conversation, plus `signal`, which means
+*something is here and the gate will not guess what*. A CW column or an
+unknown mode is listed as what it is instead of being dropped for not
+sounding like speech.
+
+The row you are tuned to is always in the list, flagged **tuned**, even
+when it scored nothing: what the gate thinks of what you are actually
+listening to is the one row you can check by ear. Digital rows carry the
+allocation's own dial (`14074.0`, USB); phone rows are snapped to the
+500 Hz grid you tune on and CW to 100 Hz, with the estimate they were
+rounded from on hover (`estimate 3860.37 kHz`). The hover also says
+score, SNR, syllabic rate, occupied width, how long the signal has been
+active, how long ago it was last heard, arrival phase, coherence, and
+`gain`, the diversity gain the pair can earn there, which on plain sky
+noise is near zero and says so. **Tune** (or a double-click) goes there.
+The strip colours each found signal's stretch by its kind, in the same
+colours the table uses.
 
 When the gate has nothing to find it says why in the legend's place:
 *nothing to find yet: the loops are not aligned* while the pair is still
