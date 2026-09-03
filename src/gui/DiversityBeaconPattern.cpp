@@ -26,7 +26,12 @@ namespace {
 // A square dial. Small enough to sit beside the eighteen-row schedule table
 // without pushing it off the page, large enough that eighteen bearings are
 // distinguishable round its rim.
-constexpr int kSide = 230;
+// 196 rather than the 230 it was drawn at: the window grew a tab row and a
+// FLOW strip above the pages, and the SITE page's height came out of the one
+// square widget on it. The dial is still the tallest thing in its column and
+// every ring, label and point on it is laid out as a fraction of the side, so
+// nothing about it changes except how much room it takes.
+constexpr int kSide = 196;
 
 // The full-scale radius is +-kRangeDb about the 0 dB ring, which sits at half
 // radius. Ten decibels is the useful range: a pair that differs by more than

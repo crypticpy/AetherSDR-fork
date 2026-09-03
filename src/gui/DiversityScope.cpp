@@ -46,8 +46,15 @@ constexpr double kWeightPlotReserve = 56.0;
 // kLargeWeightPlotMax so a very tall window does not turn the scope into one
 // enormous circle with three hairline bars beside it, and the minimum height
 // is what the three text lines plus a readable plot need.
+//
+// 200 rather than the 260 it opened at: the window grew a tab row and a FLOW
+// strip above the pages, and this row is where that height came from. It is
+// still a quarter taller than the sidebar's 176 px dial, it is still the row
+// that absorbs surplus height first, and at the opening size it is nowhere
+// near its minimum -- the number only decides how far the window can be
+// dragged down before the page starts to scroll.
 constexpr double kLargeWeightPlotMax = 340.0;
-constexpr int    kLargeMinHeight = 260;
+constexpr int    kLargeMinHeight = 200;
 
 // Large mode's own text sizes. The operator's complaint about the first
 // window was, verbatim, that the text is too small; these are the point sizes

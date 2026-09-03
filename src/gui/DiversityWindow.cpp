@@ -4,6 +4,7 @@
 #include "core/ThemeManager.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/ClientCompKnob.h"
+#include "gui/DiversityFlowStrip.h"
 #include "gui/DiversityMapStrip.h"
 #include "gui/DiversityScope.h"
 #include "gui/DiversityTimeline.h"
@@ -136,9 +137,26 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     auto* root = new QVBoxLayout(bodyWidget());
     root->setContentsMargins(8, 4, 8, 8);
     root->setSpacing(8);
-    root->addWidget(buildChainRow());
+    // Three sticky strips, in the order the operator reads them: where you
+    // are, what the pair is doing on every page, and what to do next. Two rows
+    // rather than one because v2's single row read as one sentence and left
+    // "do the controls change with the tab?" unanswerable -- see
+    // DiversityWindowChain.cpp.
+    // Tighter spacing between the three than the 8 px the rest of the window
+    // uses: they are one block of "about the window", and a gap as wide as the
+    // one under them would read as three unrelated strips.
+    auto* strips = new QVBoxLayout;
+    strips->setContentsMargins(0, 0, 0, 0);
+    strips->setSpacing(4);
+    strips->addWidget(buildTabRow());
+    strips->addWidget(buildChainRow());
+    m_flow = new DiversityFlowStrip(this);
+    connect(m_flow, &DiversityFlowStrip::stepActivated, this,
+            &DiversityWindow::onFlowStep);
+    strips->addWidget(m_flow);
+    root->addLayout(strips);
 
-    // Everything below the (sticky) chain row scrolls, so the window can be
+    // Everything below the sticky rows scrolls, so the window can be
     // dragged smaller than its natural content height without any control
     // becoming unreachable -- the channel strip's own arrangement. At the
     // initial size nothing scrolls.
@@ -181,7 +199,7 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     // but the window can be dragged down to 980x720, and a control that has
     // been squeezed off the right-hand edge with no way to scroll to it is
     // worse than a scrollbar.
-    // Two pages, one chain row. The BAND page is built here rather than
+    // Four pages, three shared rows. The BAND page is built here rather than
     // lazily so its widgets exist for the very first poll -- a page that
     // built itself on first show would miss the payload that arrived while
     // it did.
@@ -204,7 +222,7 @@ DiversityWindow::DiversityWindow(QWidget* parent)
            "live."));
     ThemeManager::instance().applyStyleSheet(m_statusStrip,
                                              QString::fromLatin1(kStatusStripStyle));
-    DiversityWidgets::setLive(m_statusStrip, false);
+    setStatusStripBase(tr("gate not answering"), false);
     root->addWidget(m_statusStrip);
 }
 
@@ -308,139 +326,6 @@ void DiversityWindow::checkValue(QButtonGroup* group, const QString& value)
     }
 }
 
-QWidget* DiversityWindow::buildChainRow()
-{
-    auto* row = new QWidget(this);
-    row->setObjectName(QStringLiteral("diversityWindowChainRow"));
-    auto* layout = new QHBoxLayout(row);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(6);
-
-    // The SLICE/BAND switch leads the row: it decides which of the two
-    // instruments below it the rest of the row is operating.
-    buildPageSwitch(row);
-
-    m_modeGroup = addButtonRow(
-        row, tr("MODE"), QStringLiteral("mode"), QStringLiteral("diversityWindowMode"),
-        {tr("OFF"), tr("MANUAL"), tr("NULL"), tr("TRACK")},
-        {QStringLiteral("off"), QStringLiteral("manual"), QStringLiteral("null"),
-         QStringLiteral("track")},
-        {tr("Ignore the second loop entirely -- you hear antenna A on its own, "
-            "as if this were an ordinary single-tuner receiver. This is the "
-            "reference every A/B comparison should be made against."),
-         tr("Combine the two loops using the phase and level you set on the "
-            "knobs below. Use it when you can hear where the noise is and "
-            "want to park a null on it by ear."),
-         tr("Solve once for the weight that cancels the strongest interfering "
-            "source, then hold it. Right for a steady local noise that is not "
-            "going anywhere."),
-         tr("Keep re-solving so the null follows a drifting or intermittent "
-            "source, and recall a remembered weight the moment a known "
-            "station comes back. Costs a little on very weak signals in "
-            "exchange for staying on the noise.")});
-    layout->addSpacing(10);
-    // "HEAR", not "LISTEN": it writes /diversity/set?source=, which is what
-    // reaches the operator's ears. OUT is the meters' word for the combined
-    // output, and the short label is what lets four choices fit the row. Which leg the PANADAPTER draws is a
-    // different key (pan=) and lives with the noise tools, exactly where the
-    // sidebar panel puts it.
-    m_hearGroup = addButtonRow(
-        row, tr("HEAR"), QStringLiteral("source"), QStringLiteral("diversityWindowHear"),
-        {tr("OUT"), tr("A"), tr("B"), tr("STEREO")},
-        {QStringLiteral("combined"), QStringLiteral("a"), QStringLiteral("b"),
-         QStringLiteral("stereo")},
-        {tr("Listen to the combiner's output: the two loops added with "
-            "whatever weight the current mode has arrived at."),
-         tr("Listen to loop A on its own. Nothing is combined and nothing is "
-            "nulled."),
-         tr("Listen to loop B on its own."),
-         tr("Loop A in the left channel, loop B in the right, one AGC for "
-            "both: the loops as a soundstage on two speakers. A station "
-            "arriving from one side sits off-centre; noise both loops see "
-            "sits in the middle. The tracker keeps learning meanwhile.")});
-
-    m_compareButton = new QPushButton(tr("Hear A only"), row);
-    m_compareButton->setObjectName(QStringLiteral("diversityWindowCompareButton"));
-    m_compareButton->setAccessibleName(tr("Hear antenna A only while pressed"));
-    m_compareButton->setToolTip(
-        tr("Hold this down to drop the combiner out and hear loop A raw; let "
-           "go and it returns to the mode it was in. It is a momentary "
-           "switch, not a setting, precisely so it cannot be left engaged by "
-           "accident -- and it is the only honest way to hear what the "
-           "combiner is actually buying you."));
-    m_compareButton->setFixedHeight(26);
-    m_compareButton->setAutoRepeat(false);
-    m_compareButton->setEnabled(false);
-    // A press-and-hold A/B check, not a mode the operator can forget they
-    // left engaged -- the sidebar panel's contract, kept identical here.
-    connect(m_compareButton, &QPushButton::pressed, this, [this] {
-        if (!m_present || !m_modeGroup->checkedButton())
-            return;
-        m_compareResumeMode = m_modeGroup->checkedButton()->property("diversityValue").toString();
-        m_compareDown = true;
-        QUrlQuery q;
-        q.addQueryItem(QStringLiteral("mode"), QStringLiteral("off"));
-        emit requestSet(q);
-    });
-    connect(m_compareButton, &QPushButton::released, this, [this] {
-        if (!m_compareDown)
-            return;
-        m_compareDown = false;
-        const QString mode = m_compareResumeMode;
-        m_compareResumeMode.clear();
-        if (mode.isEmpty())
-            return;
-        QUrlQuery q;
-        q.addQueryItem(QStringLiteral("mode"), mode);
-        emit requestCompareRestore(q);
-    });
-    layout->addWidget(m_compareButton);
-
-    m_realignButton = new QPushButton(tr("REALIGN"), row);
-    m_realignButton->setObjectName(QStringLiteral("diversityWindowRealignButton"));
-    m_realignButton->setAccessibleName(tr("Realign the two tuners"));
-    m_realignButton->setToolTip(
-        tr("Re-measure how far apart the two tuners' sample streams are and "
-           "line them back up. Nothing can be combined until they are "
-           "aligned, so press this after changing frequency or sample rate, "
-           "or whenever the correlation peak in EVENTS has collapsed."));
-    m_realignButton->setFixedHeight(26);
-    connect(m_realignButton, &QPushButton::clicked, this, &DiversityWindow::requestAlign);
-    layout->addWidget(m_realignButton);
-
-    layout->addStretch(1);
-
-    m_captureSpin = new QSpinBox(row);
-    m_captureSpin->setObjectName(QStringLiteral("diversityWindowCaptureSpin"));
-    m_captureSpin->setAccessibleName(tr("Diversity capture duration"));
-    m_captureSpin->setToolTip(
-        tr("How many seconds of raw two-channel audio the CAPTURE button "
-           "should record."));
-    m_captureSpin->setRange(1, 60);
-    m_captureSpin->setValue(10);
-    m_captureSpin->setSuffix(QStringLiteral(" s"));
-    layout->addWidget(m_captureSpin);
-
-    m_captureButton = new QPushButton(tr("CAPTURE"), row);
-    m_captureButton->setObjectName(QStringLiteral("diversityWindowCaptureButton"));
-    m_captureButton->setAccessibleName(tr("Capture raw diversity audio"));
-    m_captureButton->setToolTip(
-        tr("Record both loops, uncombined, to a two-channel file on the gate. "
-           "That file is the raw material for working out offline why a null "
-           "would not form -- nothing else in this window can be replayed."));
-    m_captureButton->setFixedHeight(26);
-    connect(m_captureButton, &QPushButton::clicked, this, [this] {
-        if (!m_present)
-            return;
-        m_captureButton->setEnabled(false);
-        m_captureResult->setText(tr("capture: recording…"));
-        m_captureResult->setToolTip(QString());
-        emit requestCapture(m_captureSpin->value());
-    });
-    layout->addWidget(m_captureButton);
-    return row;
-}
-
 // --------------------------------------------------------------------------
 // Incoming state
 // --------------------------------------------------------------------------
@@ -458,16 +343,19 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
     const bool available = isJson && d.value(QStringLiteral("available")).toBool();
     if (!available) {
         clearReadouts();
-        m_statusStrip->setText(m_present ? tr("gate connected · diversity unavailable")
-                                         : tr("gate not answering"));
-        DiversityWidgets::setLive(m_statusStrip, m_present);
+        setStatusStripBase(m_present ? tr("gate connected · diversity unavailable")
+                                     : tr("gate not answering"),
+                           m_present);
+        if (m_flow)
+            m_flow->applyDiversity(d, false);
         DiversitySnapshot snapshot;
         snapshot.present = m_present;
         addEventLines(m_eventLog.apply(snapshot));
         return;
     }
-    m_statusStrip->setText(tr("gate connected · diversity live"));
-    DiversityWidgets::setLive(m_statusStrip, true);
+    setStatusStripBase(tr("gate connected · diversity live"), true);
+    if (m_flow)
+        m_flow->applyDiversity(d, true);
 
     const QString mode = d.value(QStringLiteral("mode")).toString();
     const QString hear = d.value(QStringLiteral("source")).toString();
@@ -620,29 +508,9 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
                  realigning ? tr("realigning…") : tr("steady")));
     DiversityWidgets::setLive(m_alignLine, realigning);
 
-    // capture.active is the gate's own live state, so it wins over whatever
-    // the /diversity/capture trigger last said.
-    if (d.contains(QStringLiteral("capture"))) {
-        const QJsonObject capture = d.value(QStringLiteral("capture")).toObject();
-        const bool active = capture.value(QStringLiteral("active")).toBool();
-        m_captureButton->setEnabled(!active);
-        if (active) {
-            m_captureResult->setText(tr("capture: recording…"));
-            m_captureResult->setToolTip(QString());
-            m_captureLocalResult = false;
-        } else if (!m_captureLocalResult) {
-            const QString path = capture.value(QStringLiteral("path")).toString();
-            if (!path.isEmpty()) {
-                const QString base = QFileInfo(path).fileName();
-                m_captureResult->setText(tr("capture: %1").arg(base));
-                m_captureResult->setToolTip(path);
-                if (base != m_lastCaptureAnnounced) {
-                    m_lastCaptureAnnounced = base;
-                    addEventLines({DiversityEventLog::captureSavedLine(base)});
-                }
-            }
-        }
-    }
+    // REALIGN's answer and the gate's own capture state, both of which belong
+    // to the pair row -- see DiversityWindowChain.cpp.
+    applyChainStatus(d, aligned, realigning, haveLag, lag);
 
     m_scope->setState(d);
 
@@ -711,33 +579,6 @@ void DiversityWindow::applyMap(const QJsonObject& map)
     m_mapStrip->setMap(map);
 }
 
-void DiversityWindow::applyCaptureResult(bool ok, const QString& pathOrError)
-{
-    m_captureButton->setEnabled(true);
-    if (!ok) {
-        // An error this request reported must survive the very next poll:
-        // capture.active is already false by then and its "path" is still the
-        // last SUCCESSFUL capture's.
-        m_captureResult->setText(tr("capture: %1").arg(pathOrError));
-        m_captureResult->setToolTip(QString());
-        m_captureLocalResult = true;
-        return;
-    }
-    if (pathOrError.isEmpty()) {
-        m_captureResult->setText(tr("capture: —"));
-        m_captureResult->setToolTip(QString());
-    } else {
-        const QString base = QFileInfo(pathOrError).fileName();
-        m_captureResult->setText(tr("capture: %1").arg(base));
-        m_captureResult->setToolTip(pathOrError);
-        if (base != m_lastCaptureAnnounced) {
-            m_lastCaptureAnnounced = base;
-            addEventLines({DiversityEventLog::captureSavedLine(base)});
-        }
-    }
-    m_captureLocalResult = false;
-}
-
 void DiversityWindow::setPresent(bool present)
 {
     m_present = present;
@@ -748,14 +589,15 @@ void DiversityWindow::setPresent(bool present)
     m_nbDebounce->stop();
     endCompareHold();
     clearReadouts();
-    m_statusStrip->setText(tr("gate not answering"));
-    DiversityWidgets::setLive(m_statusStrip, false);
+    setStatusStripBase(tr("gate not answering"), false);
     DiversitySnapshot snapshot;
     addEventLines(m_eventLog.apply(snapshot));
 }
 
 void DiversityWindow::clearReadouts()
 {
+    if (m_flow)
+        m_flow->clear();
     clearBandReadouts();
     clearSiteReadouts();
     clearFilterReadouts();
@@ -789,7 +631,7 @@ void DiversityWindow::clearReadouts()
     DiversityWidgets::setLive(m_alignLine, false);
     m_captureResult->setText(tr("capture: —"));
     m_captureResult->setToolTip(QString());
-    m_captureButton->setEnabled(true);
+    resetCapture();
     m_captureLocalResult = false;
     m_lastCaptureAnnounced.clear();
     m_compareButton->setEnabled(false);

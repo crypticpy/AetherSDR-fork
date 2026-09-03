@@ -41,8 +41,8 @@
 // in the sidebar and vice versa: both are views of the same polled state,
 // neither echoes locally.
 //
-// It has four pages, switched by the SLICE/BAND/SITE/FILTER buttons at the
-// left of the chain row. SLICE is the window described above -- everything about the
+// It has four pages, switched by the SLICE/BAND/SITE/FILTER tabs on the top
+// row. SLICE is the window described above -- everything about the
 // frequency you are tuned to. BAND is about the SPAN: the spatial waterfall
 // and the conversation FINDER, both click-to-tune, built on the gate's
 // /diversity/spatial and /diversity/finder routes and polled only while that
@@ -51,10 +51,18 @@
 // beacon project measures your antennas to be worth (see
 // DiversityWindowSite.cpp).
 //
-// Layout of the SLICE page, top to bottom:
-//   * chain row  -- SLICE/BAND, MODE (off/manual/null/track), HEAR
-//                   (combined/A/B), the hold-to-compare "Hear A only",
-//                   REALIGN, and CAPTURE. Shared by both pages.
+// Three strips sit above every page and belong to none of them, which is the
+// whole point of them being three rows rather than one (see
+// DiversityWindowChain.cpp):
+//   * tab row    -- SLICE / BAND / SITE / FILTER: where you are.
+//   * pair row   -- MODE (off/manual/null/track), HEAR (combined/A/B/stereo),
+//                   the hold-to-compare "Hear A only", REALIGN, and CAPTURE
+//                   with its duration. What the two tuners are doing, on
+//                   every page.
+//   * FLOW strip -- the five steps in the order they have to be done in, with
+//                   the next one lit. See DiversityFlowStrip.h.
+//
+// Layout of the SLICE page under those, top to bottom:
 //   * row 0      -- the scope (two columns) and TALKERS beside it.
 //   * row 1      -- the timeline, full width.
 //   * row 2      -- ANTENNAS | NOISE | EVENTS.
@@ -98,6 +106,7 @@ class AetherGateDiversityPanel;
 class ClientCompKnob;
 class DiversityBeaconPanel;
 class DiversityFilterControls;
+class DiversityFlowStrip;
 class DiversityFinderPanel;
 class DiversityNoiseProfilePanel;
 class DiversityMapStrip;
@@ -230,8 +239,26 @@ protected:
     void hideEvent(QHideEvent* event) override;
 
 private:
+    // The two top rows and everything on the second one, defined in
+    // DiversityWindowChain.cpp: the page tabs alone on row 1, the pair
+    // controls under them on row 2, and the two buttons there that report
+    // back rather than only writing.
+    QWidget* buildTabRow();
     QWidget* buildChainRow();
-    // The SLICE/BAND page switch, appended to the chain row's own layout, and
+    void     onFlowStep(int step);
+    void     startRealign();
+    void     startCapture();
+    void     resetCapture();
+    // The part of one /diversity status object that belongs to the pair row:
+    // whether the realign this window asked for has finished, and the gate's
+    // own capture state. The four alignment values are passed in rather than
+    // re-read so applyDiversity() parses them exactly once.
+    void     applyChainStatus(const QJsonObject& d, bool aligned, bool realigning,
+                              bool haveLag, double lag);
+    // The footer strip's two layers -- see DiversityWindowChain.cpp.
+    void     setStatusStripBase(const QString& text, bool live);
+    void     setStatusStripTransient(const QString& text, int ms);
+    // The SLICE/BAND page switch, appended to the tab row's own layout, and
     // the BAND page itself. Both defined in DiversityWindowBand.cpp.
     void     buildPageSwitch(QWidget* row);
     QWidget* buildBandPage();
@@ -333,6 +360,25 @@ private:
     QSpinBox*     m_captureSpin{nullptr};
     QString       m_compareResumeMode;
     bool          m_compareDown{false};
+    // REALIGN's answer. m_lastLagSamples is the lag from the poll before the
+    // request went out, which is the only thing "(was +4032)" can honestly be
+    // compared against.
+    QTimer* m_realignTimeout{nullptr};
+    QTimer* m_resultTimer{nullptr};
+    bool    m_realignPending{false};
+    bool    m_realignHaveLagBefore{false};
+    double  m_realignLagBefore{0.0};
+    bool    m_haveLastLag{false};
+    double  m_lastLagSamples{0.0};
+    // CAPTURE's countdown. m_captureBusy holds from the click until the answer
+    // has finished being shown, and is what stops a poll putting "CAPTURE"
+    // back over "SAVED".
+    QTimer* m_captureCountdown{nullptr};
+    bool    m_captureBusy{false};
+    int     m_captureRemaining{0};
+
+    // --- flow -------------------------------------------------------------
+    DiversityFlowStrip* m_flow{nullptr};
 
     // --- scope / timeline -------------------------------------------------
     DiversityScope*    m_scope{nullptr};
@@ -391,6 +437,11 @@ private:
     DiversityEventLog m_eventLog;
 
     QLabel* m_statusStrip{nullptr};
+    // What the strip says when nothing is covering it, and the timer that
+    // uncovers it.
+    QTimer* m_statusTransient{nullptr};
+    QString m_statusBase;
+    bool    m_statusBaseLive{false};
 
     bool m_present{false};
     // Set by applyCaptureResult(false, ...) -- while set, a poll's own

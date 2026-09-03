@@ -171,6 +171,10 @@ private:
     QSpinBox*     m_attackSpin{nullptr};
     QSpinBox*     m_decaySpin{nullptr};
     QSpinBox*     m_hangSpin{nullptr};
+    // The level the AGC stops lifting at. Absent from an older gate's "agc"
+    // object, and then the spin is disabled rather than showing a number
+    // nothing is honouring.
+    QSpinBox*     m_thresholdSpin{nullptr};
     QLabel*       m_gainLine{nullptr};
     QCheckBox*    m_nbCheck{nullptr};
     QSpinBox*     m_nbSpin{nullptr};

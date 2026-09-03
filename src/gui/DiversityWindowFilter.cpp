@@ -30,6 +30,7 @@
 
 #include "gui/DiversityFilterControls.h"
 #include "gui/DiversityFilterPanel.h"
+#include "gui/DiversityFlowStrip.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
 
@@ -156,6 +157,11 @@ void DiversityWindow::applyFilter(const QJsonObject& filter)
 {
     if (m_filter)
         m_filter->applyStatus(filter);
+    // The FLOW strip's last step states the passband in force, so it is fed
+    // wherever a /filter answer arrives -- including the reply to a write made
+    // from a different page -- rather than only while FILTER is up.
+    if (m_flow)
+        m_flow->applyFilter(filter);
 }
 
 void DiversityWindow::clearFilterReadouts()
@@ -521,6 +527,14 @@ void DiversityFilterControls::applyStatus(const QJsonObject& f)
     writeSpin(m_attackSpin, jsonInt(agc, "attack_ms", m_attackSpin->value()));
     writeSpin(m_decaySpin, jsonInt(agc, "decay_ms", m_decaySpin->value()));
     writeSpin(m_hangSpin, jsonInt(agc, "hang_ms", m_hangSpin->value()));
+    // threshold_db is newer than the rest of the agc object. Absent means the
+    // gate would ignore a write, so the spin goes dead rather than sitting
+    // there showing a number nothing is honouring -- the same "a dash means the
+    // gate is too old" rule the subband readout keeps.
+    const QJsonValue threshold = agc.value(QStringLiteral("threshold_db"));
+    m_thresholdSpin->setEnabled(threshold.isDouble());
+    if (threshold.isDouble())
+        writeSpin(m_thresholdSpin, int(std::llround(threshold.toDouble())));
     double gain = 0.0;
     const bool haveGain = jsonNumber(agc, "gain_db", &gain);
     m_gainLine->setText(haveGain ? tr("gain %1 dB").arg(signedDb(gain, 1))

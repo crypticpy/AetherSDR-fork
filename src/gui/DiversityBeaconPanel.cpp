@@ -77,7 +77,12 @@ constexpr int kStepsColumn = 9;
 constexpr int kBearingColumn = 11;
 constexpr int kDistanceColumn = 12;
 constexpr int kHeardColumn = 13;
-constexpr int kRowHeight = 19;
+// 17 rather than the 19 the table opened at. Eighteen fixed rows are the
+// whole schedule and none of them can be dropped, so when the window grew a
+// tab row and a FLOW strip above the pages this is where the SITE page's
+// height came from: two pixels a row, thirty-six over the table, and the text
+// in them is the same size it was.
+constexpr int kRowHeight = 17;
 constexpr int kHeaderHeight = 22;
 
 // The four one-second dashes each beacon sends after its call.

@@ -2882,6 +2882,7 @@ add_executable(aether_gate_applet_test
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
@@ -2891,6 +2892,7 @@ add_executable(aether_gate_applet_test
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
     src/gui/DiversityWindowFilter.cpp
     src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
@@ -2925,6 +2927,7 @@ add_executable(diversity_window_test
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
@@ -2934,6 +2937,7 @@ add_executable(diversity_window_test
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
     src/gui/DiversityWindowFilter.cpp
     src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
@@ -2969,6 +2973,7 @@ add_executable(diversity_band_test
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
@@ -2978,6 +2983,7 @@ add_executable(diversity_band_test
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
     src/gui/DiversityWindowFilter.cpp
     src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
@@ -3014,6 +3020,7 @@ add_executable(diversity_site_test
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
@@ -3023,6 +3030,7 @@ add_executable(diversity_site_test
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
     src/gui/DiversityWindowFilter.cpp
     src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
@@ -3057,6 +3065,7 @@ add_executable(diversity_filter_test
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
@@ -3066,6 +3075,7 @@ add_executable(diversity_filter_test
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
     src/gui/DiversityWindowFilter.cpp
     src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
@@ -3101,6 +3111,7 @@ add_executable(diversity_filter_layout_test
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
@@ -3110,6 +3121,7 @@ add_executable(diversity_filter_layout_test
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
     src/gui/DiversityWindowFilter.cpp
     src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
@@ -3144,6 +3156,7 @@ add_executable(diversity_site_actions_test
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
@@ -3153,6 +3166,7 @@ add_executable(diversity_site_actions_test
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
     src/gui/DiversityWindowFilter.cpp
     src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp
@@ -3169,6 +3183,50 @@ target_link_libraries(diversity_site_actions_test PRIVATE
 set_target_properties(diversity_site_actions_test PROPERTIES AUTOMOC ON)
 add_test(NAME diversity_site_actions_test COMMAND diversity_site_actions_test)
 set_tests_properties(diversity_site_actions_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The usability round: the FLOW strip, the two pair-row buttons that answer
+# back, and the AGC threshold spin. Its own binary for the reason the six
+# before it are separate, plus one of its own: every case here wants a window
+# opened from a CLOSED start, and DiversityWindowVisible is a process-wide
+# setting.
+add_executable(diversity_flow_test
+    tests/diversity_flow_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_flow_test PRIVATE src tests)
+target_link_libraries(diversity_flow_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_flow_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_flow_test COMMAND diversity_flow_test)
+set_tests_properties(diversity_flow_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(meter_applet_capability_test

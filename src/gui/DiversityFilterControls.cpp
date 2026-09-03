@@ -675,6 +675,19 @@ QWidget* DiversityFilterControls::buildAgcColumn()
                               "in speech is what keeps a whole over at one "
                               "level."));
     hangRow->addWidget(m_hangSpin);
+    hangRow->addWidget(fieldLabel(tr("Thr"), this));
+    m_thresholdSpin = buildSpin(QStringLiteral("diversityWindowFilterAgcThreshold"),
+                                QStringLiteral("threshold_db"), 0, 60, tr(" dB"),
+                                tr("AGC threshold"),
+                                tr("AGC threshold: how far below the speech "
+                                   "level the gain stops rising, so the band "
+                                   "noise between words is not lifted to the "
+                                   "same loudness as the voice. Higher = "
+                                   "quieter noise floor, weaker signals sit "
+                                   "lower."));
+    m_thresholdSpin->setSingleStep(1);
+    m_thresholdSpin->setValue(20);
+    hangRow->addWidget(m_thresholdSpin);
     m_gainLine = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowFilterGainLabel"), QStringLiteral("gain −99.9 dB"),
         tr("How much gain the AGC is applying right now. A large negative "

@@ -699,7 +699,7 @@ inline QByteArray makeDiversityFilterStatus(const QByteArray& spectrum = makeFil
     "auto_eq": {"enabled": true, "tilt_db": 3.5},
     "nb": {"enabled": true, "threshold_db": 8.0, "blanked_pct": 0.4},
     "agc": {"mode": "med", "attack_ms": 10, "decay_ms": 500, "hang_ms": 250,
-            "gain_db": -1.9},
+            "threshold_db": 20.0, "gain_db": -1.9},
     "roofing": {"analogue_hz": 200000.0, "digital_hz": 25000.0}, )";
     body += spectrum;
     body += ", ";
@@ -734,7 +734,7 @@ inline QByteArray makeDiversityFilterAutoSpectrum()
     "auto_eq": {"enabled": false, "tilt_db": 0.0},
     "nb": {"enabled": false, "threshold_db": 8.0, "blanked_pct": 0.0},
     "agc": {"mode": "slow", "attack_ms": 10, "decay_ms": 1200, "hang_ms": 500,
-            "gain_db": -4.5},
+            "threshold_db": 34.0, "gain_db": -4.5},
     "roofing": {"analogue_hz": 200000.0, "digital_hz": 25000.0}, )";
     // A quieter channel: the same shape 12 dB nearer its own floor, which is
     // what the tracker was reading when it chose 210-2840 off the spectrum.

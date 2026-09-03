@@ -984,6 +984,7 @@ set(GUI_SOURCES
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
@@ -993,6 +994,7 @@ set(GUI_SOURCES
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
     src/gui/DiversityWindowFilter.cpp
     src/gui/DiversityWindowSite.cpp
     src/gui/DiversityWindowEvents.cpp

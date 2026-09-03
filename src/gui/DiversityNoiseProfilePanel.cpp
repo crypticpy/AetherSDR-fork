@@ -37,7 +37,11 @@ namespace {
 // screen when you get back to the radio.
 constexpr int kHistorySeconds = 120;
 
-constexpr int kStripHeight = 64;
+// 52 rather than 64: the second twelve pixels the SITE page owed the window's
+// new tab and FLOW rows. The strip is a two-minute trend, not a measurement --
+// the numbers it is a trend OF are on the lines above it -- so it is the one
+// thing on the page that loses nothing by being shorter.
+constexpr int kStripHeight = 52;
 
 // The impulse axis auto-scales, but never below this: a strip whose top is
 // 0.4 impulses a second would draw a quiet site as a wall of bars.
