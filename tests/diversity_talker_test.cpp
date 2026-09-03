@@ -28,15 +28,11 @@
 #include "gui/DiversityBandPoller.h"
 #include "gui/DiversityWindow.h"
 
-#include <QAbstractButton>
 #include <QApplication>
-#include <QCheckBox>
-#include <QDateTime>
 #include <QLabel>
 #include <QListWidget>
 #include <QNetworkReply>
 #include <QPushButton>
-#include <QSpinBox>
 #include <QTableWidget>
 #include <QTest>
 #include <QToolButton>
@@ -151,15 +147,6 @@ DiversityWindow* openOnBand(AetherGateApplet& a)
     return w;
 }
 
-QString lastRequest(const FakeGate& net, const QString& prefix)
-{
-    for (int i = net.log.size() - 1; i >= 0; --i) {
-        if (net.log.at(i).startsWith(prefix))
-            return net.log.at(i);
-    }
-    return QString();
-}
-
 QString labelText(DiversityWindow* w, const char* name)
 {
     auto* label = w->findChild<QLabel*>(QString::fromLatin1(name));
@@ -198,244 +185,15 @@ bool anyEventContains(DiversityWindow* w, const QString& needle)
     return false;
 }
 
-// (a) PER TALKER and FAST/SMOOTH are the gate's own state, and pressing either
-// sends the gate's own word for it.
-void testPerTalkerReflectsAndWritesTheGate()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net);
-    DiversityWindow* w = openOnFilter(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
+// The FILTER-page tests this file used to open with -- PER TALKER, the state
+// line's "whose filter" clause, AUTO CONTOUR, and APF's CW label -- moved to
+// the gate's own CHAIN window with the controls themselves; see
+// AetherGateChainStrip.cpp's tests for their successors. What is left here is
+// everything that reads /diversity's memory[] and talker fields directly,
+// independent of that page: the TALKERS table, the voice-split event, the
+// FLOW line's own clause, and the FINDER's snapped estimate.
 
-    auto* check = child<QCheckBox>(w, "diversityWindowFilterTalkerCheck");
-    auto* fast = child<QPushButton>(w, "diversityWindowFilterTalkerSnapFast");
-    auto* smooth = child<QPushButton>(w, "diversityWindowFilterTalkerSnapSmooth");
-    CHECK(check != nullptr && fast != nullptr && smooth != nullptr);
-    if (!check || !fast || !smooth)
-        return;
-
-    // The fixture has it on and snapping.
-    CHECK(check->isChecked());
-    CHECK(fast->isChecked());
-    CHECK(!smooth->isChecked());
-
-    // Every one of them says the same thing on hover, and it is the sentence
-    // that tells the operator what the two words mean.
-    CHECK(check->toolTip().contains(QStringLiteral("FAST snaps")));
-    CHECK(check->toolTip().contains(QStringLiteral("SMOOTH glides")));
-
-    smooth->click();
-    settle();
-    CHECK(lastRequest(net, QStringLiteral("/filter/set"))
-          == QStringLiteral("/filter/set?talker_snap=smooth"));
-
-    check->click();
-    settle();
-    CHECK(lastRequest(net, QStringLiteral("/filter/set"))
-          == QStringLiteral("/filter/set?talker=0"));
-
-    // MUTATION: a gate with it off and gliding. The controls follow the gate,
-    // not the click -- both were just pressed the other way.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             kDiversityFilterTalkerOff};
-    bandTick(a);
-    CHECK(!check->isChecked());
-    CHECK(smooth->isChecked());
-    CHECK(!fast->isChecked());
-
-    w->close();
-    settle();
-    closedToStart();
-}
-
-// (b) The state line names whose filter is in force, by the name /diversity
-// gave the id -- and by the number when it gave none.
-void testStateLineNamesTheTalker()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net);
-    DiversityWindow* w = openOnFilter(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    CHECK(labelText(w, "diversityWindowFilterForceLabel")
-              .contains(QStringLiteral("filter: Ted's (#3)")));
-
-    // MUTATION: the same id with no name in memory falls back to the number.
-    // Nothing here may invent "unnamed" or leave the clause out.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             kDiversityFilterTalkerNoPrint};
-    bandTick(a);
-    CHECK(labelText(w, "diversityWindowFilterForceLabel")
-              .contains(QStringLiteral("filter: #4")));
-
-    // PER TALKER off: there is no "whose", so the clause goes away rather than
-    // saying whose filter it would have been.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             kDiversityFilterTalkerOff};
-    bandTick(a);
-    CHECK(!labelText(w, "diversityWindowFilterForceLabel")
-               .contains(QStringLiteral("filter: ")));
-
-    w->close();
-    settle();
-    closedToStart();
-}
-
-// (c) AUTO CONTOUR: the three spinners are the gate's fitted bell and are not
-// the operator's to type while it is fitting.
-void testAutoContourShowsTheFitAndLocksTheSpinners()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net);
-    DiversityWindow* w = openOnFilter(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    auto* autoCheck = child<QCheckBox>(w, "diversityWindowFilterAutoContourCheck");
-    auto* hz = child<QSpinBox>(w, "diversityWindowFilterContourHzSpin");
-    auto* db = child<QSpinBox>(w, "diversityWindowFilterContourDbSpin");
-    auto* width = child<QSpinBox>(w, "diversityWindowFilterContourWidthSpin");
-    CHECK(autoCheck != nullptr && hz != nullptr && db != nullptr && width != nullptr);
-    if (!autoCheck || !hz || !db || !width)
-        return;
-
-    CHECK(autoCheck->isChecked());
-    CHECK(hz->value() == 550);
-    CHECK(db->value() == -3);
-    CHECK(width->value() == 500);
-    CHECK(!hz->isEnabled());
-    CHECK(!db->isEnabled());
-    CHECK(!width->isEnabled());
-    CHECK(labelText(w, "diversityWindowFilterContourSourceLabel")
-          == QStringLiteral("from print"));
-
-    // MUTATION: fitting, with nothing heard yet. hz and width_hz are null, and
-    // a null is not zero -- the caption says so instead of the spinners
-    // claiming a 0 Hz bell.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             kDiversityFilterTalkerNoPrint};
-    bandTick(a);
-    CHECK(autoCheck->isChecked());
-    CHECK(labelText(w, "diversityWindowFilterContourSourceLabel")
-          == QStringLiteral("no print yet"));
-
-    // ...and the operator's own bell: auto off, spinners back, caption says
-    // whose bell it is.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             kDiversityFilterTalkerOff};
-    bandTick(a);
-    CHECK(!autoCheck->isChecked());
-    CHECK(hz->isEnabled());
-    CHECK(db->isEnabled());
-    CHECK(width->isEnabled());
-    CHECK(hz->value() == 700);
-    CHECK(labelText(w, "diversityWindowFilterContourSourceLabel")
-          == QStringLiteral("manual"));
-
-    w->close();
-    settle();
-    closedToStart();
-}
-
-// (c2) The checkbox itself writes the gate's own word, and typing a value into
-// a contour spinner takes the fit off -- the operator has just said where the
-// bell goes, so nothing may quietly move it back.
-void testAutoContourWritesAndATypedValueTakesItOff()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net);
-    DiversityWindow* w = openOnFilter(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    auto* autoCheck = child<QCheckBox>(w, "diversityWindowFilterAutoContourCheck");
-    auto* hz = child<QSpinBox>(w, "diversityWindowFilterContourHzSpin");
-    CHECK(autoCheck != nullptr && hz != nullptr);
-    if (!autoCheck || !hz)
-        return;
-
-    autoCheck->click();
-    settle();
-    CHECK(lastRequest(net, QStringLiteral("/filter/set"))
-          == QStringLiteral("/filter/set?auto_contour=0"));
-    // The fake gate answers every write with the same fitted payload, so the
-    // gate's word is "still on". The click holds for kWriteHoldMs against
-    // that (a stale poll and a refusing gate look the same for a beat); once
-    // the hold has run out, the gate is the source of truth again and the
-    // tick comes back -- a control that stayed where it was clicked for good
-    // would be lying about a refused write.
-    CHECK(!autoCheck->isChecked());
-    CHECK(autoCheck->property("pendingUntil").isValid());
-    autoCheck->setProperty("pendingUntil", QDateTime::currentMSecsSinceEpoch() - 1);
-    if (auto* poller = a.findChild<DiversityBandPoller*>())
-        QMetaObject::invokeMethod(poller, "poll", Qt::DirectConnection);
-    settle();
-    CHECK(autoCheck->isChecked());
-
-    // A value the operator committed. The gate turns its own fit off when it
-    // sees one -- it answers with source "manual" -- so the only thing the
-    // window owes is not to go on showing a tick that is already untrue for
-    // the half second until the next poll. No second write goes out.
-    net.log.clear();
-    hz->setValue(820);
-    emit hz->editingFinished();
-    // Read before settle(): the tick is what the window does with its OWN
-    // knowledge, in the gap before the gate answers.
-    CHECK(!autoCheck->isChecked());
-    settle();
-    QStringList sets;
-    for (const QString& line : net.log) {
-        if (line.startsWith(QLatin1String("/filter/set")))
-            sets << line;
-    }
-    CHECK(sets == QStringList{QStringLiteral("/filter/set?contour_hz=820")});
-
-    w->close();
-    settle();
-    closedToStart();
-}
-
-// (d) APF says what it is for. The operator's complaint was that it made a
-// voice sound like talking into a tiny cup, which is exactly what a CW audio
-// peak does to speech -- so the label and the hover say CW.
-void testApfSaysItIsForCw()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net);
-    DiversityWindow* w = openOnFilter(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    auto* apf = child<QCheckBox>(w, "diversityWindowFilterApfCheck");
-    CHECK(apf != nullptr);
-    if (!apf)
-        return;
-    CHECK(apf->text() == QStringLiteral("APF (CW)"));
-    CHECK(apf->toolTip().contains(QStringLiteral("cup")));
-
-    w->close();
-    settle();
-    closedToStart();
-}
-
-// (e) The TALKERS table's Filter column: the gate's remembered filter per
+// (a) The TALKERS table's Filter column: the gate's remembered filter per
 // station, the live one marked, a dash where there is none, and a number where
 // there is no name.
 void testTalkersTableShowsTheRememberedFilter()
@@ -490,7 +248,7 @@ void testTalkersTableShowsTheRememberedFilter()
     closedToStart();
 }
 
-// (f) The voice split, said out loud. It is the one talker change the operator
+// (b) The voice split, said out loud. It is the one talker change the operator
 // cannot hear happening -- nobody stopped talking and the frequency did not
 // move -- so the only evidence is the gate's counter going up.
 void testVoiceSplitIsLogged()
@@ -525,7 +283,7 @@ void testVoiceSplitIsLogged()
     closedToStart();
 }
 
-// (g) The FLOW line's last step quotes whose filter is in force and what the
+// (c) The FLOW line's last step quotes whose filter is in force and what the
 // automatic contour has settled on, because "100-2900 soft" is one fact about
 // one station once PER TALKER is on. Read off the line at the foot of the
 // window -- the five steps stopped being five buttons when the row of them
@@ -568,7 +326,7 @@ void testFlowFilterStepQuotesTheTalkerAndContour()
     closedToStart();
 }
 
-// (h) The FINDER shows the number you can tune to, and says on hover what it
+// (d) The FINDER shows the number you can tune to, and says on hover what it
 // was rounded from. A row that showed only the estimate would put you 130 Hz
 // off the dial mark; one that showed only the snap would hide how sure the
 // gate is.
@@ -608,11 +366,6 @@ int main(int argc, char** argv)
     TestSettingsProfile profile(QStringLiteral("diversity_talker_test"));
     QApplication app(argc, argv);
 
-    testPerTalkerReflectsAndWritesTheGate();
-    testStateLineNamesTheTalker();
-    testAutoContourShowsTheFitAndLocksTheSpinners();
-    testAutoContourWritesAndATypedValueTakesItOff();
-    testApfSaysItIsForCw();
     testTalkersTableShowsTheRememberedFilter();
     testVoiceSplitIsLogged();
     testFlowFilterStepQuotesTheTalkerAndContour();

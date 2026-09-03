@@ -456,12 +456,6 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
     }
     if (d.contains(QStringLiteral("memory")) || haveTalker)
         applyTalkers(memory, haveTalker, talkerId, talkerSinceS);
-    // The FILTER page's PER TALKER strip has the id of whose filter is in force
-    // but no name for it: names live in the combiner's memory, on this payload.
-    // Fed whether or not FILTER is the page on screen -- it costs a hash and it
-    // means the state line is already right the moment the tab is clicked.
-    if (m_filter)
-        m_filter->setTalkerNames(memory);
     if (m_flow)
         m_flow->setTalkerNames(memory);
     QString talkerName;
@@ -473,6 +467,15 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
             talkerName = entry.value(QStringLiteral("name")).toString();
     }
     applyFocus(d.value(QStringLiteral("focus")), haveTalker, talkerId, talkerName);
+
+    // --- FILTER page: the pair's own two stages ----------------------------
+    // Fed whether or not FILTER is the page on screen, the same reasoning the
+    // talker names above are: it costs a hash and it means the page already
+    // has the right answer the moment its tab is clicked.
+    if (m_filter) {
+        m_filter->applyPost(d.value(QStringLiteral("post")).toObject());
+        m_filter->applyMrc(d.value(QStringLiteral("mrc")).toObject());
+    }
 
     // --- noise ------------------------------------------------------------
     double coherence = 0.0;

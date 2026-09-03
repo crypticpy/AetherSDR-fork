@@ -1,29 +1,17 @@
 #include "gui/DiversityFilterControls.h"
 
-#include "core/ThemeManager.h"
-#include "gui/DiversityFilterPanel.h"
-#include "gui/DiversityTalkerControls.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
 
 #include <QAbstractButton>
 #include <QButtonGroup>
-#include <QCheckBox>
-#include <QDateTime>
 #include <QFrame>
 #include <QHBoxLayout>
-#include <QHeaderView>
-#include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalBlocker>
-#include <QSizePolicy>
-#include <QSpinBox>
-#include <QStringList>
-#include <QTableWidget>
-#include <QTimer>
 #include <QVBoxLayout>
 
 #include <cmath>
@@ -32,81 +20,25 @@ namespace AetherSDR {
 
 namespace {
 
-// The curve gets a fixed slab of the page. It is the instrument; the columns
-// under it are the keypad, and a curve that shrank when the notch table grew a
-// row would make a filter look as if it had changed shape.
-constexpr int kPanelHeight = 240;
-constexpr int kSpinWidth = 74;
-constexpr int kRowHeight = 22;
-constexpr int kNotchTableHeight = 92;
-
-const char* kCheckStyle =
-    "QCheckBox { color: {{color.text.primary}}; font-size: 11px; spacing: 5px;"
-    " background: transparent; }"
-    "QCheckBox::indicator { width: 12px; height: 12px; border-radius: 2px;"
-    " border: 1px solid {{color.toggle.border}};"
-    " background: {{color.toggle.background}}; }"
-    "QCheckBox::indicator:checked {"
-    " background: {{color.toggle.accent.background.checked}};"
-    " border: 1px solid {{color.toggle.accent.border.checked}}; }";
-
-const char* kSpinStyle =
-    "QSpinBox { background: {{color.background.1}}; color: {{color.text.primary}};"
-    " border: 1px solid {{color.border.subtle}}; border-radius: 3px;"
-    " font-size: 11px; padding: 1px 3px; }"
-    "QSpinBox:disabled { color: {{color.text.disabled}}; }";
-
-const char* kCaptionStyle =
-    "QLabel { color: {{color.accent.bright}}; font-size: 12px; font-weight: bold;"
-    " background: transparent; }";
-
-const char* kForceLineStyle =
-    "QLabel { color: {{color.text.primary}}; font-size: 11px;"
-    " background: transparent; }";
-
-const char* kStatusStyle =
-    "QLabel { color: {{color.text.secondary}}; font-size: 11px;"
-    " background: transparent; }"
-    "QLabel[live=\"true\"] { color: {{color.accent.warning}}; }";
-
-const char* kNotchTableStyle =
-    "QTableWidget { background: transparent; color: {{color.text.primary}};"
-    " font-size: 11px; border: 1px solid {{color.background.1}};"
-    " gridline-color: {{color.background.1}}; }"
-    "QHeaderView::section { background: {{color.background.1}};"
-    " color: {{color.text.secondary}}; font-size: 10px; font-weight: bold;"
-    " border: none; padding: 1px 3px; }";
+// The height every button on this page uses -- DiversityWindow's own
+// MODE/HEAR/PAN rows (DiversityWindowChain.cpp) and this page's old PRESETS
+// strip both used the same number.
+constexpr int kRowHeight = 26;
 
 QString emDash()
 {
     return QStringLiteral("—");
 }
 
-QLabel* fieldLabel(const QString& text, QWidget* parent)
+// "+0.2"/"−1.9" with a real minus sign, because this is a number read as a
+// sentence rather than a cell in a column. See DiversityBeaconControls.cpp's
+// own copy of this helper for the same reasoning; each file that needs it
+// keeps its own rather than sharing one across unrelated widgets.
+QString signedDb(double v, int decimals)
 {
-    return DiversityWidgets::makeFieldLabel(text, parent);
-}
-
-QHBoxLayout* newRow(QVBoxLayout* body)
-{
-    auto* row = new QHBoxLayout;
-    row->setContentsMargins(0, 0, 0, 0);
-    row->setSpacing(4);
-    body->addLayout(row);
-    return row;
-}
-
-// Marks `obj` as just written by the operator: for kWriteHoldMs, a poll may
-// only move it if the value it carries echoes `value` back. `obj` is the
-// widget itself for a checkbox or a spin, and the QButtonGroup for a row of
-// exclusive buttons -- a QButtonGroup is a QObject and takes a property the
-// same as any widget. The read side is writeSpin()/writeCheck()/checkValue()
-// and the AUTO check in applyStatus(), all in DiversityWindowFilter.cpp.
-void holdWrite(QObject* obj, const QVariant& value)
-{
-    obj->setProperty("pendingValue", value);
-    obj->setProperty("pendingUntil", QDateTime::currentMSecsSinceEpoch()
-                                         + DiversityFilterControls::kWriteHoldMs);
+    if (v < 0.0)
+        return QStringLiteral("−%1").arg(-v, 0, 'f', decimals);
+    return QStringLiteral("+%1").arg(v, 0, 'f', decimals);
 }
 
 } // namespace
@@ -114,674 +46,233 @@ void holdWrite(QObject* obj, const QVariant& value)
 DiversityFilterControls::DiversityFilterControls(QWidget* parent) : QWidget(parent)
 {
     setObjectName(QStringLiteral("diversityWindowFilterBody"));
-    setAccessibleName(tr("Filter page"));
-
-    m_statusTimer = new QTimer(this);
-    m_statusTimer->setSingleShot(true);
-    connect(m_statusTimer, &QTimer::timeout, this, [this] {
-        m_status->setText(m_baseStatus);
-        DiversityWidgets::setLive(m_status, false);
-    });
 
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(6);
+    root->setContentsMargins(8, 8, 8, 8);
+    root->setSpacing(8);
 
-    m_caption = new QLabel(emDash(), this);
-    m_caption->setObjectName(QStringLiteral("diversityWindowFilterCaptionLabel"));
-    m_caption->setAccessibleName(tr("Filter summary"));
-    m_caption->setToolTip(
-        tr("What the gate has in force right now: the sideband, the two "
-           "passband edges in audio hertz, the shape and how many taps it "
-           "costs, and how many hertz the skirt takes to fall away. A sharp "
-           "filter's skirt is measured in tens of hertz and a soft one's in "
-           "hundreds -- that difference, not the width, is what you hear as "
-           "ringing on one and warmth on the other."));
-    m_caption->setAccessibleDescription(m_caption->toolTip());
-    ThemeManager::instance().applyStyleSheet(m_caption,
-                                             QString::fromLatin1(kCaptionStyle));
-    root->addWidget(m_caption);
+    m_openChainButton = new QPushButton(tr("OPEN CHAIN"), this);
+    m_openChainButton->setObjectName(QStringLiteral("diversityWindowFilterOpenChain"));
+    m_openChainButton->setAccessibleName(tr("Open the filter chain window"));
+    m_openChainButton->setToolTip(
+        tr("Everything a single receiver's filter offers -- roofing, the "
+           "noise blanker, the passband and its shape, notches, the "
+           "automatic notcher, contour, the audio peaking filter, auto EQ, "
+           "per-talker recall and AGC -- drawn as a block diagram in its own "
+           "window. It is the same window whichever gate control opens it, "
+           "so a change made from there is the change in force here too."));
+    m_openChainButton->setAccessibleDescription(m_openChainButton->toolTip());
+    m_openChainButton->setFixedHeight(kRowHeight);
+    applyToggleButtonStyle(m_openChainButton);
+    connect(m_openChainButton, &QPushButton::clicked, this,
+            &DiversityFilterControls::requestOpenChain);
+    root->addWidget(m_openChainButton, 0, Qt::AlignLeft);
 
-    m_panel = new DiversityFilterPanel(this);
-    m_panel->setFixedHeight(kPanelHeight);
-    connect(m_panel, &DiversityFilterPanel::edgesDragged, this,
-            [this](int low, int high) {
-                // Only the edge that actually moved. Re-asserting the other one
-                // would hand the auto-width tracker's answer back to it as an
-                // operator setting, which is a different claim.
-                QUrlQuery q;
-                if (low != m_lowHz)
-                    q.addQueryItem(QStringLiteral("low"), QString::number(low));
-                if (high != m_highHz)
-                    q.addQueryItem(QStringLiteral("high"), QString::number(high));
-                if (!q.isEmpty())
-                    set(q);
-            });
-    connect(m_panel, &DiversityFilterPanel::notchRequested, this, [this](double hz) {
-        QUrlQuery q;
-        q.addQueryItem(QStringLiteral("add"),
-                       QString::number(qint64(std::llround(hz))));
-        q.addQueryItem(QStringLiteral("width"),
-                       QString::number(m_notchWidthSpin->value()));
-        emit requestFilter(QStringLiteral("/filter/notch"), q);
-    });
-    root->addWidget(m_panel);
+    m_movedLabel = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowFilterMovedLabel"),
+        tr("roofing, blanker, shape, notch, APF, AGC: in the CHAIN window"),
+        tr("Every stage a single receiver has, whatever the mode, now lives "
+           "in one window rather than on this page -- open it with the "
+           "button above."),
+        this);
+    // makeReadoutLine() only uses its worstCase string to size the label; the
+    // text itself starts as "-", same as any other readout. This one never
+    // changes, so it is set once here rather than from an apply*() method.
+    m_movedLabel->setText(
+        tr("roofing, blanker, shape, notch, APF, AGC: in the CHAIN window"));
+    m_movedLabel->setAccessibleName(tr("Where the generic filter stages went"));
+    root->addWidget(m_movedLabel);
 
-    m_forceLine = new QLabel(emDash(), this);
-    m_forceLine->setObjectName(QStringLiteral("diversityWindowFilterForceLabel"));
-    m_forceLine->setAccessibleName(tr("Filter state"));
-    m_forceLine->setToolTip(
-        tr("Everything that is switched on, in force, in one line: the edges "
-           "the gate is actually using and the ones you asked for, what AUTO "
-           "has chosen, how many tones the automatic notcher is holding, how "
-           "many notches you have placed, the AGC mode and the gain it is "
-           "taking off, and what the blanker is removing. When the two pairs "
-           "of edges disagree, something else is moving them."));
-    m_forceLine->setAccessibleDescription(m_forceLine->toolTip());
-    ThemeManager::instance().applyStyleSheet(m_forceLine,
-                                             QString::fromLatin1(kForceLineStyle));
-    // Fixed height and an ignored width, exactly like the status line below:
-    // it is one line whatever it says, and a sentence that grew the page's
-    // minimum width would put the four columns behind a scrollbar.
-    m_forceLine->setFixedHeight(m_forceLine->sizeHint().height());
-    m_forceLine->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    root->addWidget(m_forceLine);
-
-    m_status = new QLabel(QString(), this);
-    m_status->setObjectName(QStringLiteral("diversityWindowFilterStatusLabel"));
-    m_status->setAccessibleName(tr("Filter status"));
-    ThemeManager::instance().applyStyleSheet(m_status,
-                                             QString::fromLatin1(kStatusStyle));
-    // A fixed height whether or not it is saying anything: a line that appeared
-    // only when the gate refused something would shift every control under it
-    // at the moment the operator most needs them to stay still.
-    m_status->setText(tr("Filter is not available for this mode"));
-    m_status->setFixedHeight(m_status->sizeHint().height());
-    m_status->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    m_status->setText(QString());
-    root->addWidget(m_status);
-
-    auto* columns = new QHBoxLayout;
-    columns->setContentsMargins(0, 0, 0, 0);
-    columns->setSpacing(8);
-    columns->addWidget(buildWidthColumn(), 1);
-    columns->addWidget(buildNotchColumn(), 1);
-    columns->addWidget(buildToneColumn(), 1);
-    columns->addWidget(buildAgcColumn(), 1);
-    // Stretch 0: the four boxes are as tall as what is in them and no taller.
-    // They used to take every pixel to the bottom of the window and hold a
-    // control in the top third of each, which drew four boxes mostly full of
-    // nothing and read as four things half-built.
-    root->addLayout(columns, 0);
-
-    // PER TALKER sits between the columns and the presets because that is what
-    // it is: not one more control on the filter, and not a whole filter in one
-    // click either, but the rule that decides WHICH filter the columns above
-    // are showing.
-    m_talker = new DiversityTalkerControls(this);
-    connect(m_talker, &DiversityTalkerControls::requestFilter, this,
-            &DiversityFilterControls::requestFilter);
-    m_controls.append(m_talker->controls());
-    root->addWidget(m_talker, 0);
-
-    root->addWidget(buildPresetStrip(), 0);
-    // What is left over is left over. There is no honest control to put in it
-    // and stretching something into it would be decoration.
+    root->addWidget(buildPairStagesBox());
     root->addStretch(1);
-
-    setControlsEnabled(false);
 }
 
 // --------------------------------------------------------------------------
-// Writing to the gate
+// PAIR STAGES: the two /diversity/set stages a single receiver could never
+// have, because both are about what to do with a SECOND loop's disagreement
+// with the first.
 // --------------------------------------------------------------------------
 
-void DiversityFilterControls::set(const QString& key, const QString& value)
+QWidget* DiversityFilterControls::buildPairStagesBox()
 {
-    QUrlQuery q;
-    q.addQueryItem(key, value);
-    set(q);
-}
+    QVBoxLayout* body = nullptr;
+    QFrame* frame = DiversityWidgets::makeGroupBox(
+        tr("PAIR STAGES"), QStringLiteral("diversityWindowFilterPairStagesBox"), body,
+        this);
+    frame->setToolTip(
+        tr("What the combiner itself does to the two loops' disagreement "
+           "before handing the receiver a single audio stream -- as opposed "
+           "to everything in the CHAIN window, which happens to that stream "
+           "afterwards and would do the same thing with one antenna."));
 
-void DiversityFilterControls::set(const QUrlQuery& query)
-{
-    emit requestFilter(QStringLiteral("/filter/set"), query);
-}
+    body->addWidget(DiversityWidgets::makeCaption(tr("POST-FILTER"), this));
 
-void DiversityFilterControls::notch(const QString& key, const QString& value)
-{
-    QUrlQuery q;
-    q.addQueryItem(key, value);
-    emit requestFilter(QStringLiteral("/filter/notch"), q);
-}
+    auto* postRow = new QHBoxLayout;
+    postRow->setContentsMargins(0, 0, 0, 0);
+    postRow->setSpacing(6);
+    body->addLayout(postRow);
 
-// --------------------------------------------------------------------------
-// Small builders
-// --------------------------------------------------------------------------
-
-QButtonGroup* DiversityFilterControls::buildValueButtons(QVBoxLayout* body,
-                                                         const QString& key,
-                                                         const QString& objectPrefix,
-                                                         const QStringList& labels,
-                                                         const QStringList& values,
-                                                         const QString& tip)
-{
-    QHBoxLayout* row = newRow(body);
-    auto* group = new QButtonGroup(this);
-    group->setExclusive(true);
-    for (int i = 0; i < labels.size(); ++i) {
-        auto* button = new QPushButton(labels[i], this);
-        button->setObjectName(objectPrefix + values[i]);
-        button->setAccessibleName(tr("%1 %2").arg(key, labels[i]));
+    m_postGroup = new QButtonGroup(this);
+    m_postGroup->setExclusive(true);
+    const auto addPostButton = [&](const QString& objectName, const QString& label,
+                                   const QString& value, const QString& tip) {
+        auto* button = new QPushButton(label, this);
+        button->setObjectName(objectName);
+        button->setAccessibleName(tr("Post-filter %1").arg(label));
         button->setToolTip(tip);
         button->setAccessibleDescription(tip);
         button->setCheckable(true);
         button->setFixedHeight(kRowHeight);
-        button->setProperty("filterValue", values[i]);
+        button->setProperty("filterValue", value);
         applyToggleButtonStyle(button);
-        group->addButton(button);
-        row->addWidget(button, 1);
-        m_controls.append(button);
-        // clicked(), not toggled(): applyStatus() checks a button back from the
-        // poll and must not turn that read-back into another write. The hold
-        // goes on the GROUP rather than the button: checkValue() picks a
-        // button by the incoming value, not by which one was clicked, so the
-        // group is where "what did the operator just ask for" belongs.
-        connect(button, &QPushButton::clicked, this, [this, key, value = values[i], group] {
-            holdWrite(group, value);
-            set(key, value);
+        m_postGroup->addButton(button);
+        // clicked(), not toggled(): applyPost() checks a button back from a
+        // poll and must not turn that read-back into another write.
+        connect(button, &QPushButton::clicked, this, [this, value] {
+            QUrlQuery q;
+            q.addQueryItem(QStringLiteral("post"), value);
+            emit requestSet(q);
         });
-    }
-    row->addStretch(0);
-    return group;
+        postRow->addWidget(button, 1);
+    };
+    addPostButton(QStringLiteral("diversityWindowFilterPostOff"), tr("OFF"),
+                  QStringLiteral("off"),
+                  tr("No coherence post-filter. The combiner hands the "
+                     "receiver exactly what the weight it already has "
+                     "produces, nothing more."));
+    addPostButton(QStringLiteral("diversityWindowFilterPostV1"), tr("V1"),
+                  QStringLiteral("on"),
+                  tr("The coherence post-filter's first version, folded into "
+                     "the sub-band combiner: extra reduction wherever the two "
+                     "loops disagree, with no measurement of what it did."));
+    addPostButton(QStringLiteral("diversityWindowFilterPostV2"), tr("V2"),
+                  QStringLiteral("v2"),
+                  tr("Learns what the noise between words sounds like and "
+                     "subtracts it from the words themselves, with a pause "
+                     "gate so it only listens when nobody is talking. Newer "
+                     "than V1 and the one worth trying on a faint SSB "
+                     "signal that still hisses under sub-band alone."));
+
+    m_postReadout = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowFilterPostReadout"),
+        QStringLiteral("in −99.9 dB -> out −99.9 dB, pauses 100 %"),
+        tr("V2's own measurement of what it is doing: the signal-to-noise "
+           "it sees coming in and what it hands onward, and how much of the "
+           "audio it judged silent enough to learn from. V1 has no such "
+           "measurement to show."),
+        this);
+    body->addWidget(m_postReadout);
+
+    body->addWidget(DiversityWidgets::makeCaption(tr("SUB-BAND MRC"), this));
+
+    auto* mrcRow = new QHBoxLayout;
+    mrcRow->setContentsMargins(0, 0, 0, 0);
+    mrcRow->setSpacing(6);
+    body->addLayout(mrcRow);
+
+    m_mrcButton = new QPushButton(tr("MRC"), this);
+    m_mrcButton->setObjectName(QStringLiteral("diversityWindowFilterMrc"));
+    m_mrcButton->setAccessibleName(tr("Sub-band MRC"));
+    m_mrcButton->setToolTip(
+        tr("One weight per frequency bin, taken from the spatial map, on top "
+           "of the single broadband weight the combiner already applies. "
+           "Usually a small gain over broadband -- a lab switch to try more "
+           "than an everyday one."));
+    m_mrcButton->setAccessibleDescription(m_mrcButton->toolTip());
+    m_mrcButton->setCheckable(true);
+    m_mrcButton->setFixedHeight(kRowHeight);
+    applyToggleButtonStyle(m_mrcButton);
+    connect(m_mrcButton, &QPushButton::clicked, this, [this](bool checked) {
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("mrc"),
+                       checked ? QStringLiteral("on") : QStringLiteral("off"));
+        emit requestSet(q);
+    });
+    mrcRow->addWidget(m_mrcButton, 0);
+    mrcRow->addStretch(1);
+
+    m_mrcReadout = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowFilterMrcReadout"),
+        QStringLiteral("−9.9 dB over broadband, 9999 bins"),
+        tr("How much MRC is adding over the broadband weight alone, and how "
+           "many bins the map had enough signal to score. A dash means the "
+           "gate has not measured it, whether or not MRC is switched on."),
+        this);
+    body->addWidget(m_mrcReadout);
+
+    return frame;
 }
 
-QSpinBox* DiversityFilterControls::buildSpin(const QString& objectName,
-                                             const QString& key, int lo, int hi,
-                                             const QString& suffix,
-                                             const QString& accessibleName,
-                                             const QString& tip)
+// --------------------------------------------------------------------------
+// /diversity -> the two readouts
+// --------------------------------------------------------------------------
+
+void DiversityFilterControls::checkValue(QButtonGroup* group, const QString& value)
 {
-    auto* spin = new QSpinBox(this);
-    spin->setObjectName(objectName);
-    spin->setAccessibleName(accessibleName);
-    spin->setToolTip(tip);
-    spin->setAccessibleDescription(tip);
-    spin->setRange(lo, hi);
-    spin->setSingleStep(10);
-    spin->setSuffix(suffix);
-    spin->setFixedWidth(kSpinWidth);
-    spin->setFixedHeight(kRowHeight);
-    spin->setKeyboardTracking(false);
-    ThemeManager::instance().applyStyleSheet(spin, QString::fromLatin1(kSpinStyle));
-    m_controls.append(spin);
-    if (key.isEmpty())
-        return spin;
-    // editingFinished, not valueChanged: an operator typing "2400" would
-    // otherwise write 2, 24, 240 and 2400 on the way past. The gateValue
-    // property is what the last status put here, so leaving a spin box
-    // untouched does not write it back on every focus change.
-    connect(spin, &QSpinBox::editingFinished, this, [this, spin, key] {
-        if (spin->property("gateValue").isValid()
-            && spin->property("gateValue").toInt() == spin->value()) {
+    if (!group)
+        return;
+    for (QAbstractButton* button : group->buttons()) {
+        const QSignalBlocker block(button);
+        button->setChecked(button->property("filterValue").toString() == value);
+    }
+}
+
+void DiversityFilterControls::applyPost(const QJsonObject& post)
+{
+    const bool enabled = post.value(QStringLiteral("enabled")).toBool();
+    const int version = post.value(QStringLiteral("version")).toInt(1);
+    checkValue(m_postGroup, !enabled ? QStringLiteral("off")
+                            : version == 2 ? QStringLiteral("v2")
+                                           : QStringLiteral("on"));
+
+    if (!enabled) {
+        m_postReadout->setText(emDash());
+        return;
+    }
+
+    if (version == 2) {
+        const QJsonValue snrIn = post.value(QStringLiteral("snr_in_db"));
+        const QJsonValue snrOut = post.value(QStringLiteral("snr_out_db"));
+        const QJsonValue pause = post.value(QStringLiteral("pause_fraction"));
+        if (snrIn.isDouble() && snrOut.isDouble() && pause.isDouble()) {
+            m_postReadout->setText(
+                tr("in %1 dB -> out %2 dB, pauses %3 %")
+                    .arg(signedDb(snrIn.toDouble(), 1), signedDb(snrOut.toDouble(), 1))
+                    .arg(qint64(std::lround(pause.toDouble() * 100.0))));
             return;
         }
-        spin->setProperty("gateValue", spin->value());
-        holdWrite(spin, spin->value());
-        set(key, QString::number(spin->value()));
-    });
-    return spin;
+    }
+    m_postReadout->setText(tr("v1"));
 }
 
-QCheckBox* DiversityFilterControls::buildCheck(const QString& objectName,
-                                               const QString& key,
-                                               const QString& text, const QString& tip)
+void DiversityFilterControls::applyMrc(const QJsonObject& mrc)
 {
-    auto* check = new QCheckBox(text, this);
-    check->setObjectName(objectName);
-    check->setAccessibleName(text);
-    check->setToolTip(tip);
-    check->setAccessibleDescription(tip);
-    ThemeManager::instance().applyStyleSheet(check, QString::fromLatin1(kCheckStyle));
-    m_controls.append(check);
-    connect(check, &QCheckBox::clicked, this, [this, check, key](bool on) {
-        holdWrite(check, on);
-        set(key, on ? QStringLiteral("1") : QStringLiteral("0"));
-    });
-    return check;
-}
-
-// --------------------------------------------------------------------------
-// The four columns
-// --------------------------------------------------------------------------
-
-QWidget* DiversityFilterControls::buildWidthColumn()
-{
-    QVBoxLayout* body = nullptr;
-    QFrame* frame = DiversityWidgets::makeGroupBox(
-        tr("WIDTH"), QStringLiteral("diversityWindowFilterWidthBox"), body, this);
-    frame->setToolTip(
-        tr("How much of the audio band reaches you, and how abruptly it stops. "
-           "The presets are the four widths a voice filter is normally set to; "
-           "the spin boxes are for anything else. AUTO hands both edges to the "
-           "gate, which fits them to the station you are listening to."));
-
-    m_shapeGroup = buildValueButtons(
-        body, QStringLiteral("shape"), QStringLiteral("diversityWindowFilterShape"),
-        {tr("SOFT"), tr("SHARP")},
-        {QStringLiteral("soft"), QStringLiteral("sharp")},
-        tr("SHARP spends taps on a near-vertical skirt: it rejects the "
-           "adjacent station and rings a little on transients. SOFT rolls off "
-           "over a few hundred hertz, which sounds warmer and lets more of the "
-           "neighbour in. Neither is better; they are the two ends of the same "
-           "trade."));
-
-    QHBoxLayout* presets = newRow(body);
-    m_widthPresets = new QButtonGroup(this);
-    m_widthPresets->setExclusive(false);
-    const QList<QPair<QString, int>> widths = {{QStringLiteral("1.8k"), 1800},
-                                              {QStringLiteral("2.4k"), 2400},
-                                              {QStringLiteral("2.7k"), 2700},
-                                              {QStringLiteral("3.0k"), 3000}};
-    for (const auto& entry : widths) {
-        auto* button = new QPushButton(entry.first, this);
-        button->setObjectName(QStringLiteral("diversityWindowFilterPreset%1")
-                                  .arg(entry.second));
-        button->setAccessibleName(tr("%1 hertz wide").arg(entry.second));
-        button->setToolTip(tr("Keep the low edge where it is and put the high "
-                              "edge %1 Hz above it. The low edge is the one "
-                              "that decides how much rumble and hum you hear, "
-                              "so a width preset should not move it.")
-                               .arg(entry.second));
-        button->setAccessibleDescription(button->toolTip());
-        button->setFixedHeight(kRowHeight);
-        button->setCheckable(true);
-        button->setProperty("spanHz", entry.second);
-        applyToggleButtonStyle(button);
-        m_controls.append(button);
-        m_widthPresets->addButton(button);
-        connect(button, &QPushButton::clicked, this, [this, button, span = entry.second] {
-            // Lit at once and held against the poll until the gate echoes
-            // this width back (2026-09-03: "the one I selected doesn't
-            // highlight"). Non-exclusive group, so the others go out by hand.
-            for (QAbstractButton* other : m_widthPresets->buttons())
-                other->setChecked(other == button);
-            holdWrite(m_widthPresets, span);
-            QUrlQuery q;
-            q.addQueryItem(QStringLiteral("low"), QString::number(m_lowHz));
-            q.addQueryItem(QStringLiteral("high"), QString::number(m_lowHz + span));
-            set(q);
-        });
-        presets->addWidget(button, 1);
+    const bool enabled = mrc.value(QStringLiteral("enabled")).toBool();
+    {
+        const QSignalBlocker block(m_mrcButton);
+        m_mrcButton->setChecked(enabled);
     }
 
-    QHBoxLayout* edges = newRow(body);
-    edges->addWidget(fieldLabel(tr("Low"), this));
-    m_lowSpin = buildSpin(QStringLiteral("diversityWindowFilterLowSpin"),
-                          QStringLiteral("low"), 0, 20000, tr(" Hz"),
-                          tr("Low passband edge"),
-                          tr("The bottom of the passband, in audio hertz. "
-                             "Raising it is the cheapest cure for mains hum and "
-                             "for the rumble a poorly sited antenna picks up."));
-    edges->addWidget(m_lowSpin);
-    edges->addWidget(fieldLabel(tr("High"), this));
-    m_highSpin = buildSpin(QStringLiteral("diversityWindowFilterHighSpin"),
-                           QStringLiteral("high"), 0, 20000, tr(" Hz"),
-                           tr("High passband edge"),
-                           tr("The top of the passband, in audio hertz. This is "
-                              "the edge that decides intelligibility: below "
-                              "about 2.4 kHz consonants start going."));
-    edges->addWidget(m_highSpin);
-    edges->addStretch(1);
-
-    QHBoxLayout* autoRow = newRow(body);
-    m_autoButton = new QPushButton(tr("AUTO"), this);
-    m_autoButton->setObjectName(QStringLiteral("diversityWindowFilterAutoButton"));
-    m_autoButton->setAccessibleName(tr("Automatic passband width"));
-    m_autoButton->setToolTip(
-        tr("Let the gate choose both edges. It fits them to the station's own "
-           "voice print when it has heard enough overs to have one, and to the "
-           "spectrum in the channel when it has not -- the readout beside this "
-           "says which. Your own edges are remembered and come back the moment "
-           "you switch it off."));
-    m_autoButton->setAccessibleDescription(m_autoButton->toolTip());
-    m_autoButton->setCheckable(true);
-    m_autoButton->setFixedHeight(kRowHeight);
-    applyToggleButtonStyle(m_autoButton);
-    m_controls.append(m_autoButton);
-    connect(m_autoButton, &QPushButton::clicked, this, [this](bool on) {
-        holdWrite(m_autoButton, on);
-        set(QStringLiteral("auto"), on ? QStringLiteral("1") : QStringLiteral("0"));
-    });
-    autoRow->addWidget(m_autoButton);
-    m_autoLine = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("diversityWindowFilterAutoLabel"),
-        QStringLiteral("AUTO · spectrum 9999–9999"),
-        tr("Where the automatic width has put the edges, and what it worked "
-           "them out from: the talker's own print, or the spectrum in the "
-           "channel. \"Warming up\" means it has neither yet."),
-        this);
-    autoRow->addWidget(m_autoLine, 1);
-
-    m_roofingLine = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("diversityWindowFilterRoofingLabel"),
-        QStringLiteral("Roof 9999 kHz RF · 999 kHz digital"),
-        tr("The two filters upstream of this one: the analogue roofing filter "
-           "in the tuner, and the digital channel filter the gate applies "
-           "before the audio filter runs. Neither is adjustable from here; "
-           "they are stated because they, not the passband, are what decides "
-           "whether a strong neighbour can desensitise you."),
-        this);
-    body->addWidget(m_roofingLine);
-    body->addStretch(1);
-    return frame;
-}
-
-QWidget* DiversityFilterControls::buildNotchColumn()
-{
-    QVBoxLayout* body = nullptr;
-    QFrame* frame = DiversityWidgets::makeGroupBox(
-        tr("NOTCH"), QStringLiteral("diversityWindowFilterNotchBox"), body, this);
-    frame->setToolTip(
-        tr("Narrow cuts inside the passband, for carriers and tones that sit on "
-           "top of the station you want. The automatic notcher finds them for "
-           "you; the table is the ones you placed yourself, which stay where "
-           "you put them."));
-
-    m_anfCheck = buildCheck(QStringLiteral("diversityWindowFilterAnfCheck"),
-                            QStringLiteral("anf"), tr("ANF"),
-                            tr("Hunt for steady tones inside the passband and "
-                               "notch each one as it appears. It works on "
-                               "carriers and heterodynes and leaves speech "
-                               "alone; on a very weak signal it can chew at the "
-                               "voice, which is when you turn it off and place "
-                               "the notches yourself."));
-    body->addWidget(m_anfCheck);
-    m_anfLine = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("diversityWindowFilterAnfLabel"),
-        QStringLiteral("1240 Hz −34.0 dB, 2010 Hz"),
-        tr("The tones the automatic notcher currently has hold of, and how deep "
-           "it is cutting each. \"none\" means it is running and has found "
-           "nothing, which is a different fact from being switched off."),
-        this);
-    body->addWidget(m_anfLine);
-
-    m_notchTable = new QTableWidget(0, 4, this);
-    m_notchTable->setObjectName(QStringLiteral("diversityWindowFilterNotchTable"));
-    m_notchTable->setAccessibleName(tr("Manual notches"));
-    m_notchTable->setToolTip(tr("Every notch you have placed by hand: where it "
-                                "is, how wide it is, and how deep the gate is "
-                                "actually cutting there."));
-    m_notchTable->setHorizontalHeaderLabels(
-        {tr("Hz"), tr("W"), tr("dB"), QString()});
-    m_notchTable->verticalHeader()->setVisible(false);
-    m_notchTable->setSelectionMode(QAbstractItemView::NoSelection);
-    m_notchTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_notchTable->setFixedHeight(kNotchTableHeight);
-    m_notchTable->horizontalHeader()->setStretchLastSection(true);
-    m_notchTable->setColumnWidth(0, 52);
-    m_notchTable->setColumnWidth(1, 40);
-    m_notchTable->setColumnWidth(2, 48);
-    ThemeManager::instance().applyStyleSheet(m_notchTable,
-                                             QString::fromLatin1(kNotchTableStyle));
-    body->addWidget(m_notchTable);
-
-    QHBoxLayout* add = newRow(body);
-    m_notchHzSpin = buildSpin(QStringLiteral("diversityWindowFilterNotchHzSpin"),
-                              QString(), 0, 20000, tr(" Hz"), tr("Notch frequency"),
-                              tr("Where to put the next notch. Double-clicking "
-                                 "the curve above does the same thing at the "
-                                 "frequency under the pointer, which is quicker "
-                                 "when you can see the carrier."));
-    add->addWidget(m_notchHzSpin);
-    m_notchWidthSpin = buildSpin(QStringLiteral("diversityWindowFilterNotchWidthSpin"),
-                                 QString(), 10, 2000, tr(" Hz"), tr("Notch width"),
-                                 tr("How wide the next notch is. Narrow enough "
-                                    "and a notch removes a carrier without "
-                                    "being audible on speech; too wide and it "
-                                    "takes a syllable with it."));
-    m_notchWidthSpin->setValue(140);
-    add->addWidget(m_notchWidthSpin);
-    m_notchAddButton = new QPushButton(tr("ADD"), this);
-    m_notchAddButton->setObjectName(
-        QStringLiteral("diversityWindowFilterNotchAddButton"));
-    m_notchAddButton->setAccessibleName(tr("Add notch"));
-    m_notchAddButton->setToolTip(tr("Place a notch at the frequency and width "
-                                    "beside this button."));
-    m_notchAddButton->setAccessibleDescription(m_notchAddButton->toolTip());
-    m_notchAddButton->setFixedHeight(kRowHeight);
-    applyToggleButtonStyle(m_notchAddButton);
-    m_controls.append(m_notchAddButton);
-    connect(m_notchAddButton, &QPushButton::clicked, this, [this] {
-        QUrlQuery q;
-        q.addQueryItem(QStringLiteral("add"), QString::number(m_notchHzSpin->value()));
-        q.addQueryItem(QStringLiteral("width"),
-                       QString::number(m_notchWidthSpin->value()));
-        emit requestFilter(QStringLiteral("/filter/notch"), q);
-    });
-    add->addWidget(m_notchAddButton, 1);
-
-    m_notchClearAllButton = new QPushButton(tr("CLEAR ALL"), this);
-    m_notchClearAllButton->setObjectName(
-        QStringLiteral("diversityWindowFilterNotchClearAllButton"));
-    m_notchClearAllButton->setAccessibleName(tr("Clear every manual notch"));
-    m_notchClearAllButton->setToolTip(
-        tr("Remove every notch in the table at once. The automatic notcher's "
-           "own tones are not in the table and are not touched."));
-    m_notchClearAllButton->setAccessibleDescription(m_notchClearAllButton->toolTip());
-    m_notchClearAllButton->setFixedHeight(kRowHeight);
-    applyToggleButtonStyle(m_notchClearAllButton);
-    m_controls.append(m_notchClearAllButton);
-    connect(m_notchClearAllButton, &QPushButton::clicked, this,
-            [this] { notch(QStringLiteral("clear"), QStringLiteral("1")); });
-    body->addWidget(m_notchClearAllButton);
-    body->addStretch(1);
-    return frame;
-}
-
-QWidget* DiversityFilterControls::buildToneColumn()
-{
-    QVBoxLayout* body = nullptr;
-    QFrame* frame = DiversityWidgets::makeGroupBox(
-        tr("TONE"), QStringLiteral("diversityWindowFilterToneBox"), body, this);
-    frame->setToolTip(
-        tr("Shaping inside the passband rather than cutting at its edges: a "
-           "broad tilt, a narrow peak, and an automatic tilt that matches the "
-           "station's own audio to yours."));
-
-    m_contourCheck = buildCheck(QStringLiteral("diversityWindowFilterContourCheck"),
-                                QStringLiteral("contour"), tr("CONTOUR"),
-                                tr("A broad lift or cut centred where you put "
-                                   "it. Pulling a few decibels out around 500 Hz "
-                                   "clears the mud off a bass-heavy station; "
-                                   "adding a couple around 1.8 kHz sharpens "
-                                   "consonants without making it shrill."));
-    body->addWidget(m_contourCheck);
-
-    m_autoContourCheck =
-        buildCheck(QStringLiteral("diversityWindowFilterAutoContourCheck"),
-                   QStringLiteral("auto_contour"), tr("AUTO CONTOUR"),
-                   tr("Let the gate place the contour. It fits the bell to the "
-                      "talker's own voice print -- the frequency their audio "
-                      "piles up at, and how much of it to take back out -- so "
-                      "a boomy station is flattened and a thin one is not "
-                      "touched. Setting any of the three numbers below by hand "
-                      "turns this off, because the gate cannot fit and obey at "
-                      "the same time."));
-    body->addWidget(m_autoContourCheck);
-    m_contourSourceLine = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("diversityWindowFilterContourSourceLabel"),
-        QStringLiteral("no print yet"),
-        tr("Where the automatic contour got its numbers. \"from print\" means "
-           "it is fitted to this talker's own audio; \"no print yet\" means it "
-           "has not heard enough of anybody to fit anything, and there is no "
-           "contour in force at all."),
-        this);
-    body->addWidget(m_contourSourceLine);
-
-    QHBoxLayout* contourRow = newRow(body);
-    contourRow->addWidget(fieldLabel(tr("Hz"), this));
-    m_contourHzSpin = buildSpin(QStringLiteral("diversityWindowFilterContourHzSpin"),
-                                QStringLiteral("contour_hz"), 0, 20000, tr(" Hz"),
-                                tr("Contour centre"),
-                                tr("The frequency the contour is centred on."));
-    contourRow->addWidget(m_contourHzSpin);
-    contourRow->addWidget(fieldLabel(tr("dB"), this));
-    m_contourDbSpin = buildSpin(QStringLiteral("diversityWindowFilterContourDbSpin"),
-                                QStringLiteral("contour_db"), -20, 20, tr(" dB"),
-                                tr("Contour gain"),
-                                tr("How much to lift (positive) or cut "
-                                   "(negative) at the contour centre."));
-    m_contourDbSpin->setSingleStep(1);
-    contourRow->addWidget(m_contourDbSpin);
-    contourRow->addStretch(1);
-
-    QHBoxLayout* contourWidth = newRow(body);
-    contourWidth->addWidget(fieldLabel(tr("Width"), this));
-    m_contourWidthSpin =
-        buildSpin(QStringLiteral("diversityWindowFilterContourWidthSpin"),
-                  QStringLiteral("contour_width"), 10, 5000, tr(" Hz"),
-                  tr("Contour width"),
-                  tr("How broad the lift or cut is. Wide enough and it reads as "
-                     "tone; narrow enough and it reads as a resonance."));
-    contourWidth->addWidget(m_contourWidthSpin);
-    contourWidth->addStretch(1);
-
-    // Setting a contour number by hand is what turns the gate's own fit off:
-    // the gate does that itself and answers with source "manual", so nothing
-    // extra is written here. The tick just stops lagging the fact by the half
-    // second until the next poll.
-    //
-    // editingFinished, because that is the signal buildSpin() writes on -- the
-    // tick has to come off exactly when a value went out, not when a value
-    // arrived. A poll's writeSpin() is blocked and a focus change that altered
-    // nothing sends nothing, so neither can clear the tick behind the gate's
-    // back.
-    for (QSpinBox* spin : {m_contourHzSpin, m_contourDbSpin, m_contourWidthSpin}) {
-        connect(spin, &QSpinBox::editingFinished, this,
-                [this] { writeCheck(m_autoContourCheck, false); });
+    const QJsonValue gain = mrc.value(QStringLiteral("gain_over_broadband_db"));
+    const QJsonValue bins = mrc.value(QStringLiteral("bins_used"));
+    if (gain.isDouble() && bins.isDouble()) {
+        m_mrcReadout->setText(tr("%1 dB over broadband, %2 bins")
+                                  .arg(signedDb(gain.toDouble(), 1))
+                                  .arg(qint64(std::llround(bins.toDouble()))));
+    } else {
+        m_mrcReadout->setText(emDash());
     }
-
-    body->addWidget(buildApfBlock());
-
-    m_autoEqCheck = buildCheck(QStringLiteral("diversityWindowFilterAutoEqCheck"),
-                               QStringLiteral("auto_eq"), tr("AUTO EQ"),
-                               tr("Measure the tilt of the station's own audio "
-                                  "and take it back out, so a dark rig and a "
-                                  "bright one arrive sounding alike. The "
-                                  "readout is how much tilt it is currently "
-                                  "correcting."));
-    body->addWidget(m_autoEqCheck);
-    m_tiltLine = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("diversityWindowFilterTiltLabel"), QStringLiteral("tilt −99.9 dB"),
-        tr("The spectral tilt the automatic equaliser is undoing. A large "
-           "number means the station you are listening to is a long way from "
-           "flat, not that anything is wrong here."),
-        this);
-    body->addWidget(m_tiltLine);
-    body->addStretch(1);
-    return frame;
 }
 
-QWidget* DiversityFilterControls::buildAgcColumn()
+void DiversityFilterControls::clear()
 {
-    QVBoxLayout* body = nullptr;
-    QFrame* frame = DiversityWidgets::makeGroupBox(
-        tr("AGC & NB"), QStringLiteral("diversityWindowFilterAgcBox"), body, this);
-    frame->setToolTip(
-        tr("What happens to the level after the filter: the automatic gain "
-           "control that keeps a fading station at a constant volume, and the "
-           "noise blanker that punches impulses out before it."));
-
-    m_agcGroup = buildValueButtons(
-        body, QStringLiteral("agc"), QStringLiteral("diversityWindowFilterAgc"),
-        {tr("FAST"), tr("MED"), tr("SLOW"), tr("LONG"), tr("OFF")},
-        {QStringLiteral("fast"), QStringLiteral("med"), QStringLiteral("slow"),
-         QStringLiteral("long"), QStringLiteral("off")},
-        tr("How quickly the gain recovers after a loud passage. FAST follows "
-           "every syllable and pumps the noise up between words; SLOW and LONG "
-           "hold the level through pauses, which is what you want on a fading "
-           "signal. OFF leaves the level where the RF gain puts it."));
-
-    QHBoxLayout* timing = newRow(body);
-    timing->addWidget(fieldLabel(tr("Atk"), this));
-    m_attackSpin = buildSpin(QStringLiteral("diversityWindowFilterAttackSpin"),
-                             QStringLiteral("attack_ms"), 0, 500, tr(" ms"),
-                             tr("AGC attack"),
-                             tr("How fast the gain comes down on a sudden loud "
-                                "signal. Too fast and transients click; too "
-                                "slow and a static crash gets through at full "
-                                "volume."));
-    m_attackSpin->setSingleStep(1);
-    timing->addWidget(m_attackSpin);
-    timing->addWidget(fieldLabel(tr("Dec"), this));
-    m_decaySpin = buildSpin(QStringLiteral("diversityWindowFilterDecaySpin"),
-                            QStringLiteral("decay_ms"), 0, 5000, tr(" ms"),
-                            tr("AGC decay"),
-                            tr("How fast the gain comes back up once the signal "
-                               "drops. This is the control that decides whether "
-                               "the noise floor breathes between words."));
-    timing->addWidget(m_decaySpin);
-    timing->addStretch(1);
-
-    QHBoxLayout* hangRow = newRow(body);
-    hangRow->addWidget(fieldLabel(tr("Hang"), this));
-    m_hangSpin = buildSpin(QStringLiteral("diversityWindowFilterHangSpin"),
-                           QStringLiteral("hang_ms"), 0, 5000, tr(" ms"),
-                           tr("AGC hang"),
-                           tr("How long the gain is held still before it starts "
-                              "recovering at all. A hang longer than the gaps "
-                              "in speech is what keeps a whole over at one "
-                              "level."));
-    hangRow->addWidget(m_hangSpin);
-    hangRow->addWidget(fieldLabel(tr("Thr"), this));
-    m_thresholdSpin = buildSpin(QStringLiteral("diversityWindowFilterAgcThreshold"),
-                                QStringLiteral("threshold_db"), 0, 60, tr(" dB"),
-                                tr("AGC threshold"),
-                                tr("AGC threshold: how far below the speech "
-                                   "level the gain stops rising, so the band "
-                                   "noise between words is not lifted to the "
-                                   "same loudness as the voice. Higher = "
-                                   "quieter noise floor, weaker signals sit "
-                                   "lower."));
-    m_thresholdSpin->setSingleStep(1);
-    m_thresholdSpin->setValue(20);
-    hangRow->addWidget(m_thresholdSpin);
-    m_gainLine = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("diversityWindowFilterGainLabel"), QStringLiteral("gain −99.9 dB"),
-        tr("How much gain the AGC is applying right now. A large negative "
-           "number is a strong signal being held down, not a fault."),
-        this);
-    hangRow->addWidget(m_gainLine, 1);
-
-    m_nbCheck = buildCheck(QStringLiteral("diversityWindowFilterNbCheck"),
-                           QStringLiteral("nb"), tr("NB"),
-                           tr("Blank the samples an impulse arrives in -- "
-                              "ignition noise, an electric fence, power-line "
-                              "arcing. It cannot help with the steady buzz those "
-                              "same sources also make, and blanking too much "
-                              "audibly chops the speech."));
-    body->addWidget(m_nbCheck);
-    QHBoxLayout* nbRow = newRow(body);
-    nbRow->addWidget(fieldLabel(tr("Level"), this));
-    m_nbSpin = buildSpin(QStringLiteral("diversityWindowFilterNbSpin"),
-                         QStringLiteral("nb_db"), 0, 60, tr(" dB"),
-                         tr("Noise blanker threshold"),
-                         tr("How far above the running average a sample has to "
-                            "be before it is treated as an impulse. Lower "
-                            "blanks more; the percentage beside it is how much "
-                            "of the audio is actually being removed."));
-    m_nbSpin->setSingleStep(1);
-    nbRow->addWidget(m_nbSpin);
-    m_blankedLine = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("diversityWindowFilterBlankedLabel"),
-        QStringLiteral("blanked 99.9 %"),
-        tr("How much of the audio the blanker is currently removing. Above a "
-           "few percent you are hearing the blanker rather than the band."),
-        this);
-    nbRow->addWidget(m_blankedLine, 1);
-    body->addStretch(1);
-    return frame;
+    checkValue(m_postGroup, QString());
+    m_postReadout->setText(emDash());
+    {
+        const QSignalBlocker block(m_mrcButton);
+        m_mrcButton->setChecked(false);
+    }
+    m_mrcReadout->setText(emDash());
 }
 
 } // namespace AetherSDR

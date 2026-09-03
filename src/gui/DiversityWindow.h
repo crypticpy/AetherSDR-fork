@@ -219,6 +219,12 @@ signals:
     // "/filter" for a plain re-read. A signal of its own rather than a wider
     // requestSet(), which means "/diversity/set" and nothing else.
     void requestFilter(QString path, QUrlQuery query);
+    // The FILTER page's OPEN CHAIN button. Left unconnected here on purpose:
+    // AetherGateApplet.cpp is what wires this to
+    // AetherGateApplet::toggleChainWindow, the same slot its own CHAIN button
+    // already calls, so opening the chain from either place toggles the one
+    // window rather than two.
+    void requestOpenChain();
     // -> GET <path>?<query> for the SITE page: the gate's own route and query,
     // quoted back out of a noise-profile action or built from the station
     // locator field. Answered through applySiteReply().
@@ -343,8 +349,11 @@ private:
 
     // --- site ------------------------------------------------------------
     // --- filter ------------------------------------------------------------
-    // The whole FILTER page. It keeps its own state and this window keeps none
-    // of it -- see DiversityFilterControls.h.
+    // The whole FILTER page: the OPEN CHAIN button and the PAIR's own two
+    // /diversity/set stages, POST-FILTER and MRC. It keeps its own state and
+    // this window keeps none of it -- see DiversityFilterControls.h. The
+    // receiver-generic stages that used to live here (roofing, blanker,
+    // shape, notch, APF, AGC, ...) are the gate's own CHAIN window now.
     DiversityFilterControls* m_filter{nullptr};
 
     DiversityNoiseProfilePanel* m_noiseProfile{nullptr};

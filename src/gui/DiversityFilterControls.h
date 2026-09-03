@@ -1,247 +1,89 @@
 #pragma once
 
 // DiversityFilterControls -- the whole body of the Diversity window's FILTER
-// page: the caption over the response curve, the curve itself, the one status
-// line, and the four columns of controls under it.
+// page.
 //
-// A widget of its own rather than four more builder members on DiversityWindow
-// for the reason DiversityWindowPanels.cpp and DiversityWindowBand.cpp exist,
-// and then one better one. The size argument is the same: DiversityWindow.cpp
-// is at the file-size budget AGENTS.md asks for and this page is the largest
-// of the four. The better reason is that this page, unlike the other three,
-// keeps NO window state at all -- it is a pure function of one /filter status
-// object plus whichever control the operator currently has hold of. Making
-// that a class boundary rather than thirty more m_filter* members on
-// DiversityWindow is what keeps "the gate is the source of truth" checkable:
-// there is exactly one method that writes to these widgets, and exactly one
-// signal by which they write to the gate.
+// This page used to be the gate's whole slice filter chain drawn and driven:
+// a response curve, a PER TALKER strip, and four columns of controls --
+// roofing, blanker, shape, notch, the automatic notcher, contour, the audio
+// peaking filter, auto EQ, AGC. None of that is specific to having a SECOND
+// antenna -- every one of those exists for a single receiver, and the gate's
+// own CHAIN window (AetherGateChainWindow) now draws the same chain once,
+// rather than once per place a receiver's filter shows up. This page keeps
+// only what a receiver alone could never have: the coherence post-filter and
+// the sub-band MRC weighting, the two stages that only exist because the
+// combiner is adding a second loop to the first, plus the one button that
+// opens the CHAIN window for everything else.
 //
-// THE FIGHT BETWEEN A POLL AND A HAND. /filter is polled twice a second, so
-// every control on this page is being overwritten every 500 ms. That is the
-// right default -- the gate owns the filter, the auto-width tracker can move
-// the edges without being asked, and a page that quietly disagreed with the
-// radio would be worse than no page. But a spin box the operator is halfway
-// through typing into, and a passband edge they are dragging, are the two
-// places where "the gate is authoritative" produces nonsense. Both are
-// excluded by the same rule and nothing else is: a widget with focus, or a
-// drag in progress, is not written from a status object.
-//
-// Every write is immediate -- there is no Apply button and no debounce, because
-// every control here is either a discrete choice (a shape, an AGC mode, a
-// checkbox) or a spin box committed on editingFinished. The reply to a write
-// is the same status object a poll returns, so a set and the read-back after it
-// are one request, and the page is showing the gate's answer rather than its
-// own optimism within a single round trip.
+// Unlike the old version of this page, nothing here is polled off /filter and
+// nothing needs a write hold. POST-FILTER and MRC are /diversity/set keys,
+// read back off the same status object MODE/HEAR/PAN already use
+// (DiversityWindowChain.cpp) at that poll's ordinary rate -- and that group's
+// own convention, which this class follows rather than inventing a second
+// one, is a plain click and a check-back guarded by a QSignalBlocker, because
+// nothing on it has ever needed more.
 
 #include <QString>
-#include <QStringList>
 #include <QUrlQuery>
-#include <QVector>
 #include <QWidget>
 
-class QAbstractButton;
 class QButtonGroup;
-class QCheckBox;
-class QJsonArray;
 class QJsonObject;
 class QLabel;
 class QPushButton;
-class QSpinBox;
-class QTableWidget;
-class QTimer;
-class QVBoxLayout;
 
 namespace AetherSDR {
-
-class DiversityFilterPanel;
-class DiversityTalkerControls;
 
 class DiversityFilterControls : public QWidget {
     Q_OBJECT
 public:
     explicit DiversityFilterControls(QWidget* parent = nullptr);
 
-    // THE FIGHT BETWEEN A POLL AND A HAND, part two. Focus keeps a poll off a
-    // control the operator is mid-edit; this keeps a poll off one they just
-    // finished editing. A click's own write and the poll that echoes it are
-    // two separate round trips, so a poll already in flight at the moment of
-    // a click can land AFTER the click carrying the value from BEFORE it --
-    // and paint the control back to where it used to be for one tick before
-    // the next poll (or the click's own reply) puts it right again. That is
-    // the flicker the operator reported: a checkbox that looks like it needs
-    // two clicks. The hold is the fix: for kWriteHoldMs after a write, a poll
-    // may only move the control if it echoes the value written; anything else
-    // is ignored until the hold expires or the echo arrives, whichever is
-    // first.
-    static constexpr int kWriteHoldMs = 1500;
+    // /diversity's "post" object: {"enabled": bool, "version": 1|2, ...}, v2
+    // adding "snr_in_db"/"snr_out_db"/"pause_fraction"/"hold". Checks the
+    // OFF/V1/V2 group back and fills the readout; a v1 gate (or a v2 one that
+    // has not measured anything yet) reads out as "v1" rather than a dash
+    // that would look like a failed read.
+    void applyPost(const QJsonObject& post);
 
-    // One /filter answer, or the identical object a /filter/set or
-    // /filter/notch write replies with. Three shapes arrive here and they mean
-    // three different things:
-    //
-    //   * an EMPTY object -- the request failed or the gate has no such route.
-    //     Nothing is changed: a dropped poll must not empty a page that was
-    //     showing a working filter a moment ago.
-    //   * {"error": "..."} -- the gate refused a value. The text goes on the
-    //     status line for a few seconds and no control moves; the next poll
-    //     puts the refused control back where the gate actually has it.
-    //   * a status object -- the page is redrawn from it.
-    void applyStatus(const QJsonObject& filter);
+    // /diversity's "mrc" object: {"enabled": bool, "gain_over_broadband_db"?,
+    // "bins_used"?}. Older gates omit both optional fields; the readout is a
+    // dash then rather than a number nothing measured.
+    void applyMrc(const QJsonObject& mrc);
 
-    // /diversity's memory[]. The one thing on this page that does NOT come off
-    // a /filter object: the PER TALKER strip has the id of whose filter is in
-    // force, and only the combiner's memory has the name behind it.
-    void setTalkerNames(const QJsonArray& memory);
-
-    // Gate gone. Same as an "available": false payload, said by the window.
+    // Gate gone. Every group unchecked, every readout back to a dash.
     void clear();
 
 signals:
-    // -> GET <path>?<query>, where path is "/filter/set", "/filter/notch", or
-    // "/filter" itself for a plain re-read. Routed through DiversityWindow and
-    // AetherGateDiversityPanel to DiversityBandPoller, which owns this page's
-    // transport the way it owns the BAND and SITE pages'.
-    void requestFilter(QString path, QUrlQuery query);
+    // The OPEN CHAIN button. Wired to AetherGateApplet::toggleChainWindow by
+    // whoever owns that connection (AetherGateApplet.cpp) -- this page only
+    // asks; it has no idea the chain window exists.
+    void requestOpenChain();
+
+    // -> GET /diversity/set?<query>, the same route and the same signal shape
+    // DiversityWindow's own MODE/HEAR/PAN buttons use. Routed through
+    // DiversityWindow rather than emitted there directly because those groups
+    // live in DiversityWindow itself and this is a separate widget.
+    void requestSet(QUrlQuery query);
 
 private:
-    // The five whole-filter presets under the four columns. Defined in
-    // DiversityWindowFilter.cpp beside applyStatus() rather than here, for the
-    // file-size reason the rest of this class is already split for.
-    QWidget* buildPresetStrip();
-    QWidget* buildWidthColumn();
-    QWidget* buildNotchColumn();
-    QWidget* buildToneColumn();
-    QWidget* buildAgcColumn();
-    // The APF checkbox and its Hz/W row, in the one container applyStatus()
-    // hides outside CW. Defined in DiversityWindowFilter.cpp beside
-    // buildPresetStrip() for the same file-size reason, not a subject one --
-    // it belongs on the page exactly where buildToneColumn() puts it.
-    QWidget* buildApfBlock();
-
-    // The two doors every control leaves by. `set` is one or more keys on
-    // /filter/set; `notch` is /filter/notch, whose three verbs (add, clear one,
-    // clear all) are its own route rather than more keys on set.
-    void set(const QString& key, const QString& value);
-    void set(const QUrlQuery& query);
-    void notch(const QString& key, const QString& value);
-
-    // Builds one exclusive row of checkable buttons writing `key`, and returns
-    // the group so applyStatus() can check one back without re-emitting.
-    QButtonGroup* buildValueButtons(QVBoxLayout* body, const QString& key,
-                                    const QString& objectPrefix,
-                                    const QStringList& labels,
-                                    const QStringList& values, const QString& tip);
-    // A labelled spin box that writes `key` on editingFinished. Registered in
-    // m_controls so setControlsEnabled() reaches it.
-    QSpinBox* buildSpin(const QString& objectName, const QString& key, int lo, int hi,
-                        const QString& suffix, const QString& accessibleName,
-                        const QString& tip);
-    QCheckBox* buildCheck(const QString& objectName, const QString& key,
-                          const QString& text, const QString& tip);
-
-    // Writes a widget from the gate WITHOUT emitting -- and without touching it
-    // at all while it has focus. See the header comment.
-    static void writeSpin(QSpinBox* spin, int value);
-    static void writeCheck(QCheckBox* check, bool on);
+    QWidget* buildPairStagesBox();
+    // Checks the button carrying `value` in its "filterValue" property, with a
+    // QSignalBlocker so the check-back does not turn into another write --
+    // exactly DiversityWindow::checkValue()'s own rule, by hand, because that
+    // one is a private member of a different class.
     static void checkValue(QButtonGroup* group, const QString& value);
 
-    void setControlsEnabled(bool on);
-    // `text` sits on the status line for a few seconds and then the line goes
-    // back to whatever is permanently true (nothing, or the not-available
-    // sentence).
-    void showTransient(const QString& text);
-    void applyNotchTable(const QJsonArray& notches);
-    // A refused write means the value the operator just gave a control never
-    // took. Its hold must not survive that: the next poll is what puts the
-    // control back where the gate actually has it, exactly as it always has,
-    // and a hold still open would keep it showing the refused value instead.
-    void clearWriteHolds();
+    QPushButton* m_openChainButton{nullptr};
+    QLabel*      m_movedLabel{nullptr};
 
-    DiversityFilterPanel*     m_panel{nullptr};
-    // The PER TALKER strip. Its own class -- see DiversityTalkerControls.h --
-    // because the state line's "whose filter" clause needs the /diversity
-    // memory this page otherwise never sees.
-    DiversityTalkerControls*  m_talker{nullptr};
-    QLabel*               m_caption{nullptr};
-    // The one line between the curve and the columns: the whole state of the
-    // filter as a sentence, so the answer to "what is switched on?" does not
-    // require reading four columns of controls. Everything on it is also
-    // somewhere below it -- that is the point, not a duplication bug.
-    QLabel*               m_forceLine{nullptr};
-    QLabel*               m_status{nullptr};
-    QTimer*               m_statusTimer{nullptr};
-    QString               m_baseStatus;
+    // --- POST-FILTER -------------------------------------------------------
+    QButtonGroup* m_postGroup{nullptr};
+    QLabel*       m_postReadout{nullptr};
 
-    // --- WIDTH -----------------------------------------------------------
-    QButtonGroup* m_shapeGroup{nullptr};
-    // The 1.8k/2.4k/2.7k/3.0k buttons. Non-exclusive: the one whose span is
-    // set_high - set_low lights, and a custom width lights none. The group
-    // is also the hold's QObject (see holdWrite()); each button carries its
-    // span in a "spanHz" property.
-    QButtonGroup* m_widthPresets{nullptr};
-    QSpinBox*     m_lowSpin{nullptr};
-    QSpinBox*     m_highSpin{nullptr};
-    QPushButton*  m_autoButton{nullptr};
-    QLabel*       m_autoLine{nullptr};
-    QLabel*       m_roofingLine{nullptr};
-
-    // --- NOTCH -----------------------------------------------------------
-    QCheckBox*    m_anfCheck{nullptr};
-    QLabel*       m_anfLine{nullptr};
-    QTableWidget* m_notchTable{nullptr};
-    QSpinBox*     m_notchHzSpin{nullptr};
-    QSpinBox*     m_notchWidthSpin{nullptr};
-    QPushButton*  m_notchAddButton{nullptr};
-    QPushButton*  m_notchClearAllButton{nullptr};
-
-    // --- TONE ------------------------------------------------------------
-    QCheckBox* m_contourCheck{nullptr};
-    // AUTO CONTOUR: the bell fitted to the talker's own voice print. While it
-    // is on the three spins below show the gate's fit and are dead, because a
-    // number you can change and the gate immediately overwrites is a lie about
-    // who owns it. The caption says which of the two things it is doing.
-    QCheckBox* m_autoContourCheck{nullptr};
-    QLabel*    m_contourSourceLine{nullptr};
-    QSpinBox*  m_contourHzSpin{nullptr};
-    QSpinBox*  m_contourDbSpin{nullptr};
-    QSpinBox*  m_contourWidthSpin{nullptr};
-    // The checkbox and its Hz/W row, one widget so applyStatus() can hide the
-    // whole thing with one setVisible() -- APF is a CW tool and has nothing to
-    // say on a voice slice. See applyStatus()'s mode check.
-    QWidget*   m_apfBlock{nullptr};
-    QCheckBox* m_apfCheck{nullptr};
-    QSpinBox*  m_apfHzSpin{nullptr};
-    QSpinBox*  m_apfWidthSpin{nullptr};
-    QCheckBox* m_autoEqCheck{nullptr};
-    QLabel*    m_tiltLine{nullptr};
-
-    // --- AGC & NB --------------------------------------------------------
-    QButtonGroup* m_agcGroup{nullptr};
-    QSpinBox*     m_attackSpin{nullptr};
-    QSpinBox*     m_decaySpin{nullptr};
-    QSpinBox*     m_hangSpin{nullptr};
-    // The level the AGC stops lifting at. Absent from an older gate's "agc"
-    // object, and then the spin is disabled rather than showing a number
-    // nothing is honouring.
-    QSpinBox*     m_thresholdSpin{nullptr};
-    QLabel*       m_gainLine{nullptr};
-    QCheckBox*    m_nbCheck{nullptr};
-    QSpinBox*     m_nbSpin{nullptr};
-    QLabel*       m_blankedLine{nullptr};
-
-    // Every interactive child, so "the gate has no filter for this mode" can
-    // grey the lot in one call rather than by naming thirty members.
-    QVector<QWidget*> m_controls;
-    // Last rendered notch rows, one packed string each. The table is rebuilt
-    // only when this changes, so a 2 Hz poll that reports the same notches back
-    // does not destroy and rebuild four buttons twice a second.
-    QStringList m_notchRows;
-    // Last edges the gate reported. A drag reports both handles; this is how
-    // the page works out which one actually moved, so a low drag writes low=
-    // alone and leaves an auto-owned high= where it is.
-    int  m_lowHz{0};
-    int  m_highHz{0};
-    bool m_available{false};
+    // --- SUB-BAND MRC --------------------------------------------------------
+    QPushButton* m_mrcButton{nullptr};
+    QLabel*      m_mrcReadout{nullptr};
 };
 
 } // namespace AetherSDR

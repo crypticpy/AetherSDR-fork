@@ -431,58 +431,7 @@ void testCaptureCountsDownAndNamesTheFileEverywhere()
 }
 
 // --------------------------------------------------------------------------
-// (h) The AGC threshold spin
-// --------------------------------------------------------------------------
-
-void testAgcThresholdSpinReadsAndWrites()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net);
-    DiversityWindow* w = openWindow(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    child<QToolButton>(w, "diversityWindowPageFilter")->click();
-    settle();
-    filterTick(a);
-
-    auto* spin = child<QSpinBox>(w, "diversityWindowFilterAgcThreshold");
-    CHECK(spin != nullptr);
-    if (!spin)
-        return;
-    CHECK(spin->isEnabled());
-    CHECK_EQ(QString::number(spin->value()), QStringLiteral("20"));
-
-    // MUTATION: a different gate value, so this cannot pass against a spin
-    // that was merely constructed at its default.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             kDiversityFilterAutoSpectrum};
-    filterTick(a);
-    CHECK_EQ(QString::number(spin->value()), QStringLiteral("34"));
-
-    spin->setValue(28);
-    emit spin->editingFinished();
-    settle();
-    CHECK_EQ(lastRequest(net, QStringLiteral("/filter/set")),
-             QStringLiteral("/filter/set?threshold_db=28"));
-
-    // A gate too old to have the key gets a dead control rather than a number
-    // nothing is honouring.
-    net.routes[QStringLiteral("/filter")] = {
-        QNetworkReply::NoError,
-        with(kDiversityFilterStatus, "\"threshold_db\": 20.0, ", "")};
-    filterTick(a);
-    CHECK(!spin->isEnabled());
-    w->close();
-    settle();
-    closedToStart();
-}
-
-// --------------------------------------------------------------------------
-// (i) Two extra rows and a strip, and every page still fits
+// (h) Two extra rows and a strip, and every page still fits
 // --------------------------------------------------------------------------
 
 void testNothingScrollsOnAnyPageAtTheInitialSize()
@@ -570,7 +519,6 @@ int main(int argc, char** argv)
     testRealignThatIsNeverAnsweredGivesTheButtonBack();
     testSpectrumLineFollowsPanAndAlignment();
     testCaptureCountsDownAndNamesTheFileEverywhere();
-    testAgcThresholdSpinReadsAndWrites();
     testNothingScrollsOnAnyPageAtTheInitialSize();
 
     std::printf("\n%d diversity flow test(s) failed\n", g_failed);

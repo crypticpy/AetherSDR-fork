@@ -42,6 +42,14 @@ fact explains every limit below.
 The two loops report a **phase difference**, not a bearing: the same
 number covers two directions, and the window says "phase" for that reason.
 
+**This stacks with the client's own noise reduction.** DFNR (AetherSDR's
+speech-model denoiser, see the DSP applet's DFNR tab) is worth trying on
+faint SSB voice the combiner has already improved but not fully cleaned up —
+it runs on the demodulated audio after the gate's combining, so the two are
+independent stages, not competing ones. Below roughly 3 dB SNR, expect
+DFNR to occasionally invent speech-like artefacts rather than recover real
+words; treat anything you can't otherwise confirm as unverified.
+
 ## Hardware and launch
 
 - RSPduo in dual-tuner mode (`mode=DT`), one antenna per tuner input.
@@ -184,7 +192,7 @@ once briefly shows `—`. A station you have not named is shown by their
 number (`#4`) rather than as a blank; type over it to name them, and clear
 it back to nothing to un-name them.
 
-The **Filter** column is what PER TALKER on the FILTER page will put back
+The **Filter** column is what PER TALKER on the CHAIN window will put back
 when they key up: `300–2700 soft auto`, with a filled dot on whoever's is
 in force right now and a dash where the gate has kept none for them. It is
 the widest cell in the table, so it elides — hover it for the whole thing.
@@ -439,152 +447,39 @@ this gate`. Missing numbers render as `—` rather than as zeros.
 
 ## The FILTER page
 
-The question an operator asks more often than any other is "why does this
-sound like that?", and the answer is almost never the combiner. It is a
-passband 300 Hz narrower than you thought, a sharp filter ringing on a
-49 Hz skirt, an automatic notch chewing at a vowel, an AGC decay short
-enough to breathe between syllables, or a blanker removing four percent of
-the audio to kill a fence that stopped an hour ago. Every one of those is
-visible on this page and invisible on the other three.
+This page used to hold the whole slice filter — the response curve,
+WIDTH, NOTCH, TONE, AUTO CONTOUR, PER TALKER, AGC & NB, PRESETS. None of
+that is specific to a pair: a single-antenna receiver has a passband, an
+AGC and a notch too. It has all moved to the gate's own CHAIN window,
+reachable from the OPEN CHAIN button at the top of this page — the note
+underneath it says so in as many words: `roofing, blanker, shape, notch,
+APF, AGC: in the CHAIN window`.
 
-**The curve.** The gate's own measured response, 0 dB at the top and −60 dB
-at the bottom, with the passband shaded over it. The caption above it reads
-the whole filter in one line — `LSB · 100–2900 Hz · SHARP 1023 taps ·
-61 Hz transition`. On a lower sideband the numbers are positive audio hertz
-and the sideband is in the caption, because a filter drawn in negative
-frequencies is a picture nobody reads.
+What is left on FILTER, in the PAIR STAGES box, is the two stages that
+only exist because there are two receivers: a post-filter that works on
+the *coherence* between them, and a per-bin weight that only makes sense
+with a spatial map behind it. Neither has an equivalent on a single
+antenna.
 
-Both edges are draggable and snap to 10 Hz; only the edge you moved is sent,
-so dragging the low edge leaves an AUTO-chosen high edge alone. The keyboard
-reaches them too: Up and Down pick an edge, Left and Right move it by 10 Hz,
-Shift by 50. Double-click anywhere on the curve to put a notch there at the
-width beside the ADD button. Vertical marks are notches, labelled with the
-depth the gate measured; dashed lines are tones the automatic notcher has
-found on its own; short ticks off the bottom axis are the contour and audio
-peak centres. The hertz under the pointer is in the corner. Depth labels sit
-just under the 0 dB line beside their mark rather than on it, because the
-response runs along the top edge across the whole passband.
+**POST-FILTER.** Three buttons, OFF/V1/V2, checked state follows the
+gate's own `post.enabled`/`post.version`. V1 is the older, always-on-style
+suppressor; V2 learns the noise floor between words and subtracts it,
+worth trying on faint SSB the combiner has already improved but not fully
+cleaned up. The readout beside the buttons shows what V2 is actually
+doing when the gate reports numbers for it — `in 7.7 dB → out 10.8 dB,
+pauses 10 %` — and just `v1` or a dash otherwise.
 
-**What is actually arriving.** Filled in behind the curve is the gate's
-one-second pre-filter spectrum — the same measurement the AUTO width and the
-ANF read — on the same hertz axis. It is *not* drawn on the filter's own
-0…−60 dB scale: the gate reports it in dB below its own peak, so a dead
-channel drawn that way would paint a full-scale slab under the curve. The
-gate's median is pinned to the tick marked `floor` at −45 dB instead, and
-everything keeps its distance from that, so the area's HEIGHT is decibels
-over the noise and a station 30 dB out of the noise rises from −45 to −15.
-Before the gate has heard a block there is no area at all and the corner says
-`no audio yet`. While AUTO is on, the two edges it has chosen are marked with
-their own thin dash-dotted lines (labelled `auto` at the low one), which is
-how you see whether the tracker put them on the energy or beside it.
+**SUB-BAND MRC.** One checkable button. Ticked, the gate gives every bin
+in the passband its own weight from the spatial map instead of one
+weight for the whole channel — a small, situational gain, and a lab
+switch more than a daily one. The readout shows the gate's own numbers
+when it has them, `+0.2 dB over broadband, 120 bins`, and a dash
+otherwise.
 
-**The state line.** Under the curve, one line, always the same height:
-`in force 100–2900 Hz (asked 100–2900) · AUTO print 300–2700 · ANF 2 tones ·
-notches 2 · AGC med −1.9 dB · NB 0.4 %`. Everything on it is also in one of
-the four columns below — the point is that "what is switched on?" costs one
-glance rather than four columns of reading, and that the two pairs of edges
-sit next to each other where a disagreement between them is impossible to
-miss. `ANF off` and `ANF no tones` are different sentences on purpose.
-
-**WIDTH.** SOFT and SHARP are the two ends of one trade: SHARP spends taps
-on a near-vertical skirt and rings a little on transients, SOFT rolls off
-over a few hundred hertz and lets more of the neighbour in. The four preset
-buttons are widths, not passbands — they keep the low edge where it is and
-put the high edge 1.8, 2.4, 2.7 or 3.0 kHz above it, because the low edge is
-what decides how much rumble and hum you hear. AUTO hands both edges to the
-gate: `AUTO · print 300–2700` means it is fitting them to the voice print of
-the station you are listening to, `AUTO · spectrum 210–2840` that it is
-fitting them to the occupied spectrum instead, and `AUTO · warming up` that
-it has not decided yet. While AUTO is on, the spin boxes still show what
-*you* asked for and the caption shows what is in force. The roofing line
-(`Roof 200 kHz RF · 25 kHz digital`) is the two filters upstream of all of
-this, which nothing on this page can move.
-
-**NOTCH.** ANF is the automatic notcher; beside it are the tones it has
-found and how deep it is cutting them, to the same decimal the notch table's
-own dB column uses (`1240 Hz −34.0 dB, 2010 Hz −31.0 dB`, or `none`). The table below is your own notches, each with its measured depth
-and its own CLEAR; CLEAR ALL empties the table and leaves the automatic
-notcher alone.
-
-**TONE.** CONTOUR is a broad tilt at a frequency you choose — a few dB down
-at 700 Hz takes the boxiness out of a close-miked voice without touching
-the consonants. `APF (CW)` is a narrow peak, and the parenthesis is a
-warning: it is a CW tool and nothing else. Leave it on through a voice
-contact and everything comes through one note, which sounds exactly like
-the other station is talking into a cup. AUTO EQ matches the station's
-audio to yours and reports what it is doing as a tilt in dB.
-
-**AUTO CONTOUR.** Ticked, the gate places the contour itself: it fits the
-bell to the talker's own voice print — the frequency their audio piles up
-at and how much of it to take back out — so a boomy station is flattened
-and a thin one is left alone. While it is fitting, the three numbers under
-it are the gate's rather than yours: they show the bell it has settled on
-and they are not typeable, with `from print` beneath them. `no print yet`
-means it has not heard enough of anybody to fit anything and there is no
-contour in force at all — which is not the same thing as a contour at
-0 Hz, and the page never draws one. Typing any of the three numbers by
-hand takes the fit off, because the gate cannot fit and obey at the same
-time; the tick comes off as you commit the value and the caption reads
-`manual` from then on.
-
-**PER TALKER.** Under the four columns, its own box. The gate already
-remembers a combiner weight per station; with this on it remembers a
-filter per station too, and puts it back the block they key up. `FAST`
-snaps to it on the block boundary, `SMOOTH` glides over about a second —
-FAST if you are working a pile-up and want the change done before the
-first syllable, SMOOTH on a round-table where the switching itself would
-be more distracting than the mismatch. Off, one filter serves everybody.
-
-Whose filter is in force is on the state line: `filter: Ted's (#3)`, or
-`filter: #3` when the gate has heard them enough to keep a filter but you
-have not given them a name. The same filter is in the TALKERS table's
-Filter column on the SLICE page, where you can see everyone's at once.
-
-**AGC & NB.** The five AGC modes, and the three times behind them in
-milliseconds: attack, decay and hang. `gain −1.9 dB` is what the AGC is
-actually taking off right now, which is the number that tells you whether a
-short decay is pumping. NB is the noise blanker, with its threshold and —
-the readout that matters — `blanked 0.4 %`, the share of the audio it is
-throwing away. Anything above a percent or two on a quiet band means it is
-eating signal, not noise.
-
-**PRESETS.** Under the four columns, five whole filters. The width buttons in
-the WIDTH column move one edge and touch nothing else; these set the lot.
-`SSB WIDE` is 100–2900 soft, `SSB NARROW` 300–2400 sharp, `CW-ISH` 400–1000
-sharp with the audio peak on at 700 Hz, `NET` 200–2700 sharp with AUTO EQ on
-for a round-table where every station arrives with a different tilt. `RESET`
-is 100–2900 soft with the automatic notcher, contour, audio peak, automatic
-width, automatic equaliser and blanker all off, AGC medium, and every notch
-you placed cleared — the state to come back to when you can no longer tell
-which of six things is making it sound wrong. Each preset is one
-`/filter/set`; RESET is that plus one `/filter/notch?clear=1`, because
-removing every notch is a route rather than a setting.
-
-Every control writes immediately; there is no Apply button. The gate's reply
-to a write is the same status object a poll returns, so what you see a
-moment later is the radio's answer rather than the page's optimism. A value
-the gate refuses appears on the status line under the curve for a few
-seconds and nothing moves. The page is polled twice a second while it is on
-screen and not at all otherwise, and a mode with no slice filter behind it
-says `Filter is not available for this mode` and greys the lot.
-
-**A click holds.** Every control on FILTER holds the value you just gave
-it for up to 1.5 seconds against a poll, or a write's own reply, that
-still shows the old state. That is the fix for a checkbox, AUTO, or a
-shape/AGC button that used to flicker off and back on after one click:
-what looked like a dead click was a stale poll landing a beat late. A
-refused write (the gate answers with an error) drops the hold, so the
-next poll puts the control back where the gate has it.
-
-**APF is for CW.** APF and its Hz/W row only appear in the TONE column
-while the slice is in CW mode; on every other mode they are hidden, since
-audio peaking has nothing to offer a voice filter.
-
-**Your settings are everyone's.** Edges, shape, AUTO, AUTO EQ, contour and
-the AGC threshold apply to whoever is talking. PER TALKER means the
-automatics remember each voice: the AUTO edges, the EQ tilt and the fitted
-contour bell come back the block a known talker keys up, under your
-settings as they stand now.
+Both write immediately through `/diversity/set` (`post=off|on|v2`,
+`mrc=on|off`) — there is no Apply button and no write-hold: the gate's
+reply is the next `/diversity` poll's answer, and a button's checked
+state simply follows whatever that poll reports.
 
 ## A working session
 
@@ -678,18 +573,23 @@ The gate's HTTP control port (default 8731) serves:
   capture, `subband` {enabled, bins, extra_db}: the per-bin refinement of
   the tracked weight, `noise_profile` {mains_hz, hum_db, harmonics,
   impulses_per_s, impulse_db, periodic[], seconds, window_s,
-  impulse_window_s, `kinds[]`}: what kind of noise this is). Each `kinds`
+  impulse_window_s, `kinds[]`}: what kind of noise this is, `post`
+  {enabled, version: 1|2, and when v2: snr_in_db, snr_out_db,
+  pause_fraction, hold}: the coherence post-filter (the FILTER page's
+  PAIR STAGES), `mrc` {enabled, gain_over_broadband_db, bins_used}: the
+  per-bin sub-band weight). Each `kinds`
   row is {kind: "mains"|"impulse"|"periodic"|"tone"|"floor", label, detail,
   db (or null), window_s, action (or null), why (or null), active}, and an
   `action` is {label, route, query} — the gate's own nomination, meant to
   be sent back as `GET <route>?<query>` unchanged.
-- `GET /diversity/set?mode=&source=&phase=&ratio=&nb=&nb_db=&pan=&null_source=&focus=&subband=`
+- `GET /diversity/set?mode=&source=&phase=&ratio=&nb=&nb_db=&pan=&null_source=&focus=&subband=&post=&mrc=`
   — any subset; `source=combined|a|b|stereo` is what reaches the audio
   (stereo: A left, B right) and `pan=` what the panadapter draws;
   `focus=<id>` pins, `focus=off` releases; `subband=on|off`
   (default on: in null/track every passband bin gets its own weight
   wherever the learned noise has a direction, the talker held
-  distortionless).
+  distortionless); `post=off|on|v2` sets the coherence post-filter;
+  `mrc=on|off` sets the per-bin sub-band weight.
 - `GET /diversity/map` — the spatial noise map with `passband_hz`.
 - `GET /diversity/spatial` — live per-bin phase/coherence/level rows (the
   BAND page's waterfall); `GET /diversity/finder` — ranked conversations
