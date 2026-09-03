@@ -216,6 +216,38 @@ void DiversityFlowStrip::applyFilter(const QJsonObject& f)
                        .toObject()
                        .value(QStringLiteral("enabled"))
                        .toBool();
+
+    const QJsonValue talker = f.value(QStringLiteral("talker"));
+    const QJsonObject talkerObj = talker.isObject() ? talker.toObject() : QJsonObject();
+    m_talkerOn = talkerObj.value(QStringLiteral("enabled")).toBool();
+    const QJsonValue talkerId = talkerObj.value(QStringLiteral("id"));
+    m_haveTalkerId = talkerId.isDouble();
+    m_talkerId = m_haveTalkerId ? int(std::lround(talkerId.toDouble())) : 0;
+
+    const QJsonObject contour = f.value(QStringLiteral("contour")).toObject();
+    m_autoContour = contour.value(QStringLiteral("auto")).toBool();
+    const QJsonValue contourHz = contour.value(QStringLiteral("hz"));
+    // A fitted bell needs BOTH a centre and a source: auto with hz null is the
+    // tracker's honest "I have not heard a print yet", which is a different
+    // sentence from a contour at 0 Hz.
+    m_haveContour = contourHz.isDouble()
+                    && contour.value(QStringLiteral("source")).isString();
+    m_contourHz = m_haveContour ? contourHz.toDouble() : 0.0;
+    m_contourDb = contour.value(QStringLiteral("db")).toDouble();
+    rebuild();
+}
+
+void DiversityFlowStrip::setTalkerNames(const QJsonArray& memory)
+{
+    m_talkerNames.clear();
+    for (const QJsonValue& v : memory) {
+        const QJsonObject entry = v.toObject();
+        const QJsonValue id = entry.value(QStringLiteral("id"));
+        const QJsonValue name = entry.value(QStringLiteral("name"));
+        if (!id.isDouble() || !name.isString() || name.toString().isEmpty())
+            continue;
+        m_talkerNames.insert(int(std::lround(id.toDouble())), name.toString());
+    }
     rebuild();
 }
 
@@ -235,6 +267,12 @@ void DiversityFlowStrip::clear()
     m_filterEdges.clear();
     m_filterShape.clear();
     m_filterAuto = false;
+    m_talkerOn = false;
+    m_haveTalkerId = false;
+    m_talkerId = 0;
+    m_talkerNames.clear();
+    m_autoContour = false;
+    m_haveContour = false;
     rebuild();
 }
 
@@ -313,6 +351,28 @@ DiversityFlowStrip::State DiversityFlowStrip::filterState() const
         text += QStringLiteral(" ") + m_filterShape;
     if (m_filterAuto)
         text += QStringLiteral(" · ") + tr("AUTO");
+    // WHOSE filter. With the per-talker recall on, "100-2900 soft" is not one
+    // fact about the receiver -- it is one fact about one station, and the step
+    // that did not say so would be quietly wrong every time somebody else
+    // keyed up.
+    if (m_talkerOn && m_haveTalkerId) {
+        const QString name = m_talkerNames.value(m_talkerId);
+        text += QStringLiteral(" · ")
+                + (name.isEmpty()
+                       ? tr("filter #%1").arg(m_talkerId)
+                       : tr("%1's filter (#%2)")
+                             .arg(name, QString::number(m_talkerId)));
+    }
+    if (m_autoContour) {
+        text += QStringLiteral(" · ")
+                + (m_haveContour
+                       ? tr("auto contour %1 dB at %2 Hz")
+                             .arg(m_contourDb < 0.0
+                                      ? QStringLiteral("−%1").arg(-m_contourDb, 0, 'f', 0)
+                                      : QStringLiteral("+%1").arg(m_contourDb, 0, 'f', 0),
+                                  QString::number(qint64(std::llround(m_contourHz))))
+                       : tr("auto contour: no print yet"));
+    }
     return {text, true};
 }
 

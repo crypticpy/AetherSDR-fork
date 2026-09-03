@@ -11,14 +11,19 @@
 //   * HUE        is the inter-loop phase, -180..180 degrees mapped once around
 //                the hue circle. A station is a coloured streak; a second
 //                station from another direction is a DIFFERENT colour.
-//   * SATURATION is the coherence, 0..1. Sky noise is incoherent between the
-//                loops, so it desaturates to grey: the grey is the honest
-//                statement "there is no direction here", not a colour we
-//                picked for background.
-//   * VALUE      is the level, over a fixed kLevelWindowDb window below the
-//                brightest bin of the SAME row. A row-relative window, not an
-//                absolute dBFS one, so the picture does not black out when the
-//                operator changes gain.
+//   * SATURATION is GATED on the coherence: grey below 0.5, coming up to full
+//                colour by 0.9. Below the gate the phase between the loops is
+//                not a direction at all, it is two noise samples that lined up
+//                for one poll, and the grey is the honest statement "there is
+//                no direction here". Saturation used to be the raw coherence,
+//                which painted every noise bin a third of the way to a
+//                confident hue and turned the whole span into a pastel wash.
+//   * VALUE      is the level, stretched between the 20th and 98th percentiles
+//                of the SAME row and smoothstepped. Percentiles rather than
+//                min/max because one strong carrier setting the top of the
+//                scale squashes every other signal into the bottom of the
+//                range; row-relative rather than absolute dBFS so the picture
+//                does not black out when the operator changes gain.
 //
 // A local noise source therefore paints as one flat colour across every bin it
 // touches -- which is exactly the thing that is invisible on a normal

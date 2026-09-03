@@ -31,6 +31,7 @@
 #include "gui/DiversityFilterControls.h"
 #include "gui/DiversityFilterPanel.h"
 #include "gui/DiversityFlowStrip.h"
+#include "gui/DiversityTalkerControls.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
 
@@ -330,10 +331,18 @@ void DiversityFilterControls::showTransient(const QString& text)
     m_statusTimer->start(kTransientMs);
 }
 
+void DiversityFilterControls::setTalkerNames(const QJsonArray& memory)
+{
+    if (m_talker)
+        m_talker->setTalkerNames(memory);
+}
+
 void DiversityFilterControls::clear()
 {
     m_available = false;
     m_statusTimer->stop();
+    if (m_talker)
+        m_talker->clear();
     m_baseStatus.clear();
     m_status->setText(QString());
     DiversityWidgets::setLive(m_status, false);
@@ -343,7 +352,7 @@ void DiversityFilterControls::clear()
     m_notchRows.clear();
     m_notchTable->setRowCount(0);
     for (QLabel* line : {m_forceLine, m_autoLine, m_roofingLine, m_anfLine, m_tiltLine,
-                         m_gainLine, m_blankedLine}) {
+                         m_contourSourceLine, m_gainLine, m_blankedLine}) {
         line->setText(emDash());
     }
 }
@@ -504,10 +513,30 @@ void DiversityFilterControls::applyStatus(const QJsonObject& f)
     // --- TONE --------------------------------------------------------------
     const QJsonObject contour = f.value(QStringLiteral("contour")).toObject();
     writeCheck(m_contourCheck, contour.value(QStringLiteral("enabled")).toBool());
+    const bool autoContour = contour.value(QStringLiteral("auto")).toBool();
+    writeCheck(m_autoContourCheck, autoContour);
+    // While the gate is fitting the bell itself, the three numbers are ITS
+    // answer: they are shown, because seeing where the fit landed is the whole
+    // point, and they are dead, because a control the next poll overwrites is
+    // not a control. hz null with auto on is "nothing fitted yet" -- the spin
+    // keeps its last value rather than snapping to zero, which would draw a
+    // contour at DC that nobody has.
+    const QJsonValue contourHz = contour.value(QStringLiteral("hz"));
     writeSpin(m_contourHzSpin, jsonInt(contour, "hz", m_contourHzSpin->value()));
     writeSpin(m_contourDbSpin, jsonInt(contour, "db", m_contourDbSpin->value()));
     writeSpin(m_contourWidthSpin,
               jsonInt(contour, "width_hz", m_contourWidthSpin->value()));
+    for (QSpinBox* spin : {m_contourHzSpin, m_contourDbSpin, m_contourWidthSpin})
+        spin->setEnabled(!autoContour);
+    const QJsonValue contourSource = contour.value(QStringLiteral("source"));
+    if (!autoContour) {
+        m_contourSourceLine->setText(tr("manual"));
+    } else {
+        m_contourSourceLine->setText(
+            (contourSource.isString() && contourHz.isDouble())
+                ? tr("from %1").arg(contourSource.toString())
+                : tr("no print yet"));
+    }
 
     const QJsonObject apf = f.value(QStringLiteral("apf")).toObject();
     writeCheck(m_apfCheck, apf.value(QStringLiteral("enabled")).toBool());
@@ -539,6 +568,9 @@ void DiversityFilterControls::applyStatus(const QJsonObject& f)
     const bool haveGain = jsonNumber(agc, "gain_db", &gain);
     m_gainLine->setText(haveGain ? tr("gain %1 dB").arg(signedDb(gain, 1))
                                  : tr("gain %1").arg(emDash()));
+
+    // --- PER TALKER --------------------------------------------------------
+    m_talker->applyTalker(f.value(QStringLiteral("talker")));
 
     const QJsonObject nb = f.value(QStringLiteral("nb")).toObject();
     writeCheck(m_nbCheck, nb.value(QStringLiteral("enabled")).toBool());
@@ -576,6 +608,13 @@ void DiversityFilterControls::applyStatus(const QJsonObject& f)
                                     : tr("ANF %1 tones").arg(tones.size()));
     }
     state << tr("notches %1").arg(notchArray.size());
+    // Whose filter this is. Only when the recall is on AND the gate names a
+    // talker -- see DiversityTalkerControls::stateClause(); an empty clause is
+    // dropped rather than dashed, because "one filter for everybody" is the
+    // ordinary state and not a missing reading.
+    const QString talkerClause = m_talker->stateClause();
+    if (!talkerClause.isEmpty())
+        state << talkerClause;
     const QString agcMode = agc.value(QStringLiteral("mode")).toString();
     if (agcMode == QLatin1String("off")) {
         state << tr("AGC off");

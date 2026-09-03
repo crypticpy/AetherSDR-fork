@@ -54,6 +54,7 @@ class QVBoxLayout;
 namespace AetherSDR {
 
 class DiversityFilterPanel;
+class DiversityTalkerControls;
 
 class DiversityFilterControls : public QWidget {
     Q_OBJECT
@@ -72,6 +73,11 @@ public:
     //     puts the refused control back where the gate actually has it.
     //   * a status object -- the page is redrawn from it.
     void applyStatus(const QJsonObject& filter);
+
+    // /diversity's memory[]. The one thing on this page that does NOT come off
+    // a /filter object: the PER TALKER strip has the id of whose filter is in
+    // force, and only the combiner's memory has the name behind it.
+    void setTalkerNames(const QJsonArray& memory);
 
     // Gate gone. Same as an "available": false payload, said by the window.
     void clear();
@@ -127,7 +133,11 @@ private:
     void showTransient(const QString& text);
     void applyNotchTable(const QJsonArray& notches);
 
-    DiversityFilterPanel* m_panel{nullptr};
+    DiversityFilterPanel*     m_panel{nullptr};
+    // The PER TALKER strip. Its own class -- see DiversityTalkerControls.h --
+    // because the state line's "whose filter" clause needs the /diversity
+    // memory this page otherwise never sees.
+    DiversityTalkerControls*  m_talker{nullptr};
     QLabel*               m_caption{nullptr};
     // The one line between the curve and the columns: the whole state of the
     // filter as a sentence, so the answer to "what is switched on?" does not
@@ -157,6 +167,12 @@ private:
 
     // --- TONE ------------------------------------------------------------
     QCheckBox* m_contourCheck{nullptr};
+    // AUTO CONTOUR: the bell fitted to the talker's own voice print. While it
+    // is on the three spins below show the gate's fit and are dead, because a
+    // number you can change and the gate immediately overwrites is a lie about
+    // who owns it. The caption says which of the two things it is doing.
+    QCheckBox* m_autoContourCheck{nullptr};
+    QLabel*    m_contourSourceLine{nullptr};
     QSpinBox*  m_contourHzSpin{nullptr};
     QSpinBox*  m_contourDbSpin{nullptr};
     QSpinBox*  m_contourWidthSpin{nullptr};

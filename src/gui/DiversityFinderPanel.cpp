@@ -335,10 +335,22 @@ void DiversityFinderPanel::setCandidates(const QJsonObject& finder)
             number(c, "coherence", 2),
             signedNumber(c, "gain_db", 1),
         };
+        // The kHz cell is the gate's SNAPPED frequency -- it puts candidates on
+        // a 500 Hz grid, because a conversation is not a carrier and a centre
+        // quoted to the hertz is precision the estimate does not have. When the
+        // gate also sends the raw estimate the row says so on the hover, so the
+        // snap is visible rather than silent: a 130 Hz difference between the
+        // two is normal, and a large one means the detector is unsure.
+        const QJsonValue rawValue = c.value(QStringLiteral("hz_raw"));
+        const QString tip =
+            rawValue.isDouble()
+                ? tr("estimate %1 kHz").arg(rawValue.toDouble() / 1e3, 0, 'f', 2)
+                : QString();
         for (int col = 0; col < cells.size(); ++col) {
             auto* item = new QTableWidgetItem(cells[col]);
             item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
             item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            item->setToolTip(tip);
             m_table->setItem(r, col, item);
         }
 

@@ -51,6 +51,13 @@ struct DiversitySnapshot {
 
     QVector<int> memoryIds;        // ids present in "memory", in gate order
 
+    // The gate's running count of times it decided the voice it was hearing
+    // was NOT the one it had been hearing, and split the over into two
+    // talkers. A count rather than a flag because the split is instantaneous:
+    // a poll can miss the moment but cannot miss the increment.
+    bool    haveVoiceSplits{false};
+    int     voiceSplits{0};
+
     bool    haveFocus{false};      // "focus": {...} rather than null
     int     focusId{0};
     QString focusName;
@@ -84,6 +91,13 @@ public:
     // sentence in the list is written in one place and reads as one voice.
     static QString memoryClearedLine();
     static QString captureSavedLine(const QString& basename);
+
+    // `#2 "Bob"` when the gate has a name for it, `#2` when it does not. A
+    // talker with no name is not "unnamed" or "(none)": it is just a number,
+    // and saying so in fewer words is the honest form. Shared with the
+    // window's own LOCKED/nulling state line for the reason shortDuration is
+    // shared with the talkers table -- one station, one spelling.
+    static QString talkerTag(int id, const QString& name);
 
     // "12 s" / "3 m" / "2 h" -- a duration an operator reads without
     // counting digits. Shared with the talkers table's Heard/First columns so

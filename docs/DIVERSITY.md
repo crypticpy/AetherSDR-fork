@@ -139,14 +139,22 @@ zero; that is the physics, not a fault.
 
 **TALKERS.** The gate's memory: id, an editable name (double-click; stored
 on the gate and persisted across restarts by the talker's spatial
-signature), phase, level, hits, last heard, first heard, and **TX** — the
-upper edge of the station's transmitted audio in kHz, which is their rig's
-filter and stays put when the antennas move and the spatial signature does
-not. Hover a row for the whole print: both audio edges, where the voice is
-centred and how it tilts, syllables per second, how long their overs run.
-The gate learns it from the combined audio over their overs (a print needs
-an over of 1.5 s or more), so a talker heard once briefly shows `—`. The
-row that is lit is whoever is talking. Buttons:
+signature), phase, level, hits, last heard, first heard, **Filter**, and
+**TX** — the upper edge of the station's transmitted audio in kHz, which
+is their rig's filter and stays put when the antennas move and the spatial
+signature does not. Hover a row for the whole print: both audio edges,
+where the voice is centred and how it tilts, syllables per second, how
+long their overs run. The gate learns it from the combined audio over
+their overs (a print needs an over of 1.5 s or more), so a talker heard
+once briefly shows `—`. A station you have not named is shown by their
+number (`#4`) rather than as a blank; type over it to name them, and clear
+it back to nothing to un-name them.
+
+The **Filter** column is what PER TALKER on the FILTER page will put back
+when they key up: `300–2700 soft auto`, with a filled dot on whoever's is
+in force right now and a dash where the gate has kept none for them. It is
+the widest cell in the table, so it elides — hover it for the whole thing.
+The row that is lit is whoever is talking. Buttons:
 
 - **Lock on #N** — select a row first. Pins the combiner on that station.
   Their overs get the remembered beam (the weight is pre-steered there
@@ -187,6 +195,19 @@ selected**, which parks a manual weight on a source's null.
 remembered, lock and release, steady carrier nulled, mode and hear
 changes, realigns, captures.
 
+One of those lines is worth knowing about before you see it. `voice split:
+not Ted's voice → Ann` means the gate decided mid-over that the voice it
+was hearing was no longer the one it had been hearing, and split the over
+into two talkers. It is the one talker change you cannot hear happening:
+nobody stopped transmitting, the frequency did not move, and the only
+outward sign is that the number beside the marker on the dial quietly
+became a different number — and, with PER TALKER on, that the filter
+changed under you. A handful of these on a busy round-table is the gate
+doing its job. A stream of them on one station usually means their audio
+is changing faster than the print can follow (a fading path, or somebody
+walking away from the microphone), and the cure is to name them and lock
+on rather than to argue with the splitter.
+
 ## The BAND page
 
 Everything on the SLICE page is about one channel, so none of it can answer
@@ -197,11 +218,20 @@ first over you hear is already being solved for.
 
 **SPATIAL WATERFALL.** One row per poll (4 Hz) across the gate's span, with
 colour meaning *direction* rather than strength: hue is the inter-loop
-arrival phase, saturation is coherence, brightness is level over a 50 dB
-window below the row's loudest bin. Two stations arriving from different
-places cannot share a colour. One local noise source paints a single flat
-colour across everything it touches, which is how you recognise it. Sky
-noise has no direction, so it goes grey. The receiver's passband is
+arrival phase, and the key under the picture is the scale itself — the hue
+wheel from −180° to +180°, and the grey the waterfall paints where there
+is no direction to report. A bin only gets a hue where the two loops agree
+well enough to call it one: below 0.5 coherence it stays grey, and from
+there the colour comes up to full by 0.9. Sky noise arrives from
+everywhere at once, so it is grey by definition. Brightness is the level,
+stretched between the row's own 20th and 98th percentiles rather than
+between its floor and its peak — the old scale let a single strong carrier
+set the top of the range and squashed everything else into a blur at the
+bottom of it.
+
+Two stations arriving from different places cannot share a colour. One
+local noise source paints a single flat colour across everything it
+touches, which is how you recognise it. The receiver's passband is
 bracketed. Click a column to tune there; hover for the numbers.
 
 **FINDER.** The activity strip is the share of the last ten minutes each
@@ -210,7 +240,10 @@ found there, best first (at most twelve, ranked by the gate): frequency,
 score, SNR, syllabic rate, how long it has been active, how long ago it was
 last heard, arrival phase, coherence, and `gain` — the diversity gain the
 pair can actually earn on that signal, which on plain sky noise is often
-near zero and says so. **Tune** (or a double-click on the row) goes there.
+near zero and says so. The frequency is snapped to the 500 Hz grid you
+actually tune on; hover a row to see the estimate it was rounded from
+(`estimate 3860.37 kHz`), which is also how sure the gate is of it.
+**Tune** (or a double-click on the row) goes there.
 
 A gate that is too old to serve these two routes, or that has not built a
 map yet, leaves the waterfall empty with *waiting for the gate*; missing
@@ -404,8 +437,37 @@ notcher alone.
 
 **TONE.** CONTOUR is a broad tilt at a frequency you choose — a few dB down
 at 700 Hz takes the boxiness out of a close-miked voice without touching
-the consonants. APF is a narrow peak, which is a CW tool. AUTO EQ matches
-the station's audio to yours and reports what it is doing as a tilt in dB.
+the consonants. `APF (CW)` is a narrow peak, and the parenthesis is a
+warning: it is a CW tool and nothing else. Leave it on through a voice
+contact and everything comes through one note, which sounds exactly like
+the other station is talking into a cup. AUTO EQ matches the station's
+audio to yours and reports what it is doing as a tilt in dB.
+
+**AUTO CONTOUR.** Ticked, the gate places the contour itself: it fits the
+bell to the talker's own voice print — the frequency their audio piles up
+at and how much of it to take back out — so a boomy station is flattened
+and a thin one is left alone. While it is fitting, the three numbers under
+it are the gate's rather than yours: they show the bell it has settled on
+and they are not typeable, with `from print` beneath them. `no print yet`
+means it has not heard enough of anybody to fit anything and there is no
+contour in force at all — which is not the same thing as a contour at
+0 Hz, and the page never draws one. Typing any of the three numbers by
+hand takes the fit off, because the gate cannot fit and obey at the same
+time; the tick comes off as you commit the value and the caption reads
+`manual` from then on.
+
+**PER TALKER.** Under the four columns, its own box. The gate already
+remembers a combiner weight per station; with this on it remembers a
+filter per station too, and puts it back the block they key up. `FAST`
+snaps to it on the block boundary, `SMOOTH` glides over about a second —
+FAST if you are working a pile-up and want the change done before the
+first syllable, SMOOTH on a round-table where the switching itself would
+be more distracting than the mismatch. Off, one filter serves everybody.
+
+Whose filter is in force is on the state line: `filter: Ted's (#3)`, or
+`filter: #3` when the gate has heard them enough to keep a filter but you
+have not given them a name. The same filter is in the TALKERS table's
+Filter column on the SLICE page, where you can see everyone's at once.
 
 **AGC & NB.** The five AGC modes, and the three times behind them in
 milliseconds: attack, decay and hang. `gain −1.9 dB` is what the AGC is

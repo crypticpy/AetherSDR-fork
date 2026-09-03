@@ -40,11 +40,13 @@
 // leaves it: stepActivated(), which the window turns into a page switch and,
 // where the step has a one-click cure, the write that applies it.
 
+#include <QHash>
 #include <QString>
 #include <QStringList>
 #include <QVector>
 #include <QWidget>
 
+class QJsonArray;
 class QJsonObject;
 class QLabel;
 class QPushButton;
@@ -79,6 +81,13 @@ public:
     // {"error": ...} refusal both leave the step where it is: the FILTER step
     // states what is IN FORCE, and a failed request did not change that.
     void applyFilter(const QJsonObject& filter);
+
+    // /diversity's memory[], for the name behind the talker id /filter reports.
+    // A separate call rather than a read out of applyDiversity() because the
+    // FILTER step is the one step fed from BOTH payloads, and the two arrive on
+    // different polls: the strip has to be able to hold a name across a tick
+    // where only one of them landed.
+    void setTalkerNames(const QJsonArray& memory);
 
     // Gate gone. Every step goes to a dash and ALIGN becomes next again --
     // when the gate comes back the order starts from the top, because after a
@@ -138,6 +147,20 @@ private:
     QString m_filterEdges;
     QString m_filterShape;
     bool    m_filterAuto{false};
+    // Whose filter is in force. The id is /filter's; the name is /diversity's,
+    // and a talker the combiner has no label for is quoted as its number
+    // rather than left out -- "somebody's own filter" is the fact, and the
+    // number is how the TALKERS table names them too.
+    bool    m_talkerOn{false};
+    bool    m_haveTalkerId{false};
+    int     m_talkerId{0};
+    QHash<int, QString> m_talkerNames;
+    // The automatic contour, reduced to the three facts the step states: is it
+    // fitting, has it fitted anything yet, and where it put the bell.
+    bool    m_autoContour{false};
+    bool    m_haveContour{false};
+    double  m_contourHz{0.0};
+    double  m_contourDb{0.0};
 };
 
 } // namespace AetherSDR

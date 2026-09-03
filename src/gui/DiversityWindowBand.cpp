@@ -28,6 +28,7 @@
 
 #include "core/ThemeManager.h"
 #include "gui/DiversityFinderPanel.h"
+#include "gui/DiversitySpatialLegend.h"
 #include "gui/DiversitySpatialWaterfall.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
@@ -38,7 +39,6 @@
 #include <QHideEvent>
 #include <QHBoxLayout>
 #include <QJsonObject>
-#include <QLabel>
 #include <QScrollArea>
 #include <QShowEvent>
 #include <QSignalBlocker>
@@ -175,15 +175,14 @@ QWidget* DiversityWindow::buildBandPage()
             &DiversityWindow::tuneTo);
     waterfallBody->addWidget(m_waterfall, 1);
 
-    // Plain label, explicit spacing, NO word wrap: a wrapping label is
-    // height-for-width, which makes the layout above it height-for-width too
-    // and puts a scrollbar on a page that fits.
-    QLabel* legend = DiversityWidgets::makeFieldLabel(
-        tr("hue: arrival phase · saturation: coherence · brightness: level"),
-        waterfallFrame);
-    legend->setObjectName(QStringLiteral("diversityWindowSpatialLegend"));
-    legend->setAccessibleName(tr("Spatial waterfall legend"));
-    waterfallBody->addWidget(legend);
+    // The key, drawn rather than described. The sentence that used to sit here
+    // -- "hue: arrival phase · saturation: coherence · brightness: level" --
+    // named the mapping without giving a single colour a number, so a streak
+    // on the picture still could not be read off it. Fixed height and no word
+    // wrap, for the same reason the label had them: a height-for-width widget
+    // here makes the whole page height-for-width and puts a scrollbar on
+    // something that fits.
+    waterfallBody->addWidget(new DiversitySpatialLegend(waterfallFrame));
     root->addWidget(waterfallFrame, 1);
 
     QVBoxLayout* finderBody = nullptr;

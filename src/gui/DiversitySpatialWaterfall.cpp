@@ -37,11 +37,29 @@ constexpr int kHistoryRows = 300;
 // DiversityMapStrip keeps on its own coherence array.
 constexpr int kMaxPoints = 4096;
 
-// Brightness window, in dB below the brightest bin of the SAME row. Relative
-// to the row rather than to an absolute dBFS floor so the picture survives a
-// gain change: what it claims is "loud FOR THIS ROW", which is the claim a
-// waterfall can actually support.
-constexpr double kLevelWindowDb = 50.0;
+// Where the brightness scale is pinned, as percentiles of THIS row's own
+// levels. A row's 20th percentile IS its noise floor -- four bins in five are
+// louder than it -- and its 98th is the loudest thing that is not one outlying
+// bin. Pinning to min/max instead let a single strong carrier set the top of
+// the scale and squashed everything else into the bottom fifth of the range,
+// which is what the operator saw as "a big blurry mess": everything mid-grey,
+// nothing readable.
+constexpr double kLevelLowPercentile = 0.20;
+constexpr double kLevelHighPercentile = 0.98;
+
+// A row whose 20th and 98th percentiles are the same number (a flat span, or a
+// gate sending one repeated value) would divide by zero. Give it a nominal
+// window so it paints flat rather than black.
+constexpr double kMinLevelWindowDb = 1.0;
+
+// Coherence gate for the hue. Below kCoherenceFloor the phase between the
+// loops is not a direction, it is two noise samples that happened to line up
+// for one poll, and painting it a confident colour is the picture telling a
+// lie. From there the colour comes UP to full over kCoherenceFull, so the
+// transition reads as "this is starting to look like something" rather than a
+// hard edge. Grey below the floor is the honest statement.
+constexpr double kCoherenceFloor = 0.5;
+constexpr double kCoherenceFull = 0.9;
 
 // The frequency axis under the picture: one line of small text.
 constexpr int kAxisHeight = 15;
@@ -61,6 +79,16 @@ constexpr double kPassbandFillAlpha = 0.14;
 // drawn at full value with the level tooltip saying "—" -- the honest split
 // between "not measured" (the readout) and "not drawable" (the pixel).
 constexpr double kValueWithoutLevel = 0.9;
+
+// One percentile of an already-sorted, non-empty array. Nearest-rank rather
+// than interpolated: with a few hundred bins the difference is invisible, and
+// the rank is the number the comment above can honestly claim.
+float percentileOf(const QVector<float>& sorted, double p)
+{
+    const int last = sorted.size() - 1;
+    const int idx = std::clamp(int(std::llround(p * last)), 0, last);
+    return sorted[idx];
+}
 
 // Reads one gate array into `out`, clamped to kMaxPoints. Returns false when
 // the key is absent or is not an array: a leg nobody sent is not a leg of
@@ -207,18 +235,25 @@ void DiversitySpatialWaterfall::setSpatial(const QJsonObject& spatial)
     if (m_history.isNull())
         return;
 
-    // Brightness is relative to the brightest bin of THIS row -- see
-    // kLevelWindowDb.
-    double peakDb = 0.0;
-    bool havePeak = false;
+    // Brightness is stretched between two percentiles of THIS row -- see
+    // kLevelLowPercentile.
+    double lowDb = 0.0;
+    double highDb = 0.0;
+    bool haveWindow = false;
     if (haveLevel) {
+        QVector<float> sorted;
+        sorted.reserve(std::min(n, int(level.size())));
         for (int i = 0; i < n && i < level.size(); ++i) {
-            if (std::isnan(level[i]))
-                continue;
-            if (!havePeak || level[i] > peakDb) {
-                peakDb = level[i];
-                havePeak = true;
-            }
+            if (!std::isnan(level[i]))
+                sorted << level[i];
+        }
+        if (!sorted.isEmpty()) {
+            std::sort(sorted.begin(), sorted.end());
+            lowDb = percentileOf(sorted, kLevelLowPercentile);
+            highDb = percentileOf(sorted, kLevelHighPercentile);
+            if (highDb - lowDb < kMinLevelWindowDb)
+                highDb = lowDb + kMinLevelWindowDb;
+            haveWindow = true;
         }
     }
 
@@ -257,11 +292,24 @@ void DiversitySpatialWaterfall::setSpatial(const QJsonObject& spatial)
                                              360.0);
             hue = std::clamp(wrapped / 360.0, 0.0, 0.9999);
         }
-        const double sat = (okPhase && okCoh) ? std::clamp(double(coherence[i]), 0.0, 1.0) : 0.0;
+        // Colour only where there is a direction to be had. Saturation used to
+        // BE the coherence, which meant a bin at 0.3 -- noise -- still came out
+        // a third of the way to a confident hue, and a whole span of those is a
+        // wash of pastel with the real signals lost in it.
+        double sat = 0.0;
+        if (okPhase && okCoh) {
+            sat = std::clamp((double(coherence[i]) - kCoherenceFloor)
+                                 / (kCoherenceFull - kCoherenceFloor),
+                             0.0, 1.0);
+        }
         double value = kValueWithoutLevel;
-        if (okLevel && havePeak) {
-            value = std::clamp((double(level[i]) - (peakDb - kLevelWindowDb)) / kLevelWindowDb,
-                               0.0, 1.0);
+        if (okLevel && haveWindow) {
+            const double t = std::clamp((double(level[i]) - lowDb) / (highDb - lowDb),
+                                        0.0, 1.0);
+            // Smoothstep, not the straight ramp: it pushes the floor darker and
+            // the loud end brighter, so a signal separates from the noise around
+            // it instead of being three shades of the same grey.
+            value = t * t * (3.0 - 2.0 * t);
         }
         row[i] = QColor::fromHsvF(hue, sat, value).rgb();
     }

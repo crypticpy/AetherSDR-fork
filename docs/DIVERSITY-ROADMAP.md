@@ -424,3 +424,38 @@ the gate has no `set_filter_width_hz` and the SSB passband is a fixed
    Layout rounds on SLICE / SITE / FILTER once the information exists.
    Kept inside the Diversity window for now; the filter core is written
    so it can become a DSP add-on for every backend later.
+7. **Done** (gate `15aca8f`, `f1d79b6`, `a72bcf1`: `/filter` carries a
+   `talker` block — on/off, `fast`/`smooth` snap, whose filter is in force
+   and which ids are remembered — and a `contour` block that says whether
+   the bell is the gate's own fit and where it came from; `/diversity`
+   carries `voice_splits` and a per-memory-entry `filter`, and the finder
+   snaps each candidate to the 500 Hz grid while keeping `hz_raw`).
+   **Per-talker filters in the window**: the FILTER page grows a `PER
+   TALKER` box with the FAST/SMOOTH choice beside it, and the state line
+   names whose filter is in force (`filter: Ted's (#3)`, or the number
+   when the gate has no name for them). `AUTO CONTOUR` sits on the CONTOUR
+   row: while it is fitting, the three numbers are the gate's and are not
+   the operator's to type, with `from print` or `no print yet` under them;
+   typing one takes the fit off, which is what the gate does anyway. `APF`
+   reads `APF (CW)` and its hover says out loud what the operator found
+   the hard way — on speech it rings everything through one note and the
+   station sounds like they are talking into a cup. The TALKERS table
+   grows a Filter column (`300–2700 soft auto`, the live one dotted, a
+   dash where the gate has kept none) and an unnamed station is `#4`
+   rather than a blank cell. EVENTS says `voice split: not Ted's voice →
+   Ann` when the gate splits an over, which is the one talker change
+   nobody can hear happening. The FLOW strip's FILTER step quotes both the
+   talker and the fitted bell. The FINDER shows the frequency you can tune
+   to and says on hover what it was rounded from.
+   **The spatial waterfall, made legible**: the operator's verdict on the
+   old colouring was "a big blurry mess", and it was right — saturation
+   was the raw coherence, so every noise bin came out a third of the way
+   to a confident hue, and brightness was stretched between the row's
+   floor and its peak, so one strong carrier squashed everything else into
+   the bottom of the range. Now the hue is gated (grey below 0.5, full
+   colour by 0.9) and the level is stretched between the row's 20th and
+   98th percentiles and smoothstepped. The sentence that used to describe
+   the mapping is replaced by the scale itself: a hue wheel from −180° to
+   +180° with the grey swatch beside it.
+   `docs/DIVERSITY.md` gains the PER TALKER, AUTO CONTOUR and voice-split
+   paragraphs.

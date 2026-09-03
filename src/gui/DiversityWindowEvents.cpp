@@ -52,11 +52,22 @@ const char* kEventListStyle =
     " border-radius: 3px; }"
     "QListWidget::item { padding: 1px 3px; }";
 
-// # / Name / Phase / Level / Hits / Heard / First / TX. Fixed widths so a
-// poll that adds or drops a remembered talker scrolls the table, never
+// # / Name / Phase / Level / Hits / Heard / First / Filter / TX. Fixed widths
+// so a poll that adds or drops a remembered talker scrolls the table, never
 // resizes the panel around it. Height comes from the layout (the table shares
 // the scope's stretch row), never from the row count.
-constexpr int kTalkerColumnWidths[] = {40, 70, 44, 56, 34, 42, 40, 40};
+//
+// Every column here is narrower than it used to be, and that is not tidying:
+// the SLICE page had 21 px of slack at the window's minimum size, and a Filter
+// column that took its width from the other eight would have put a scrollbar
+// on a page whose whole design is that it fits. Each is now the widest thing
+// it ever has to hold plus the 6 px of cell padding -- "-175°", "+12.3",
+// "120 m", "2.7k" -- and nothing more.
+//
+// Filter gets what is left, which is not enough for the longest summary. It
+// elides, and the cell carries the whole of it as its own tooltip: the same
+// split the TX column already makes with the voice print.
+constexpr int kTalkerColumnWidths[] = {34, 52, 40, 46, 28, 38, 34, 72, 34};
 constexpr int kTalkerColumnCount =
     int(sizeof(kTalkerColumnWidths) / sizeof(kTalkerColumnWidths[0]));
 constexpr int kTalkerRowHeight = 22;
@@ -65,36 +76,18 @@ constexpr int kTalkerTableMinHeight = 100;
 // the table's own minimum so the column it lives in can never be squeezed to
 // the point of hiding "Heard" and "First" -- a talker list with the ages cut
 // off is the v1 problem all over again.
-constexpr int kTalkerTableMinWidth = 392;
+constexpr int kTalkerTableMinWidth = 404;
 
 // Which column carries the operator's own label. Named rather than spelled 1
 // in six places, because it is the one column with different rules.
 constexpr int kTalkerNameColumn = 1;
 
+// The remembered-filter column. Words, not a number, so it is the one other
+// column that reads left-aligned and elides on the right like prose.
+constexpr int kTalkerFilterColumn = 7;
+
 // Newest first, and bounded: an event list is a tail, not an archive.
 constexpr int kMaxEvents = 200;
-
-// Which leg the operator is hearing, in the words the chain row's own buttons
-// use -- "A", not "a", so the line and the button agree.
-QString hearWord(const QString& wire)
-{
-    if (wire == QLatin1String("a"))
-        return QStringLiteral("A");
-    if (wire == QLatin1String("b"))
-        return QStringLiteral("B");
-    return wire;
-}
-
-// `#2 "Bob"` when the gate has a name for it, `#2` when it does not. A talker
-// with no name is not "unnamed" or "(none)": it is just a number, and saying
-// so in fewer words is the honest form.
-QString talkerTag(int id, const QString& name)
-{
-    if (name.isEmpty())
-        return QStringLiteral("#%1").arg(id);
-    return QStringLiteral("#%1 \"%2\"").arg(QString::number(id), name);
-}
-
 
 
 // Row content is packed into one string per row so an unchanged memory list
@@ -109,6 +102,43 @@ QString cellOr(bool have, const QString& text)
     return have ? text : QStringLiteral("—");
 }
 
+// One memory[] entry's remembered filter as a cell: "300–2700 soft auto", with
+// the same filled bullet the # column uses for whoever is on the air marking
+// the one that is actually in force. A talker the gate has kept no filter for
+// is a dash -- not "default", which would claim a setting nothing has made.
+QString filterSummary(const QJsonValue& value)
+{
+    if (!value.isObject())
+        return QStringLiteral("—");
+    const QJsonObject f = value.toObject();
+    const QJsonValue low = f.value(QStringLiteral("low_hz"));
+    const QJsonValue high = f.value(QStringLiteral("high_hz"));
+    QStringList parts;
+    if (low.isDouble() && high.isDouble()) {
+        parts << QStringLiteral("%1–%2")
+                     .arg(QString::number(qint64(std::llround(low.toDouble()))),
+                          QString::number(qint64(std::llround(high.toDouble()))));
+    }
+    const QString shape = f.value(QStringLiteral("shape")).toString();
+    if (!shape.isEmpty())
+        parts << shape;
+    // The three switches, in the order the FILTER page's columns run. Each is
+    // named only when it is ON: a row listing everything that is off would be
+    // four times as long and say nothing.
+    if (f.value(QStringLiteral("auto")).toBool())
+        parts << QCoreApplication::translate("DiversityWindow", "auto");
+    if (f.value(QStringLiteral("auto_eq")).toBool())
+        parts << QCoreApplication::translate("DiversityWindow", "eq");
+    if (f.value(QStringLiteral("contour")).toBool())
+        parts << QCoreApplication::translate("DiversityWindow", "contour");
+    if (parts.isEmpty())
+        return QStringLiteral("—");
+    const QString text = parts.join(QChar(' '));
+    return f.value(QStringLiteral("live")).toBool()
+               ? QStringLiteral("● %1").arg(text)
+               : text;
+}
+
 bool memberNumber(const QJsonObject& obj, const char* key, double* out)
 {
     const QJsonValue v = obj.value(QLatin1String(key));
@@ -120,132 +150,6 @@ bool memberNumber(const QJsonObject& obj, const char* key, double* out)
 
 } // namespace
 
-QString DiversityEventLog::shortDuration(double seconds)
-{
-    if (!std::isfinite(seconds) || seconds < 0.0)
-        return QStringLiteral("—");
-    if (seconds < 60.0)
-        return QStringLiteral("%1 s").arg(qint64(std::llround(seconds)));
-    if (seconds < 3600.0)
-        return QStringLiteral("%1 m").arg(qint64(seconds / 60.0));
-    return QStringLiteral("%1 h").arg(qint64(seconds / 3600.0));
-}
-
-QString DiversityEventLog::memoryClearedLine()
-{
-    return QCoreApplication::translate("DiversityEventLog", "memory cleared");
-}
-
-QString DiversityEventLog::captureSavedLine(const QString& basename)
-{
-    return QCoreApplication::translate("DiversityEventLog", "capture saved %1")
-        .arg(basename);
-}
-
-void DiversityEventLog::reset()
-{
-    m_have = false;
-    m_prev = DiversitySnapshot{};
-}
-
-QStringList DiversityEventLog::apply(const DiversitySnapshot& s)
-{
-    QStringList lines;
-    const DiversitySnapshot prev = m_prev;
-    const bool had = m_have;
-    m_have = true;
-    m_prev = s;
-
-    if (!had)
-        return lines;
-
-    // Presence is a barrier -- see this class's header comment.
-    if (s.present != prev.present) {
-        lines << (s.present
-                      ? QCoreApplication::translate("DiversityEventLog", "gate back")
-                      : QCoreApplication::translate("DiversityEventLog", "gate lost"));
-        return lines;
-    }
-    if (!s.present || !s.available || !prev.available)
-        return lines;
-
-    // --- who is talking ---------------------------------------------------
-    const bool talkerChanged = (s.haveTalker != prev.haveTalker)
-                               || (s.haveTalker && s.talkerId != prev.talkerId);
-    if (talkerChanged && prev.haveTalker) {
-        lines << QCoreApplication::translate("DiversityEventLog", "%1 ended after %2")
-                     .arg(talkerTag(prev.talkerId, prev.talkerName),
-                          shortDuration(prev.talkerSinceS));
-    }
-    if (talkerChanged && s.haveTalker) {
-        if (s.haveTalkerWeight) {
-            lines << QCoreApplication::translate("DiversityEventLog",
-                                                 "%1 started (phase %2°, %3 dB)")
-                         .arg(talkerTag(s.talkerId, s.talkerName),
-                              QString::asprintf("%.0f", s.talkerPhaseDeg),
-                              QString::asprintf("%+.1f", s.talkerRatioDb));
-        } else {
-            lines << QCoreApplication::translate("DiversityEventLog", "%1 started")
-                         .arg(talkerTag(s.talkerId, s.talkerName));
-        }
-    }
-
-    // --- new entries in memory -------------------------------------------
-    for (int id : s.memoryIds) {
-        if (!prev.memoryIds.contains(id)) {
-            lines << QCoreApplication::translate("DiversityEventLog",
-                                                 "new talker #%1 remembered")
-                         .arg(id);
-        }
-    }
-
-    // --- station focus ----------------------------------------------------
-    const bool focusChanged = (s.haveFocus != prev.haveFocus)
-                              || (s.haveFocus && s.focusId != prev.focusId);
-    if (focusChanged) {
-        lines << (s.haveFocus
-                      ? QCoreApplication::translate("DiversityEventLog", "locked on %1")
-                            .arg(talkerTag(s.focusId, s.focusName))
-                      : QCoreApplication::translate("DiversityEventLog", "lock released"));
-    }
-    if (s.haveFocus && s.focusNulling && !(prev.haveFocus && prev.focusNulling)
-            && s.haveTalker) {
-        lines << QCoreApplication::translate("DiversityEventLog",
-                                             "nulling %1 (not the locked station)")
-                     .arg(talkerTag(s.talkerId, s.talkerName));
-    }
-
-    // --- steady QRM -------------------------------------------------------
-    if (s.haveSteadyQrm && prev.haveSteadyQrm && s.steadyQrm != prev.steadyQrm) {
-        lines << (s.steadyQrm
-                      ? QCoreApplication::translate("DiversityEventLog",
-                                                    "steady carrier nulled")
-                      : QCoreApplication::translate("DiversityEventLog",
-                                                    "steady carrier gone"));
-    }
-
-    // --- chain ------------------------------------------------------------
-    if (!s.mode.isEmpty() && s.mode != prev.mode) {
-        lines << QCoreApplication::translate("DiversityEventLog", "mode → %1")
-                     .arg(s.mode);
-    }
-    if (!s.hear.isEmpty() && s.hear != prev.hear) {
-        lines << QCoreApplication::translate("DiversityEventLog", "hear → %1")
-                     .arg(hearWord(s.hear));
-    }
-
-    // --- alignment --------------------------------------------------------
-    if (s.realigning && !prev.realigning)
-        lines << QCoreApplication::translate("DiversityEventLog", "realigning…");
-    else if (!s.realigning && prev.realigning && s.aligned) {
-        lines << (s.haveLag
-                      ? QCoreApplication::translate("DiversityEventLog", "aligned, lag %1")
-                            .arg(qint64(std::llround(s.lagSamples)))
-                      : QCoreApplication::translate("DiversityEventLog", "aligned"));
-    }
-
-    return lines;
-}
 QWidget* DiversityWindow::buildTalkersPanel()
 {
     QVBoxLayout* body = nullptr;
@@ -268,7 +172,8 @@ QWidget* DiversityWindow::buildTalkersPanel()
     m_talkers->setObjectName(QStringLiteral("diversityWindowTalkersTable"));
     m_talkers->setAccessibleName(tr("Remembered talkers"));
     m_talkers->setHorizontalHeaderLabels({tr("#"), tr("Name"), tr("Phase"), tr("Level"),
-                                          tr("Hits"), tr("Heard"), tr("First"), tr("TX")});
+                                          tr("Hits"), tr("Heard"), tr("First"),
+                                          tr("Filter"), tr("TX")});
     ThemeManager::instance().applyStyleSheet(m_talkers,
                                              QString::fromLatin1(kTalkerTableStyle));
 
@@ -296,7 +201,12 @@ QWidget* DiversityWindow::buildTalkersPanel()
                        "weight. A high count means the weight is well settled.")},
         {5, QT_TR_NOOP("How long ago this station was last heard.")},
         {6, QT_TR_NOOP("How long ago the gate first heard this station.")},
-        {7, QT_TR_NOOP("The upper edge of this station's transmitted audio, in "
+        {7, QT_TR_NOOP("The filter the gate remembers for this station: its "
+                       "edges in Hz, the skirt shape, and any of auto, eq and "
+                       "contour that are on. A filled dot means this is the "
+                       "filter in force right now. A dash means the gate has "
+                       "not kept one for them and they get the standing filter.")},
+        {8, QT_TR_NOOP("The upper edge of this station's transmitted audio, in "
                        "kHz: their rig's TX filter, which stays the same when "
                        "the antennas move and the spatial signature does not. "
                        "Hover a row for the whole print -- both edges, the "
@@ -442,9 +352,9 @@ void DiversityWindow::applyFocus(const QJsonValue& focus, bool haveTalker, int t
     const QJsonValue nameValue = f.value(QStringLiteral("name"));
     const QString name = nameValue.isString() ? nameValue.toString() : QString();
     QStringList parts;
-    parts << tr("LOCKED on %1").arg(talkerTag(m_focusId, name));
+    parts << tr("LOCKED on %1").arg(DiversityEventLog::talkerTag(m_focusId, name));
     if (f.value(QStringLiteral("nulling")).toBool() && haveTalker)
-        parts << tr("nulling %1").arg(talkerTag(talkerId, talkerName));
+        parts << tr("nulling %1").arg(DiversityEventLog::talkerTag(talkerId, talkerName));
     parts << tr("%1 overs").arg(f.value(QStringLiteral("overs")).toInt());
     parts << tr("%1 nulled").arg(f.value(QStringLiteral("nulled")).toInt());
     double best = 0.0;
@@ -596,7 +506,13 @@ void DiversityWindow::applyTalkers(const QJsonArray& memory, bool haveTalker, in
         if (live)
             liveRow = int(rows.size());
         const QJsonValue nameValue = entry.value(QStringLiteral("name"));
-        const QString name = nameValue.isString() ? nameValue.toString() : QString();
+        // An unnamed talker is shown by their number rather than as a blank
+        // cell: the row still has to be readable, and the number is how the
+        // dial and the events line refer to them anyway. Committing that
+        // placeholder back is read as "no name" -- see onTalkerItemChanged().
+        QString name = nameValue.isString() ? nameValue.toString() : QString();
+        if (name.isEmpty() && haveId)
+            name = QStringLiteral("#%1").arg(idValue);
 
         QStringList cells;
         // "● 3" for whoever is on the air: the same filled/hollow distinction
@@ -613,6 +529,10 @@ void DiversityWindow::applyTalkers(const QJsonArray& memory, bool haveTalker, in
                         DiversityEventLog::shortDuration(age));
         cells << cellOr(memberNumber(entry, "first_seen_s", &first),
                         DiversityEventLog::shortDuration(first));
+        // The filter the gate has kept for them, if any. It is the answer to
+        // "why does this station sound different" and belongs beside the
+        // weight rather than three pages away on FILTER.
+        cells << filterSummary(entry.value(QStringLiteral("filter")));
         // The gate's voice/rig print: the TX edge in the cell, the rest as the
         // row's tooltip. It rides after the columns in the row string so a
         // print that changes without moving the edge still rebuilds the row.
@@ -642,7 +562,10 @@ void DiversityWindow::applyTalkers(const QJsonArray& memory, bool haveTalker, in
                                                               : QString();
         for (int c = 0; c < cells.size() && c < kTalkerColumnCount; ++c) {
             auto* item = new QTableWidgetItem(cells[c]);
-            item->setToolTip(tip);
+            // Everything but Filter explains itself with the row's voice
+            // print; Filter is the one cell whose own text does not fit, so
+            // its hover is that text rather than the print.
+            item->setToolTip(c == kTalkerFilterColumn ? cells[c] : tip);
             if (c == kTalkerNameColumn) {
                 item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
                 item->setData(Qt::UserRole, ids[r]);
@@ -651,7 +574,9 @@ void DiversityWindow::applyTalkers(const QJsonArray& memory, bool haveTalker, in
                 if (ids[r] < 0)
                     item->setFlags(item->flags() & ~Qt::ItemIsEditable);
             } else {
-                item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+                item->setTextAlignment(c == kTalkerFilterColumn
+                                           ? (Qt::AlignLeft | Qt::AlignVCenter)
+                                           : (Qt::AlignRight | Qt::AlignVCenter));
                 item->setFlags(item->flags() & ~Qt::ItemIsEditable);
             }
             m_talkers->setItem(r, c, item);
@@ -688,7 +613,13 @@ void DiversityWindow::onTalkerItemChanged(QTableWidgetItem* item)
     const int id = item->data(Qt::UserRole).toInt(&ok);
     if (!ok || id < 0)
         return;
-    emit requestMemoryName(id, item->text());
+    // The cell shows "#3" when the gate has no name for them, so committing
+    // that back unchanged has to mean what it looks like -- no name -- and not
+    // "call this station #3".
+    QString name = item->text();
+    if (name == QStringLiteral("#%1").arg(id))
+        name.clear();
+    emit requestMemoryName(id, name);
     // Force the next poll to rebuild from what the gate actually took. If the
     // write did not land, the typed name goes away again -- which is the
     // honest outcome, and the only one that cannot leave the table showing a

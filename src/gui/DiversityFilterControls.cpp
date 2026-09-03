@@ -2,6 +2,7 @@
 
 #include "core/ThemeManager.h"
 #include "gui/DiversityFilterPanel.h"
+#include "gui/DiversityTalkerControls.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
 
@@ -198,6 +199,17 @@ DiversityFilterControls::DiversityFilterControls(QWidget* parent) : QWidget(pare
     // control in the top third of each, which drew four boxes mostly full of
     // nothing and read as four things half-built.
     root->addLayout(columns, 0);
+
+    // PER TALKER sits between the columns and the presets because that is what
+    // it is: not one more control on the filter, and not a whole filter in one
+    // click either, but the rule that decides WHICH filter the columns above
+    // are showing.
+    m_talker = new DiversityTalkerControls(this);
+    connect(m_talker, &DiversityTalkerControls::requestFilter, this,
+            &DiversityFilterControls::requestFilter);
+    m_controls.append(m_talker->controls());
+    root->addWidget(m_talker, 0);
+
     root->addWidget(buildPresetStrip(), 0);
     // What is left over is left over. There is no honest control to put in it
     // and stretching something into it would be decoration.
@@ -552,6 +564,28 @@ QWidget* DiversityFilterControls::buildToneColumn()
                                    "adding a couple around 1.8 kHz sharpens "
                                    "consonants without making it shrill."));
     body->addWidget(m_contourCheck);
+
+    m_autoContourCheck =
+        buildCheck(QStringLiteral("diversityWindowFilterAutoContourCheck"),
+                   QStringLiteral("auto_contour"), tr("AUTO CONTOUR"),
+                   tr("Let the gate place the contour. It fits the bell to the "
+                      "talker's own voice print -- the frequency their audio "
+                      "piles up at, and how much of it to take back out -- so "
+                      "a boomy station is flattened and a thin one is not "
+                      "touched. Setting any of the three numbers below by hand "
+                      "turns this off, because the gate cannot fit and obey at "
+                      "the same time."));
+    body->addWidget(m_autoContourCheck);
+    m_contourSourceLine = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowFilterContourSourceLabel"),
+        QStringLiteral("no print yet"),
+        tr("Where the automatic contour got its numbers. \"from print\" means "
+           "it is fitted to this talker's own audio; \"no print yet\" means it "
+           "has not heard enough of anybody to fit anything, and there is no "
+           "contour in force at all."),
+        this);
+    body->addWidget(m_contourSourceLine);
+
     QHBoxLayout* contourRow = newRow(body);
     contourRow->addWidget(fieldLabel(tr("Hz"), this));
     m_contourHzSpin = buildSpin(QStringLiteral("diversityWindowFilterContourHzSpin"),
@@ -580,12 +614,29 @@ QWidget* DiversityFilterControls::buildToneColumn()
     contourWidth->addWidget(m_contourWidthSpin);
     contourWidth->addStretch(1);
 
+    // Setting a contour number by hand is what turns the gate's own fit off:
+    // the gate does that itself and answers with source "manual", so nothing
+    // extra is written here. The tick just stops lagging the fact by the half
+    // second until the next poll.
+    //
+    // editingFinished, because that is the signal buildSpin() writes on -- the
+    // tick has to come off exactly when a value went out, not when a value
+    // arrived. A poll's writeSpin() is blocked and a focus change that altered
+    // nothing sends nothing, so neither can clear the tick behind the gate's
+    // back.
+    for (QSpinBox* spin : {m_contourHzSpin, m_contourDbSpin, m_contourWidthSpin}) {
+        connect(spin, &QSpinBox::editingFinished, this,
+                [this] { writeCheck(m_autoContourCheck, false); });
+    }
+
     m_apfCheck = buildCheck(QStringLiteral("diversityWindowFilterApfCheck"),
-                            QStringLiteral("apf"), tr("APF"),
+                            QStringLiteral("apf"), tr("APF (CW)"),
                             tr("The audio peaking filter: a very narrow "
                                "resonance for digging one CW note out of noise. "
-                               "It is the wrong tool on speech, where it makes "
-                               "everything sound like a telephone."));
+                               "It is a CW tool and nothing else -- on speech "
+                               "it rings everything through one note, which "
+                               "sounds like the other station is talking into a "
+                               "tiny cup."));
     body->addWidget(m_apfCheck);
     QHBoxLayout* apfRow = newRow(body);
     apfRow->addWidget(fieldLabel(tr("Hz"), this));

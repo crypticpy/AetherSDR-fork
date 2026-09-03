@@ -4,6 +4,7 @@
 #include "core/ThemeManager.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/ClientCompKnob.h"
+#include "gui/DiversityFilterControls.h"
 #include "gui/DiversityFlowStrip.h"
 #include "gui/DiversityMapStrip.h"
 #include "gui/DiversityScope.h"
@@ -436,6 +437,14 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
     }
     if (d.contains(QStringLiteral("memory")) || haveTalker)
         applyTalkers(memory, haveTalker, talkerId, talkerSinceS);
+    // The FILTER page's PER TALKER strip has the id of whose filter is in force
+    // but no name for it: names live in the combiner's memory, on this payload.
+    // Fed whether or not FILTER is the page on screen -- it costs a hash and it
+    // means the state line is already right the moment the tab is clicked.
+    if (m_filter)
+        m_filter->setTalkerNames(memory);
+    if (m_flow)
+        m_flow->setTalkerNames(memory);
     QString talkerName;
     for (const QJsonValue& v : memory) {
         const QJsonObject entry = v.toObject();
@@ -562,6 +571,10 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
             snapshot.focusName = f.value(QStringLiteral("name")).toString();
         snapshot.focusNulling = f.value(QStringLiteral("nulling")).toBool();
     }
+    const QJsonValue splits = d.value(QStringLiteral("voice_splits"));
+    snapshot.haveVoiceSplits = splits.isDouble();
+    snapshot.voiceSplits =
+        snapshot.haveVoiceSplits ? int(std::lround(splits.toDouble())) : 0;
     const QJsonValue qrm = d.value(QStringLiteral("steady_qrm"));
     snapshot.haveSteadyQrm = qrm.isBool();
     snapshot.steadyQrm = snapshot.haveSteadyQrm && qrm.toBool();

@@ -2881,6 +2881,7 @@ add_executable(aether_gate_applet_test
     src/gui/DiversityBeaconControls.cpp
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
@@ -2888,7 +2889,9 @@ add_executable(aether_gate_applet_test
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
     src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
@@ -2926,6 +2929,7 @@ add_executable(diversity_window_test
     src/gui/DiversityBeaconControls.cpp
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
@@ -2933,7 +2937,9 @@ add_executable(diversity_window_test
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
     src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
@@ -2972,6 +2978,7 @@ add_executable(diversity_band_test
     src/gui/DiversityBeaconControls.cpp
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
@@ -2979,7 +2986,9 @@ add_executable(diversity_band_test
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
     src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
@@ -3019,6 +3028,7 @@ add_executable(diversity_site_test
     src/gui/DiversityBeaconControls.cpp
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
@@ -3026,7 +3036,9 @@ add_executable(diversity_site_test
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
     src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
@@ -3064,6 +3076,7 @@ add_executable(diversity_filter_test
     src/gui/DiversityBeaconControls.cpp
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
@@ -3071,7 +3084,9 @@ add_executable(diversity_filter_test
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
     src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
@@ -3110,6 +3125,7 @@ add_executable(diversity_filter_layout_test
     src/gui/DiversityBeaconControls.cpp
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
@@ -3117,7 +3133,9 @@ add_executable(diversity_filter_layout_test
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
     src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
@@ -3155,6 +3173,7 @@ add_executable(diversity_site_actions_test
     src/gui/DiversityBeaconControls.cpp
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
@@ -3162,7 +3181,9 @@ add_executable(diversity_site_actions_test
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
     src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp
@@ -3185,6 +3206,53 @@ add_test(NAME diversity_site_actions_test COMMAND diversity_site_actions_test)
 set_tests_properties(diversity_site_actions_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Per-talker filters, the automatic contour, the voice split and the snapped
+# finder -- the round the gate opened at 15aca8f/f1d79b6/a72bcf1. Its own
+# binary for the reason the seven before it are separate: each is at the
+# 800-line budget AGENTS.md asks for, and every window case wants the same
+# fresh, process-wide AppSettings start.
+add_executable(diversity_talker_test
+    tests/diversity_talker_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_talker_test PRIVATE src tests)
+target_link_libraries(diversity_talker_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_talker_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_talker_test COMMAND diversity_talker_test)
+set_tests_properties(diversity_talker_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The usability round: the FLOW strip, the two pair-row buttons that answer
 # back, and the AGC threshold spin. Its own binary for the reason the six
 # before it are separate, plus one of its own: every case here wants a window
@@ -3199,6 +3267,7 @@ add_executable(diversity_flow_test
     src/gui/DiversityBeaconControls.cpp
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
     src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFlowStrip.cpp
     src/gui/DiversityFilterPanel.cpp
@@ -3206,7 +3275,9 @@ add_executable(diversity_flow_test
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
     src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
     src/gui/DiversityTimeline.cpp
     src/gui/DiversityWindow.cpp
     src/gui/DiversityWindowBand.cpp

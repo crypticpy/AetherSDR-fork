@@ -21,6 +21,7 @@
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/DiversityBandPoller.h"
 #include "gui/DiversityFinderPanel.h"
+#include "gui/DiversitySpatialLegend.h"
 #include "gui/DiversitySpatialWaterfall.h"
 #include "gui/DiversityWindow.h"
 
@@ -267,6 +268,51 @@ void testSpatialPayloadPaintsARowAndPhaseDrivesHue()
     closedToStart();
 }
 
+// (b2) Colour is GATED on coherence, not proportional to it. The operator's
+// verdict on the proportional version was "a big blurry mess": every noise bin
+// came out a third of the way to a confident hue, and a span of those is a
+// pastel wash with the real signals lost inside it. Below 0.5 there is no
+// direction to report and the bin is grey; from there the colour comes up to
+// full by 0.9.
+void testCoherenceGatesTheColourRatherThanScalingIt()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityFull);
+    DiversityWindow* w = openOnBand(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* waterfall = w->findChild<DiversitySpatialWaterfall*>();
+    CHECK(waterfall != nullptr);
+    if (!waterfall)
+        return;
+
+    // Bin 0 is at 0.9 -- the top of the ramp, so fully saturated.
+    CHECK(waterfall->newestColour(0).saturation() == 255);
+    // Bin 7 is at 0.3. Under the old rule that was a quarter-saturated hue
+    // claiming a direction; now it is grey, and grey has no hue at all.
+    CHECK(waterfall->newestColour(7).saturation() == 0);
+    CHECK(waterfall->newestColour(7).hue() == -1);
+    // Bin 4 is at exactly 0.5, the floor: still grey. The gate is a floor, not
+    // a rounding.
+    CHECK(waterfall->newestColour(4).saturation() == 0);
+    // Bin 2 is at 0.7, half way up the ramp -- coloured, and visibly less sure
+    // of itself than bin 0.
+    CHECK(waterfall->newestColour(2).saturation() > 100);
+    CHECK(waterfall->newestColour(2).saturation() < 160);
+
+    // The key beside the picture is drawn rather than described, and it is the
+    // thing that makes any of the above readable.
+    CHECK(w->findChild<AetherSDR::DiversitySpatialLegend*>() != nullptr);
+
+    w->close();
+    settle();
+    closedToStart();
+}
+
 // (c) The candidate table is the gate's ranking, rendered verbatim and in the
 // order it arrived -- the score column and the row order must agree.
 void testFinderPayloadFillsTheTableInTheGatesOrder()
@@ -472,6 +518,7 @@ int main(int argc, char** argv)
 
     testBandPageStartsAndStopsTheTwoPolls();
     testSpatialPayloadPaintsARowAndPhaseDrivesHue();
+    testCoherenceGatesTheColourRatherThanScalingIt();
     testFinderPayloadFillsTheTableInTheGatesOrder();
     testTuneButtonTunesTheRowAndAsksForTrack();
     testOldGatePayloadsRenderWithoutInventingAnything();
