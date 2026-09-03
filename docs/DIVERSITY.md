@@ -744,6 +744,17 @@ talker (`talker_cost_db`), and, for a comb, the teeth it is holding
 true only while the gate is actually holding the target; `reason` is
 quoted when it is not.
 
+Below 0.5 coherence the notch tool no longer rides on the slice FIR's
+own design. It used to: folded into the 255-tap soft passband, a comb
+tooth was one more dip under that window's skirt, a few dB at best, and
+only the 1023-tap sharp shape ever cut deep. A bank of complex IIR notch
+sections, one per tooth and capped at 24, now sits ahead of the FIR, so
+the depth no longer depends on the shape you picked: at least 25 dB at
+the tooth centre, under 1 dB of ripple two tooth-widths away, on either
+shape. `depth_db` in the squeeze status, and the curve the VISUAL tab
+draws, both reflect the FIR and this bank together, the depth actually
+delivered rather than the FIR's design alone.
+
 In the CHAIN window the VISUAL tab is where you aim it: Shift+click a
 signal on the curve to squeeze it, a bracket marks the held target,
 teeth mark a comb; COMB and RELEASE are buttons under the curve. The
