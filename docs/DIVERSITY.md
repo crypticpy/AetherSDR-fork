@@ -830,6 +830,35 @@ the note and the inspector both say only what the gate's last answer holds,
 never what a click just asked for — there is no click here to ask with, the
 governor moves on its own.
 
+### Scoring with nobody on the slice
+
+With no talker there is no combined SNR, and AUTO used to stand still
+and say so. It no longer does: the move is still made, scored by the
+proxy the tool carries its own measurement for. Every event and
+`holding[]` row gains a `scorer` (`snr`, or `proxy:depth`,
+`proxy:blanking`, `proxy:floor`, `proxy:clips`), and the status gains
+`objective_source` (`snr` or `none`).
+
+| tool | proxy | kept when |
+|---|---|---|
+| squeeze | its own measured `depth_db` | null ≥ 6 dB (back into the floor it was picked out of), notch ≥ 10 dB |
+| nb | `blanked_pct` | under 5 % (DIG OUT's own free-blanking point) |
+| mode=null | the passband floor | ≥ 1 dB off it |
+| guard | clips and headroom, after 10 s | either the clips fell (0 always keeps) or the headroom rose ≥ 1 dB |
+
+The squeeze and the blanker also watch that floor, the median of
+`/diversity/spatial`'s level strip over the passband, and a move that
+lifts it more than 1 dB goes back whatever it scored; the guard never
+does, since putting it back over a number that did not move hands the
+ADC its clipping again. A proxy-kept move stays kept when a talker turns
+up; it is not re-scored. DIG OUT has no proxy, it needs a talker: it is
+handed a slice once per (frequency, talker) pair and never again, backs
+off 30 minutes rather than 10, and banks a run's `gain_db` only when the
+dig stands behind it. A tentative, cancelled or "worse" run scores 0
+with the dig's own note in the `why`, and that note blocks the next
+hand-off for 30 minutes from the dig's own end, not for ever. AUTO off
+stops a dig AUTO started and leaves one you started alone.
+
 ## A working session
 
 This is the order the FLOW line encodes, and the order to work in. Each step
