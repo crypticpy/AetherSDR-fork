@@ -76,19 +76,48 @@ sidebar with the setting `AetherGateDiversityPanel_ShowScope`.
 Open it from the sidebar button. Its geometry and visibility persist; it
 reopens on the next run if it was open at exit.
 
-**SLICE / BAND / SITE / FILTER.** The four buttons at the left of the chain
-row switch pages. SLICE, described below, is about the frequency you are
-tuned to. BAND is about the whole span the gate can see, and is where you go
-to decide where to be tuned. SITE is about neither: it is about your station
-— what kind of noise this address makes, and what the world's beacon network
-measures your antennas to be worth. FILTER is about what happens to the
-audio *after* the combiner: the slice filter, drawn and driven.
+Three strips sit above the pages, and they do three different jobs. They are
+three rows rather than one because as one row they read as a single sentence
+of controls, and half of them are not.
 
-**Chain row.** MODE (off / manual / null / track), HEAR (OUT — the combined
-output, A, B, STEREO — what goes to the audio; the combiner keeps learning
-whichever you pick), *Hear A only* (press-and-hold A/B comparison that restores the
-previous mode on release), REALIGN, and CAPTURE with a duration: writes an
-aligned two-channel recording on the gate.
+**Row 1 — the pages.** SLICE / BAND / SITE / FILTER, and nothing else;
+`pages` is written at the right end of the row to say so. SLICE, described
+below, is about the frequency you are tuned to. BAND is about the whole span
+the gate can see, and is where you go to decide where to be tuned. SITE is
+about neither: it is about your station — what kind of noise this address
+makes, and what the world's beacon network measures your antennas to be
+worth. FILTER is about what happens to the audio *after* the combiner: the
+slice filter, drawn and driven.
+
+**Row 2 — PAIR.** Everything on this row acts on the antenna pair itself and
+applies whichever page you are looking at. MODE (off / manual / null /
+track), HEAR (OUT — the combined output, A, B, STEREO — what goes to the
+audio; the combiner keeps learning whichever you pick), *Hear A only*
+(press-and-hold A/B comparison that restores the previous mode on release),
+REALIGN, and CAPTURE with a duration: writes an aligned two-channel
+recording on the gate.
+
+REALIGN and CAPTURE both answer on their own faces, because both used to be
+writes into silence. REALIGN reads `ALIGNING…` while the gate works and then
+the result for three seconds — `LAG −63` if the alignment did not move,
+`LAG −63 (was +4032)` if it did — and says the same thing on the footer strip
+and in EVENTS. CAPTURE counts its own recording down (`REC 10 s`, `REC 9 s`,
+…) and then reads `SAVED`, with the file's name on the footer strip for six
+seconds. The footer strip is the one line visible from every page, which is
+why both answers go there: on any page but SLICE there was previously no
+sign either button had done anything at all.
+
+**Row 3 — FLOW.** Five steps in the order that gets the best signal, each
+showing what the gate currently says about it: `1 ALIGN`, `2 MODE`,
+`3 HEAR`, `4 NOISE`, `5 FILTER`. The one to do next is lit, the ones behind
+it are plain and the ones ahead are dim. Clicking a step goes to the page it
+lives on, and where there is a single obvious action it also takes it —
+step 1 realigns, step 2 sets track when the combiner is off, step 3 switches
+HEAR to the combined output. Steps 4 and 5 only change the page, because
+there is a choice to make on both and the strip should not make it for you.
+Every state on the strip is a number or a word the gate said; nothing there
+is computed by the window. See *A working session* below for what each step
+is for.
 
 **STEREO** puts loop A in the left channel and loop B in the right, with
 one AGC gain for both so the loops keep their level difference. On two
@@ -408,19 +437,85 @@ says `Filter is not available for this mode` and greys the lot.
 
 ## A working session
 
-1. Start the gate, connect, open the window. Wait for `aligned` in the
-   chain line (the gate cross-correlates the tuners; lag is a few tens of
-   samples and stays put).
-2. Set MODE to **track** and listen. Watch `gain`: near zero on a quiet
-   band is expected.
-3. If BALANCE shows coherence above 0.5 the noise has a direction. Try
-   **null** mode, or in track mode just let the idle-time null handle it
-   between overs.
-4. Working a specific station: wait for them to be remembered (one over of
-   a few seconds), double-click the name cell and label them, select the
-   row and **Lock**. Callers are now nulled while the lock holds.
-5. Use *Hear A only* to hear the difference the combiner makes; use CAPTURE
-   to keep a recording of the aligned pair for later analysis.
+This is the order the FLOW strip encodes, and the order to work in. Each step
+makes the next one mean something: a mode set before the tuners are aligned
+is solving on two signals that are not the same signal, and a filter set
+before you are hearing the combined output is a filter on the wrong audio.
+
+1. **Align the tuners.** Start the gate, connect, open the window, and wait
+   for step 1 to read a lag. The gate cross-correlates the two tuners and
+   holds them sample-aligned; the lag is usually a few tens of samples and
+   stays put. Until it is aligned there is no pair, only two receivers, and
+   everything below is meaningless. If it does not settle, or you have just
+   restarted a stream, press REALIGN and read what it answers.
+
+2. **Pick a mode.** **track** is the default answer: the combiner follows
+   whoever is talking and nulls the rest between overs. **null** is for a
+   noise source with a direction and no station you are protecting.
+   **manual** hands you the phase and ratio knobs on ANTENNAS. **off** is
+   one antenna and no combining. Watch `gain` — OUT minus the better loop —
+   while it settles; near zero on a quiet band is the physics, not a fault.
+
+3. **Hear the combined output.** HEAR decides what reaches the audio, and it
+   is separate from the mode: the combiner goes on learning whether you are
+   listening to it or not. Set it to **OUT** to hear the result. **STEREO**
+   is the other honest answer — both loops, one AGC, the difference between
+   them as a soundstage. A or B alone is a diagnostic, not a listening
+   state, and step 3 says so while you are in one.
+
+4. **Act on the noise the gate found.** The SITE page's profile runs by
+   itself and lists what this address is actually making — mains hum,
+   impulses, periodic modulation, tones — with the gate's verdict on each
+   and one button where there is something to do about it. Step 4 counts
+   the findings that still offer an unused button. Work down them; the ones
+   with no button carry the reason there is none.
+
+5. **Set the filter.** Last, because it acts on the audio the four steps
+   above produced. Drag the passband edges on the curve or type them, pick a
+   shape, add a notch, or leave AUTO on and let the gate track the voice it
+   is hearing. Step 5 shows the edges *in force* — which is not necessarily
+   the pair you asked for, if AUTO has moved them.
+
+Then, working a specific station: wait for them to be remembered (one over
+of a few seconds), double-click the name cell and label them, select the row
+and **Lock**. Callers are nulled while the lock holds. Use *Hear A only* at
+any point to hear the difference the combiner is making.
+
+Beacons (SITE) are a separate errand from the five steps and only pay on the
+higher bands — see below.
+
+## Questions this window gets asked
+
+**Do I turn AetherSDR's own noise reduction off?** No. Leave it on. Nothing
+on the gate is a noise reducer. The combiner is *spatial* — it steers a null
+at where the noise is coming from — and the gate's filter is passband, AGC
+and notches. The app's NR works on what a single audio stream looks like
+over time. They are three different attacks on three different problems and
+they stack. The one exception is STEREO: the app's NR chain works on a mono
+mix, so give it a miss while you are listening to the loops in stereo.
+
+**What is CAPTURE for?** The replay lab, not listening. It writes an aligned
+two-channel raw recording on the gate, which `python -m aether_gate.replay`
+reads back so an alignment or combiner change can be tried against a real
+recorded site instead of against whatever the band is doing this evening. It
+is not a recording of what you are hearing and it is no part of a listening
+session. Ten seconds is the useful default.
+
+**Why is the beacon table empty?** Two reasons, and both are about where you
+are tuned and who you are. The NCDXF/IARU beacon network transmits on five
+frequencies only — 14.100, 18.110, 21.150, 24.930 and 28.200 MHz — so the
+table fills on 20, 17, 15, 12 and 10 m and nowhere else. On 40 m or 80 m
+there is nothing to hear and the page says so rather than showing an empty
+log. It also needs your grid square to work out a bearing and a distance for
+each beacon; Liberty Hill, Texas is **EM10**. That is set on the gate now and
+persists across restarts, so this is a one-time answer.
+
+**Does the noise profile need a capture first?** No. It runs by itself, on
+the live streams, as soon as the tuners are aligned — a couple of seconds of
+audio is enough for the first verdict and it keeps refining. The rows on the
+SITE page *are* its findings, each with the gate's own reasoning and, where
+one exists, the single button that acts on it. There is nothing to start and
+nothing to record.
 
 ## For scripts: the control port
 

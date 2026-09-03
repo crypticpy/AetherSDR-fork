@@ -402,6 +402,25 @@ the gate has no `set_filter_width_hz` and the SSB passband is a fixed
    beacon, return), a per-beacon sample store with bearing and distance
    from the site (grid square is a gate setting), per-band propagation
    gauge, A-versus-B by bearing as the two loops' pattern map.
-6. Layout rounds on SLICE / SITE / FILTER once the information exists.
+6. **Done**: the top of the window is three strips instead of one — the
+   four page tabs alone on the first, the pair controls under a `PAIR`
+   caption on the second to say they apply on every page, and a live FLOW
+   strip on the third: five steps (ALIGN, MODE, HEAR, NOISE, FILTER) in
+   the order that gets the best signal, each showing the gate's own word
+   for its state, the next one to do lit, and a click that goes to the
+   step's page and takes its one obvious action. REALIGN and CAPTURE stop
+   being writes into silence: REALIGN reads `ALIGNING…` and then its
+   result (`LAG −63 (was +4032)`), CAPTURE counts its own recording down
+   and reads `SAVED`, and both also say it on the footer strip, which is
+   the one line visible from every page. Height for the two new rows was
+   reclaimed inside the pages rather than taken from the tabs. The FILTER
+   page's AGC column grew the threshold control the gate already had
+   (gate `9d84ea8`: AGC threshold, AUTO width that keeps the consonants,
+   gentler AUTO EQ, longer SOFT; `2977761`: AUTO never closes the bottom
+   above 350 Hz; `4e45f3c`: the replay lab's `filtered` configuration for
+   judging a filter change on a capture first).
+   `docs/DIVERSITY.md` gains the order of operations the strip encodes and
+   the four questions this window kept getting asked.
+   Layout rounds on SLICE / SITE / FILTER once the information exists.
    Kept inside the Diversity window for now; the filter core is written
    so it can become a DSP add-on for every backend later.
