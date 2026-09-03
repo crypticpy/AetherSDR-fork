@@ -28,11 +28,31 @@
 //             rather than a thing to finish.
 //
 // The state beside each step is the gate's own, quoted back: no number here is
-// recomputed and nothing is set optimistically when a button is pressed. The
+// recomputed and nothing is set optimistically when a step is clicked. The
 // step the operator should do NEXT is the first one in order that is not done,
 // and it is the one drawn lit; the ones before it are plain and the ones after
 // it are dimmed. That single rule is the whole widget -- everything else is
 // wording.
+//
+// WHY ONE LINE AT THE BOTTOM RATHER THAN A ROW OF PILLS AT THE TOP. The first
+// build of this drew the five steps as buttons in a strip under the four page
+// tabs, and the operator read the strip as a second tab bar: "the tabs change
+// what I'm seeing, but there's these flows that look like actual tabs for what
+// I am seeing... it currently looks like the tab you're supposed to be on, but
+// the tabs are at the top". Five lit rounded boxes in a row directly beneath
+// four lit rounded boxes in a row is a navigation control, whatever the words
+// on it say. So the flow is now ONE checklist line at the foot of the window,
+// immediately above the gate status strip, where nothing in the layout can be
+// mistaken for navigation -- and it is written the way a checklist is read:
+// "✓ align lag −63 · ✓ mode track · ● hear · A only → hear OUT · ○ noise ·
+// ○ filter", with only the next step clickable.
+//
+// AND IT IS ABOUT THE PAGE YOU ARE ON. The second half of the same complaint
+// was that the flow should be "relevant to whatever tab you're currently on".
+// setCurrentPage() is how: the steps that belong to the page in front of the
+// operator are drawn in full, everything else goes dim. The next step is never
+// hidden by that rule -- when it belongs to another page its link says which
+// one, so the one thing to do next is always readable from every page.
 //
 // It keeps no transport and no timers. Two payloads reach it, both of which the
 // window already receives for other reasons (/diversity every poll, /filter
@@ -49,7 +69,6 @@
 class QJsonArray;
 class QJsonObject;
 class QLabel;
-class QPushButton;
 
 namespace AetherSDR {
 
@@ -66,6 +85,17 @@ public:
         StepNoise,
         StepFilter,
         StepCount
+    };
+
+    // The window's four pages, in the order QStackedWidget holds them, which
+    // is also the order the tab row draws them. Only three of them own a step
+    // -- BAND owns none, and is the page on which every step is somewhere
+    // else.
+    enum Page {
+        PageSlice = 0,
+        PageBand,
+        PageSite,
+        PageFilter
     };
 
     explicit DiversityFlowStrip(QWidget* parent = nullptr);
@@ -96,8 +126,26 @@ public:
 
     // The step the operator should do next: the first one in order that is not
     // done, or StepFilter when the first four are. Read by tests; the strip
-    // itself uses it to decide which button is lit.
+    // itself uses it to decide which step is the link.
     int nextStep() const { return m_next; }
+
+    // How one step is drawn: "lit" (the next step, and the only clickable
+    // one), "normal" (a step that belongs to the page in front of the
+    // operator) or "dim". A painted colour inside rich text has no other
+    // readable trace -- DiversitySnrMeter::shownDb() exists for the same
+    // reason -- and this is what a test asserts the page relevance on.
+    QString stepTone(int step) const;
+
+    // Which page a step is about. Anything outside the five steps is PageBand,
+    // which is the page that owns no step.
+    static int stepPage(int step);
+
+public slots:
+    // The page the window just switched to, as a Page. Connected to the
+    // stack's own currentChanged rather than to the tab buttons, so a page
+    // switch made from anywhere -- a tab, a FLOW click, a SITE row's button --
+    // reaches the line.
+    void setCurrentPage(int page);
 
 signals:
     // A step was clicked. The window owns what that means -- see
@@ -113,8 +161,12 @@ private:
         bool    done{false};
     };
 
-    void        rebuild();
-    static void setStepState(QPushButton* button, const QString& state);
+    void rebuild();
+
+    // The tab's own word for a page, for the "→ SITE" a next step wears when
+    // it is not on the page in front of the operator. Empty for BAND, which no
+    // step is ever on.
+    static QString pageWord(int page);
 
     State alignState() const;
     State modeState() const;
@@ -122,9 +174,12 @@ private:
     State noiseState() const;
     State filterState() const;
 
-    QVector<QPushButton*> m_steps;
-    QLabel*               m_caption{nullptr};
-    int                   m_next{StepAlign};
+    QLabel*             m_caption{nullptr};
+    QLabel*             m_line{nullptr};
+    QStringList         m_labels;
+    QVector<QString>    m_tones;
+    int                 m_next{StepAlign};
+    int                 m_page{PageSlice};
 
     // --- last /diversity ---------------------------------------------------
     bool    m_available{false};

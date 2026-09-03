@@ -1,6 +1,9 @@
-// The Diversity window's usability round: the FLOW strip, the two buttons on
-// the pair row that now answer back, and the AGC threshold spin the FILTER
-// page grew beside them.
+// The Diversity window's usability round: the two buttons on the pair row that
+// now answer back, the AGC threshold spin the FILTER page grew beside them, and
+// the window's own frame -- three sticky rows' worth of height reclaimed with
+// nothing on any page behind a scrollbar. The FLOW line's own behaviour is
+// tests/diversity_flow_line_test.cpp, split off when this file reached the
+// 800-line budget.
 //
 // Same harness as the other diversity binaries -- a real AetherGateApplet in
 // front of a fake, socket-free QNetworkAccessManager -- and a seventh binary
@@ -9,10 +12,10 @@
 // AppSettings start.
 //
 // EVERY RENDERED VALUE HERE CARRIES A MUTATION: a second payload in which that
-// value differs, asserted after the first. A FLOW strip that had been wired to
-// nothing and simply printed five plausible sentences would pass the first
+// value differs, asserted after the first. A readout that had been wired to
+// nothing and simply printed a plausible sentence would pass the first
 // assertion of every case below and fail the second, which is the only way to
-// tell "reads the gate" from "looks like it reads the gate" in a widget whose
+// tell "reads the gate" from "looks like it reads the gate" in a window whose
 // whole content is derived.
 
 #include "DiversityGateFixture.h"
@@ -125,37 +128,6 @@ DiversityWindow* openWindow(AetherGateApplet& a)
     return w;
 }
 
-QPushButton* step(DiversityWindow* w, int n)
-{
-    return w->findChild<QPushButton*>(
-        QStringLiteral("diversityWindowFlowStep%1").arg(n));
-}
-
-QString stepText(DiversityWindow* w, int n)
-{
-    QPushButton* b = step(w, n);
-    return b ? b->text() : QString();
-}
-
-// "next" / "done" / "later" -- the property the strip's style sheet keys off,
-// which is the only readable trace of which button is lit.
-QString stepState(DiversityWindow* w, int n)
-{
-    QPushButton* b = step(w, n);
-    return b ? b->property("flowState").toString() : QString();
-}
-
-// Which step is lit, as an index from 1. Zero means none is, which the strip
-// must never allow.
-int litStep(DiversityWindow* w)
-{
-    for (int i = 1; i <= 5; ++i) {
-        if (stepState(w, i) == QLatin1String("next"))
-            return i;
-    }
-    return 0;
-}
-
 // Makes a timer go off now. QTimer::timeout carries a QPrivateSignal, so it
 // cannot be emitted from outside the class -- but moc strips that from the
 // meta-method, and the point of every use below is to skip real seconds rather
@@ -213,253 +185,6 @@ void filterTick(AetherGateApplet& a)
         return;
     QMetaObject::invokeMethod(poller, "poll", Qt::DirectConnection);
     settle();
-}
-
-// --------------------------------------------------------------------------
-// (a) Five steps, five states, all of them the gate's
-// --------------------------------------------------------------------------
-
-void testEveryStepReadsTheGate()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net);
-    DiversityWindow* w = openWindow(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    // kDiversityStatusWithKinds: aligned with lag 3, mode track, source
-    // combined, six findings of which two still offer an unused button, and no
-    // /filter answer yet (the FILTER page has never been up).
-    CHECK_EQ(stepText(w, 1), QStringLiteral("1 ALIGN · lag 3"));
-    CHECK_EQ(stepText(w, 2), QStringLiteral("2 MODE · track"));
-    CHECK_EQ(stepText(w, 3), QStringLiteral("3 HEAR · OUT"));
-    CHECK_EQ(stepText(w, 4), QStringLiteral("4 NOISE · 2 findings → SITE"));
-    CHECK_EQ(stepText(w, 5), QStringLiteral("5 FILTER · — → FILTER"));
-    // NOISE is the first one not done, so it is lit and FILTER is still dim.
-    CHECK_EQ(QString::number(litStep(w)), QStringLiteral("4"));
-    CHECK_EQ(stepState(w, 1), QStringLiteral("done"));
-    CHECK_EQ(stepState(w, 5), QStringLiteral("later"));
-
-    // MUTATION: the same site with both actions in force and the mode changed
-    // under it. Every one of the four steps that comes off /diversity moves.
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
-                                                kDiversityStatusKindsActive};
-    tick(a);
-    CHECK_EQ(stepText(w, 2), QStringLiteral("2 MODE · null"));
-    CHECK_EQ(stepText(w, 4), QStringLiteral("4 NOISE · acting on mains, impulse"));
-    // Nothing is left undone, so the lit step walks to the last stop.
-    CHECK_EQ(QString::number(litStep(w)), QStringLiteral("5"));
-    CHECK_EQ(stepState(w, 4), QStringLiteral("done"));
-
-    // MUTATION: a profiled site with no kinds array at all is clean, and one
-    // the gate has not profiled yet says so rather than claiming it is.
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
-                                                kDiversityStatusWithSite};
-    tick(a);
-    CHECK_EQ(stepText(w, 4), QStringLiteral("4 NOISE · clean"));
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
-                                                kDiversityStatusWithPrint};
-    tick(a);
-    CHECK_EQ(stepText(w, 4), QStringLiteral("4 NOISE · profiling…"));
-    w->close();
-    settle();
-    closedToStart();
-}
-
-// --------------------------------------------------------------------------
-// (b) ALIGN is first because nothing else means anything until it is done
-// --------------------------------------------------------------------------
-
-void testAlignStepAndWhereTheLitStepGoes()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    // kDiversityStatusSiteNull is the gate up but not aligned, with a lag it
-    // has measured and does not trust.
-    connectGate(a, net, kDiversityStatusSiteNull);
-    DiversityWindow* w = openWindow(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    CHECK_EQ(stepText(w, 1), QStringLiteral("1 ALIGN · not aligned → REALIGN"));
-    CHECK_EQ(QString::number(litStep(w)), QStringLiteral("1"));
-    // Everything after the lit step is dim, however true it happens to be.
-    CHECK_EQ(stepState(w, 2), QStringLiteral("later"));
-    CHECK_EQ(stepState(w, 4), QStringLiteral("later"));
-
-    // MUTATION: mid-realign is its own state, not "not aligned".
-    net.routes[QStringLiteral("/diversity")] = {
-        QNetworkReply::NoError,
-        with(kDiversityStatusSiteNull, "\"aligned\": false",
-             "\"aligned\": false, \"realigning\": true")};
-    tick(a);
-    CHECK_EQ(stepText(w, 1), QStringLiteral("1 ALIGN · aligning…"));
-    CHECK_EQ(QString::number(litStep(w)), QStringLiteral("1"));
-
-    // MUTATION: aligned, with the gate's own lag quoted back.
-    net.routes[QStringLiteral("/diversity")] = {
-        QNetworkReply::NoError,
-        with(with(kDiversityStatusSiteNull, "\"aligned\": false", "\"aligned\": true"),
-             "\"lag_samples\": 3", "\"lag_samples\": -63")};
-    tick(a);
-    CHECK_EQ(stepText(w, 1), QStringLiteral("1 ALIGN · lag -63"));
-    CHECK(litStep(w) > 1);
-    w->close();
-    settle();
-    closedToStart();
-}
-
-// --------------------------------------------------------------------------
-// (c) MODE and HEAR say what to do about themselves
-// --------------------------------------------------------------------------
-
-void testModeAndHearOfferTheirOwnCure()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net, with(kDiversityStatusWithKinds, "\"mode\": \"track\"",
-                             "\"mode\": \"off\""));
-    DiversityWindow* w = openWindow(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    CHECK_EQ(stepText(w, 2), QStringLiteral("2 MODE · off → pick TRACK"));
-    CHECK_EQ(QString::number(litStep(w)), QStringLiteral("2"));
-
-    // MUTATION: manual is a mode, so the step is done and reads as itself.
-    net.routes[QStringLiteral("/diversity")] = {
-        QNetworkReply::NoError,
-        with(kDiversityStatusWithKinds, "\"mode\": \"track\"", "\"mode\": \"manual\"")};
-    tick(a);
-    CHECK_EQ(stepText(w, 2), QStringLiteral("2 MODE · manual"));
-
-    // HEAR: on one loop the combiner is solving into a void.
-    net.routes[QStringLiteral("/diversity")] = {
-        QNetworkReply::NoError,
-        with(kDiversityStatusWithKinds, "\"source\": \"combined\"", "\"source\": \"b\"")};
-    tick(a);
-    CHECK_EQ(stepText(w, 3), QStringLiteral("3 HEAR · B only → hear OUT"));
-    CHECK_EQ(QString::number(litStep(w)), QStringLiteral("3"));
-
-    // MUTATION: stereo is the other way of hearing both loops, and counts.
-    net.routes[QStringLiteral("/diversity")] = {
-        QNetworkReply::NoError,
-        with(kDiversityStatusWithKinds, "\"source\": \"combined\"",
-             "\"source\": \"stereo\"")};
-    tick(a);
-    CHECK_EQ(stepText(w, 3), QStringLiteral("3 HEAR · STEREO"));
-    CHECK(litStep(w) > 3);
-    w->close();
-    settle();
-    closedToStart();
-}
-
-// --------------------------------------------------------------------------
-// (d) FILTER states what is in force, not what was asked for
-// --------------------------------------------------------------------------
-
-void testFilterStepQuotesTheEdgesInForce()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net);
-    DiversityWindow* w = openWindow(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    // Nothing has read /filter yet, and the step says so rather than guessing.
-    CHECK_EQ(stepText(w, 5), QStringLiteral("5 FILTER · — → FILTER"));
-
-    child<QToolButton>(w, "diversityWindowPageFilter")->click();
-    settle();
-    filterTick(a);
-    CHECK_EQ(stepText(w, 5), QStringLiteral("5 FILTER · 100–2900 sharp · AUTO"));
-
-    // MUTATION: the auto-width tracker has moved the edges off the asked-for
-    // ones, and the step follows what is IN FORCE.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             kDiversityFilterAutoSpectrum};
-    filterTick(a);
-    CHECK_EQ(stepText(w, 5), QStringLiteral("5 FILTER · 210–2840 soft · AUTO"));
-
-    // MUTATION: a mode with no slice filter behind it is a fact, not a dash.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             kDiversityFilterUnavailable};
-    filterTick(a);
-    CHECK_EQ(stepText(w, 5), QStringLiteral("5 FILTER · no filter for this mode"));
-    w->close();
-    settle();
-    closedToStart();
-}
-
-// --------------------------------------------------------------------------
-// (e) A step is a button: it goes to its page and does its one thing
-// --------------------------------------------------------------------------
-
-void testStepOneAsksForAnAlign()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net, kDiversityStatusSiteNull);
-    DiversityWindow* w = openWindow(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    child<QToolButton>(w, "diversityWindowPageSite")->click();
-    settle();
-    const int before = net.count(QStringLiteral("/diversity/align"));
-    step(w, 1)->click();
-    settle();
-    CHECK(net.count(QStringLiteral("/diversity/align")) == before + 1);
-    // ...and it brought the operator back to the page the answer is on.
-    CHECK(child<QToolButton>(w, "diversityWindowPageSlice")->isChecked());
-    w->close();
-    settle();
-    closedToStart();
-}
-
-void testStepThreeAsksForTheCombinedOutput()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net,
-                with(kDiversityStatusWithKinds, "\"source\": \"combined\"",
-                     "\"source\": \"a\""));
-    DiversityWindow* w = openWindow(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    step(w, 3)->click();
-    settle();
-    CHECK_EQ(lastRequest(net, QStringLiteral("/diversity/set")),
-             QStringLiteral("/diversity/set?source=combined"));
-
-    // Steps 4 and 5 are page switches and nothing else -- there is a choice to
-    // make on both pages and the strip must not make it.
-    const int writes = net.count(QStringLiteral("/diversity/set"));
-    step(w, 4)->click();
-    settle();
-    CHECK(child<QToolButton>(w, "diversityWindowPageSite")->isChecked());
-    step(w, 5)->click();
-    settle();
-    CHECK(child<QToolButton>(w, "diversityWindowPageFilter")->isChecked());
-    CHECK(net.count(QStringLiteral("/diversity/set")) == writes);
-    w->close();
-    settle();
-    closedToStart();
 }
 
 // --------------------------------------------------------------------------
@@ -720,9 +445,9 @@ void testNothingScrollsOnAnyPageAtTheInitialSize()
     w->resize(1120, 860);
     settle();
 
-    // The tab row and the pair row are separate widgets, and the FLOW strip is
-    // under both. If any of the three were folded back into one row this is
-    // the assertion that would notice.
+    // The tab row and the pair row are separate widgets at the top, and the
+    // FLOW line is at the bottom rather than a third row under them. If any of
+    // the three were folded back together this is what would notice.
     CHECK(child<QWidget>(w, "diversityWindowTabRow") != nullptr);
     CHECK(child<QWidget>(w, "diversityWindowChainRow") != nullptr);
     CHECK(child<QWidget>(w, "diversityWindowFlowStrip") != nullptr);
@@ -756,8 +481,8 @@ void testNothingScrollsOnAnyPageAtTheInitialSize()
     }
 
     // MUTATION: the longest state string every step can hold, all five at
-    // once. A strip whose buttons were sized to their text rather than shared
-    // equally would push the window's minimum width past the size it opens at.
+    // once. A line that let its own text set its minimum width would push the
+    // window's minimum past the size it opens at.
     net.routes[QStringLiteral("/diversity")] = {
         QNetworkReply::NoError,
         with(with(kDiversityStatusWithKinds, "\"aligned\": true", "\"aligned\": false"),
@@ -782,12 +507,6 @@ int main(int argc, char** argv)
     TestSettingsProfile profile(QStringLiteral("diversity_flow_test"));
     QApplication app(argc, argv);
 
-    testEveryStepReadsTheGate();
-    testAlignStepAndWhereTheLitStepGoes();
-    testModeAndHearOfferTheirOwnCure();
-    testFilterStepQuotesTheEdgesInForce();
-    testStepOneAsksForAnAlign();
-    testStepThreeAsksForTheCombinedOutput();
     testRealignNarratesOnItsOwnFace();
     testRealignThatIsNeverAnsweredGivesTheButtonBack();
     testCaptureCountsDownAndNamesTheFileEverywhere();

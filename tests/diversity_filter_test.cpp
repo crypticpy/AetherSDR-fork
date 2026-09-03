@@ -30,6 +30,7 @@
 #include <QAbstractButton>
 #include <QApplication>
 #include <QCheckBox>
+#include <QDateTime>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
@@ -731,11 +732,23 @@ void testASpinBoxWithFocusIsNotOverwrittenByAPoll()
     filterTick(a);
     CHECK(low->value() == 450);
 
-    // MUTATION: the same two polls with the focus somewhere else DO write it.
-    // Without this the case would pass on a page that never reads the gate.
+    // MUTATION: focus leaving the box commits the edit -- editingFinished
+    // fires on focus-out whether or not the operator pressed Enter -- so the
+    // value the box now shows is the write's own, held exactly like any other
+    // write: the reply on this same settle() is the fixture's unmoved low=100,
+    // and the hold is what stops that from being believed. See
+    // tests/diversity_filter_hold_test.cpp for the hold on its own; what this
+    // case still proves is the other half -- focus is what excludes a poll,
+    // and losing it puts the box back within the gate's reach.
     child<QSpinBox>(w, "diversityWindowFilterHighSpin")->setFocus(Qt::OtherFocusReason);
     settle();
     CHECK(!low->hasFocus());
+    CHECK(low->value() == 450);
+
+    // Once the hold has run its course a poll owns the box exactly as it
+    // always has -- which is the case this mutation exists to prove: without
+    // this, the case would pass on a page that never reads the gate at all.
+    low->setProperty("pendingUntil", QDateTime::currentMSecsSinceEpoch() - 1);
     filterTick(a);
     CHECK(low->value() == 100);
     closedToStart();

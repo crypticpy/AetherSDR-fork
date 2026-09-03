@@ -459,3 +459,24 @@ the gate has no `set_filter_width_hz` and the SSB passband is a fixed
    +180° with the grey swatch beside it.
    `docs/DIVERSITY.md` gains the PER TALKER, AUTO CONTOUR and voice-split
    paragraphs.
+
+8. **Done**. **The FLOW strip stops looking like a second tab bar.** The
+   operator, live, on §11.6's third row: "the tabs change what I'm seeing,
+   but there's these flows that look like actual tabs for what I am
+   seeing… it currently looks like the tab you're supposed to be on, but
+   the tabs are at the top (SLICE BAND SITE FILTER). The flow should be
+   relevant to whatever tab you're currently on." Five lit pills in a row
+   directly under four lit tabs in a row is a navigation control whatever
+   the words on it say, and §11.6 had built the second one by hand. So the
+   flow is one checklist line at the FOOT of the window now, immediately
+   above the gate status strip: `✓ align lag −63 · ✓ mode track · ● hear ·
+   A only → hear OUT · ○ noise · ○ filter`, with only the next step
+   clickable and every state string unchanged. And it answers the second
+   half of the complaint too — the steps belonging to the page in front of
+   the operator are drawn in full, the rest go dim, the step still ahead on
+   the current page quotes its state because that is why you went there,
+   and a next step that lives elsewhere says where (`● noise · 2 findings →
+   SITE`) so the one thing to do next stays readable from all four pages.
+   `docs/DIVERSITY.md` gains the FLOW-line paragraphs in place of the
+   Row 3 one; the line's own cases move to
+   `tests/diversity_flow_line_test.cpp`.

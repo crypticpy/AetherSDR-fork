@@ -61,6 +61,20 @@ class DiversityFilterControls : public QWidget {
 public:
     explicit DiversityFilterControls(QWidget* parent = nullptr);
 
+    // THE FIGHT BETWEEN A POLL AND A HAND, part two. Focus keeps a poll off a
+    // control the operator is mid-edit; this keeps a poll off one they just
+    // finished editing. A click's own write and the poll that echoes it are
+    // two separate round trips, so a poll already in flight at the moment of
+    // a click can land AFTER the click carrying the value from BEFORE it --
+    // and paint the control back to where it used to be for one tick before
+    // the next poll (or the click's own reply) puts it right again. That is
+    // the flicker the operator reported: a checkbox that looks like it needs
+    // two clicks. The hold is the fix: for kWriteHoldMs after a write, a poll
+    // may only move the control if it echoes the value written; anything else
+    // is ignored until the hold expires or the echo arrives, whichever is
+    // first.
+    static constexpr int kWriteHoldMs = 1500;
+
     // One /filter answer, or the identical object a /filter/set or
     // /filter/notch write replies with. Three shapes arrive here and they mean
     // three different things:
@@ -98,6 +112,11 @@ private:
     QWidget* buildNotchColumn();
     QWidget* buildToneColumn();
     QWidget* buildAgcColumn();
+    // The APF checkbox and its Hz/W row, in the one container applyStatus()
+    // hides outside CW. Defined in DiversityWindowFilter.cpp beside
+    // buildPresetStrip() for the same file-size reason, not a subject one --
+    // it belongs on the page exactly where buildToneColumn() puts it.
+    QWidget* buildApfBlock();
 
     // The two doors every control leaves by. `set` is one or more keys on
     // /filter/set; `notch` is /filter/notch, whose three verbs (add, clear one,
@@ -132,6 +151,11 @@ private:
     // sentence).
     void showTransient(const QString& text);
     void applyNotchTable(const QJsonArray& notches);
+    // A refused write means the value the operator just gave a control never
+    // took. Its hold must not survive that: the next poll is what puts the
+    // control back where the gate actually has it, exactly as it always has,
+    // and a hold still open would keep it showing the refused value instead.
+    void clearWriteHolds();
 
     DiversityFilterPanel*     m_panel{nullptr};
     // The PER TALKER strip. Its own class -- see DiversityTalkerControls.h --
@@ -176,6 +200,10 @@ private:
     QSpinBox*  m_contourHzSpin{nullptr};
     QSpinBox*  m_contourDbSpin{nullptr};
     QSpinBox*  m_contourWidthSpin{nullptr};
+    // The checkbox and its Hz/W row, one widget so applyStatus() can hide the
+    // whole thing with one setVisible() -- APF is a CW tool and has nothing to
+    // say on a voice slice. See applyStatus()'s mode check.
+    QWidget*   m_apfBlock{nullptr};
     QCheckBox* m_apfCheck{nullptr};
     QSpinBox*  m_apfHzSpin{nullptr};
     QSpinBox*  m_apfWidthSpin{nullptr};

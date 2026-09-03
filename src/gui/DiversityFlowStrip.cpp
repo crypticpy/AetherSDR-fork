@@ -23,8 +23,8 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QLabel>
-#include <QPushButton>
-#include <QStyle>
+#include <QSizePolicy>
+#include <QStringList>
 
 #include <cmath>
 
@@ -32,33 +32,30 @@ namespace AetherSDR {
 
 namespace {
 
-// Three states, one sheet, no new colours: "next" borrows the accent the
-// checked toggle buttons already wear, "later" the secondary text token the
-// status strip's dead state uses, and "done" is simply the default.
-const char* kStepStyle =
-    "QPushButton { background: transparent;"
-    " border: 1px solid {{color.background.1}}; border-radius: 3px;"
-    " padding: 1px 6px; font-size: 10px; text-align: left;"
-    " color: {{color.text.primary}}; }"
-    "QPushButton:hover { background: {{color.background.2}}; }"
-    "QPushButton[flowState=\"later\"] { color: {{color.text.secondary}}; }"
-    "QPushButton[flowState=\"next\"] {"
-    " background: {{color.toggle.accent.background.checked}};"
-    " color: {{color.toggle.accent.foreground.checked}};"
-    " border: 1px solid {{color.toggle.accent.border.checked}}; }";
+// One line, one sheet, no new colours. The line's own colour is the caption
+// token the FLOW caption beside it already wears, which is what paints the
+// " · " between steps; the three per-step colours are resolved from tokens
+// already in use in this window (see rebuild()) and inlined into the rich
+// text, because a colour that changes per step cannot come from a selector.
+const char* kFlowLineStyle =
+    "QLabel { color: {{color.text.secondary}}; font-size: 10px;"
+    " background: transparent; }";
 
-constexpr int kStepHeight = 22;
-// A floor rather than the widest label: five steps at their natural widths
-// would set the window's minimum width on their own, and the window has to
-// stay openable at 1120 with nothing behind a scrollbar. Every step carries the
-// same stretch, so a state string changing length moves no button -- it is the
-// text inside a fixed box that changes, which is the rule the rest of this
-// window is built to.
-constexpr int kStepMinWidth = 150;
+// The glyph in front of each step. A checklist reads as a checklist before a
+// single word of it has been read, which is the whole point of moving off the
+// row of pills that read as a second tab bar.
+const char* kGlyphDone = "✓";
+const char* kGlyphNext = "●";
+const char* kGlyphLater = "○";
 
 QString dash()
 {
     return QStringLiteral("—");
+}
+
+QString arrow()
+{
+    return QStringLiteral(" → ");
 }
 
 } // namespace
@@ -89,57 +86,87 @@ DiversityFlowStrip::DiversityFlowStrip(QWidget* parent)
         const char* accessible;
         const char* tip;
     };
-    // One sentence each on what the step is for and what "done" means -- the
-    // second half is the part an operator cannot guess, and it is why the
-    // tooltips are not just the labels again.
+    // The word each step is drawn as -- lower case, because this is a sentence
+    // about what to do and not a row of buttons -- then one sentence each on
+    // what the step is for and what "done" means. The second half is the part
+    // an operator cannot guess, and it is why the tooltips are not just the
+    // labels again.
     const StepSpec specs[StepCount] = {
-        {QT_TR_NOOP("ALIGN"), QT_TR_NOOP("Flow step 1, align"),
+        {QT_TR_NOOP("align"), QT_TR_NOOP("Flow step 1, align"),
          QT_TR_NOOP("Line the two tuners' sample streams up. Nothing can be "
                     "combined until they are, so every number on every page is "
                     "meaningless first. Done when the gate reports aligned and "
                     "a lag; click to run REALIGN now.")},
-        {QT_TR_NOOP("MODE"), QT_TR_NOOP("Flow step 2, mode"),
+        {QT_TR_NOOP("mode"), QT_TR_NOOP("Flow step 2, mode"),
          QT_TR_NOOP("Choose how the weight on the second loop is arrived at. "
                     "Done when the mode is anything but OFF -- OFF is loop A "
                     "on its own, which is an ordinary single-tuner receiver. "
                     "Click to switch to TRACK.")},
-        {QT_TR_NOOP("HEAR"), QT_TR_NOOP("Flow step 3, hear"),
+        {QT_TR_NOOP("hear"), QT_TR_NOOP("Flow step 3, hear"),
          QT_TR_NOOP("Send the combiner's output to the audio. Done when you "
                     "are on OUT or STEREO; on A or B the weight is still being "
                     "solved but you are not listening to it. Click to go back "
                     "to the combined output.")},
-        {QT_TR_NOOP("NOISE"), QT_TR_NOOP("Flow step 4, noise"),
+        {QT_TR_NOOP("noise"), QT_TR_NOOP("Flow step 4, noise"),
          QT_TR_NOOP("Act on what the gate found this address doing. It "
                     "profiles the noise floor by itself once the tuners are "
                     "aligned -- no capture is needed -- and nominates one "
                     "control per finding. Done when no finding is still "
                     "offering an unused button. Click for the SITE page.")},
-        {QT_TR_NOOP("FILTER"), QT_TR_NOOP("Flow step 5, filter"),
+        {QT_TR_NOOP("filter"), QT_TR_NOOP("Flow step 5, filter"),
          QT_TR_NOOP("Set how the station sounds: the passband in force, its "
                     "shape, and whether the gate is fitting the edges itself. "
                     "This step is never unfinished -- there is always a filter "
                     "-- it is the last stop rather than a chore. Click for the "
                     "FILTER page.")}};
 
-    m_steps.reserve(StepCount);
+    // The five sentences used to be five tooltips on five buttons. There is one
+    // widget to hover now, so they are one tooltip on it -- the same words, in
+    // the same order, none of them dropped because the buttons went away.
+    QStringList tips;
+    tips.reserve(StepCount);
     for (int i = 0; i < StepCount; ++i) {
-        auto* button = new QPushButton(this);
-        button->setObjectName(QStringLiteral("diversityWindowFlowStep%1").arg(i + 1));
-        button->setAccessibleName(tr(specs[i].accessible));
-        button->setToolTip(tr(specs[i].tip));
-        button->setAccessibleDescription(button->toolTip());
-        button->setProperty("flowLabel", tr(specs[i].label));
-        button->setFlat(true);
-        button->setFixedHeight(kStepHeight);
-        button->setMinimumWidth(kStepMinWidth);
-        button->setCursor(Qt::PointingHandCursor);
-        ThemeManager::instance().applyStyleSheet(button, QString::fromLatin1(kStepStyle));
-        connect(button, &QPushButton::clicked, this,
-                [this, i] { emit stepActivated(i); });
-        layout->addWidget(button, 1);
-        m_steps.append(button);
+        tips << tr("%1 — %2").arg(tr(specs[i].accessible), tr(specs[i].tip));
+        m_labels << tr(specs[i].label);
     }
 
+    m_line = new QLabel(this);
+    m_line->setObjectName(QStringLiteral("diversityWindowFlowLine"));
+    m_line->setAccessibleName(tr("Flow steps"));
+    m_line->setToolTip(tips.join(QStringLiteral("\n\n")));
+    m_line->setTextFormat(Qt::RichText);
+    // Only the next step is a link, and it is reachable by keyboard as well as
+    // by mouse: this line is the one control in the window that says what to do
+    // next, and a control only a mouse can reach is not one.
+    m_line->setTextInteractionFlags(Qt::LinksAccessibleByMouse
+                                    | Qt::LinksAccessibleByKeyboard);
+    // No wrapping, ever: a height-for-width label at the foot of the window
+    // would make the whole window height-for-width. Ignored horizontally so a
+    // long state string cannot drag the window's minimum width out past the
+    // 1120 it opens at -- the constraint the row of pills needed a fixed step
+    // width for, met here by letting the line clip instead.
+    m_line->setWordWrap(false);
+    m_line->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    m_line->setMinimumWidth(0);
+    ThemeManager::instance().applyStyleSheet(m_line, QString::fromLatin1(kFlowLineStyle));
+    connect(m_line, &QLabel::linkActivated, this, [this](const QString& href) {
+        // "step:N", N being the Step the anchor was drawn for. Anything else
+        // is not this line's and is dropped rather than guessed at.
+        if (!href.startsWith(QLatin1String("step:")))
+            return;
+        bool ok = false;
+        const int step = href.mid(5).toInt(&ok);
+        if (ok && step >= 0 && step < StepCount)
+            emit stepActivated(step);
+    });
+    layout->addWidget(m_line, 1);
+
+    // Re-render on a theme change: the three per-step colours are inlined into
+    // the rich text, so unlike a stylesheet they are not re-resolved for us.
+    connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this,
+            [this] { rebuild(); });
+
+    m_tones = QVector<QString>(StepCount);
     rebuild();
 }
 
@@ -377,21 +404,77 @@ DiversityFlowStrip::State DiversityFlowStrip::filterState() const
 }
 
 // --------------------------------------------------------------------------
-// Drawing
+// Which page a step is about
 // --------------------------------------------------------------------------
 
-void DiversityFlowStrip::setStepState(QPushButton* button, const QString& state)
+int DiversityFlowStrip::stepPage(int step)
 {
-    if (button->property("flowState").toString() == state)
-        return;
-    button->setProperty("flowState", state);
-    button->style()->unpolish(button);
-    button->style()->polish(button);
+    switch (step) {
+    case StepAlign:
+    case StepMode:
+    case StepHear:
+        return PageSlice;
+    case StepNoise:
+        return PageSite;
+    case StepFilter:
+        return PageFilter;
+    default:
+        break;
+    }
+    return PageBand;
 }
+
+// The tab labels, verbatim: a step that says "→ SITE" has to name the button
+// the operator is being sent to, in the letters that are on it.
+QString DiversityFlowStrip::pageWord(int page)
+{
+    switch (page) {
+    case PageSlice:
+        return tr("SLICE");
+    case PageSite:
+        return tr("SITE");
+    case PageFilter:
+        return tr("FILTER");
+    default:
+        break;
+    }
+    return QString();
+}
+
+QString DiversityFlowStrip::stepTone(int step) const
+{
+    return (step >= 0 && step < m_tones.size()) ? m_tones.at(step) : QString();
+}
+
+void DiversityFlowStrip::setCurrentPage(int page)
+{
+    if (m_page == page)
+        return;
+    m_page = page;
+    rebuild();
+}
+
+// --------------------------------------------------------------------------
+// Drawing
+// --------------------------------------------------------------------------
+//
+// One line, five steps, " · " between them. Three things vary and nothing
+// else does:
+//
+//   * the glyph -- ✓ behind you, ● the one to do, ○ still ahead;
+//   * whether the gate's state string is quoted after the word. A step that is
+//     done or next says what it is; a step that is still ahead says only its
+//     name, unless the operator is standing on its page, where the state is
+//     the reason they went there;
+//   * the colour, which is the page relevance and nothing more. See stepTone().
+//
+// Only the next step is an anchor. Everything else is text, because a
+// checklist you can click five things on is a menu again -- which is the
+// mistake this line exists to undo.
 
 void DiversityFlowStrip::rebuild()
 {
-    if (m_steps.size() != StepCount)
+    if (!m_line || m_labels.size() != StepCount)
         return;
 
     const State states[StepCount] = {alignState(), modeState(), hearState(),
@@ -407,16 +490,76 @@ void DiversityFlowStrip::rebuild()
         }
     }
 
+    // No new colours: the primary and disabled text tokens the status strip
+    // already keys off, and the accent the window's verdict lines wear.
+    const ThemeManager& tm = ThemeManager::instance();
+    const QString normal = tm.cssFragment(QStringLiteral("color.text.primary"));
+    const QString dim = tm.cssFragment(QStringLiteral("color.text.disabled"));
+    const QString accent = tm.cssFragment(QStringLiteral("color.accent.bright"));
+
+    // BAND owns no step, so on BAND the "belongs to this page" rule would dim
+    // every one of them including the next -- and the next step is the one
+    // thing this line exists to say. There, only it stays lit.
+    bool pageOwnsAStep = false;
     for (int i = 0; i < StepCount; ++i) {
-        QPushButton* button = m_steps.at(i);
-        button->setText(tr("%1 %2 · %3")
-                            .arg(QString::number(i + 1),
-                                 button->property("flowLabel").toString(),
-                                 states[i].text));
-        setStepState(button, i == m_next   ? QStringLiteral("next")
-                             : i < m_next  ? QStringLiteral("done")
-                                           : QStringLiteral("later"));
+        if (stepPage(i) == m_page) {
+            pageOwnsAStep = true;
+            break;
+        }
     }
+
+    QStringList html;
+    QStringList plain;
+    for (int i = 0; i < StepCount; ++i) {
+        const bool onPage = stepPage(i) == m_page;
+        const bool isNext = i == m_next;
+        const bool lit = isNext && (onPage || !pageOwnsAStep);
+        // A dash is not a state, it is the absence of one, and "✓ filter —"
+        // says less than "✓ filter".
+        const bool quoteState = (isNext || i < m_next || onPage)
+                                && !states[i].text.startsWith(dash());
+
+        QString text;
+        if (isNext) {
+            text = quoteState
+                       ? tr("%1 %2 · %3").arg(QString::fromUtf8(kGlyphNext),
+                                              m_labels.at(i), states[i].text)
+                       : tr("%1 %2").arg(QString::fromUtf8(kGlyphNext), m_labels.at(i));
+            // Where to go to do it, when that is not where the operator is.
+            // Several state strings already end in an arrow to their own page
+            // ("2 findings → SITE"); those are left alone rather than doubled.
+            const QString page = pageWord(stepPage(i));
+            if (!onPage && !page.isEmpty() && !text.endsWith(arrow() + page))
+                text += arrow() + page;
+        } else {
+            const char* glyph = i < m_next ? kGlyphDone : kGlyphLater;
+            text = quoteState
+                       ? tr("%1 %2 %3").arg(QString::fromUtf8(glyph), m_labels.at(i),
+                                            states[i].text)
+                       : tr("%1 %2").arg(QString::fromUtf8(glyph), m_labels.at(i));
+        }
+
+        m_tones[i] = lit ? QStringLiteral("lit")
+                         : onPage ? QStringLiteral("normal")
+                                  : QStringLiteral("dim");
+        const QString colour = lit ? accent : (onPage ? normal : dim);
+        // Escaped: talker names and mode words are the gate's, and a station
+        // called "<b" must not be able to write markup into this line.
+        const QString escaped = text.toHtmlEscaped();
+        html << (isNext
+                     ? QStringLiteral("<a href=\"step:%1\" style=\"color:%2;"
+                                      "text-decoration:none;\">%3</a>")
+                           .arg(QString::number(i), colour, escaped)
+                     : QStringLiteral("<span style=\"color:%1;\">%2</span>")
+                           .arg(colour, escaped));
+        plain << text;
+    }
+
+    m_line->setText(html.join(QStringLiteral(" · ")));
+    // The whole line, unmarked up, is what a screen reader should read: the
+    // glyphs are already words there ("✓" reads as "check"), and the order is
+    // the point.
+    m_line->setAccessibleDescription(plain.join(QStringLiteral(" · ")));
 }
 
 } // namespace AetherSDR

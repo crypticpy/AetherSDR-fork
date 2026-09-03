@@ -9,6 +9,7 @@
 #include <QAbstractButton>
 #include <QButtonGroup>
 #include <QCheckBox>
+#include <QDateTime>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -93,6 +94,19 @@ QHBoxLayout* newRow(QVBoxLayout* body)
     row->setSpacing(4);
     body->addLayout(row);
     return row;
+}
+
+// Marks `obj` as just written by the operator: for kWriteHoldMs, a poll may
+// only move it if the value it carries echoes `value` back. `obj` is the
+// widget itself for a checkbox or a spin, and the QButtonGroup for a row of
+// exclusive buttons -- a QButtonGroup is a QObject and takes a property the
+// same as any widget. The read side is writeSpin()/writeCheck()/checkValue()
+// and the AUTO check in applyStatus(), all in DiversityWindowFilter.cpp.
+void holdWrite(QObject* obj, const QVariant& value)
+{
+    obj->setProperty("pendingValue", value);
+    obj->setProperty("pendingUntil", QDateTime::currentMSecsSinceEpoch()
+                                         + DiversityFilterControls::kWriteHoldMs);
 }
 
 } // namespace
@@ -269,9 +283,14 @@ QButtonGroup* DiversityFilterControls::buildValueButtons(QVBoxLayout* body,
         row->addWidget(button, 1);
         m_controls.append(button);
         // clicked(), not toggled(): applyStatus() checks a button back from the
-        // poll and must not turn that read-back into another write.
-        connect(button, &QPushButton::clicked, this,
-                [this, key, value = values[i]] { set(key, value); });
+        // poll and must not turn that read-back into another write. The hold
+        // goes on the GROUP rather than the button: checkValue() picks a
+        // button by the incoming value, not by which one was clicked, so the
+        // group is where "what did the operator just ask for" belongs.
+        connect(button, &QPushButton::clicked, this, [this, key, value = values[i], group] {
+            holdWrite(group, value);
+            set(key, value);
+        });
     }
     row->addStretch(0);
     return group;
@@ -308,6 +327,7 @@ QSpinBox* DiversityFilterControls::buildSpin(const QString& objectName,
             return;
         }
         spin->setProperty("gateValue", spin->value());
+        holdWrite(spin, spin->value());
         set(key, QString::number(spin->value()));
     });
     return spin;
@@ -324,7 +344,8 @@ QCheckBox* DiversityFilterControls::buildCheck(const QString& objectName,
     check->setAccessibleDescription(tip);
     ThemeManager::instance().applyStyleSheet(check, QString::fromLatin1(kCheckStyle));
     m_controls.append(check);
-    connect(check, &QCheckBox::clicked, this, [this, key](bool on) {
+    connect(check, &QCheckBox::clicked, this, [this, check, key](bool on) {
+        holdWrite(check, on);
         set(key, on ? QStringLiteral("1") : QStringLiteral("0"));
     });
     return check;
@@ -418,6 +439,7 @@ QWidget* DiversityFilterControls::buildWidthColumn()
     applyToggleButtonStyle(m_autoButton);
     m_controls.append(m_autoButton);
     connect(m_autoButton, &QPushButton::clicked, this, [this](bool on) {
+        holdWrite(m_autoButton, on);
         set(QStringLiteral("auto"), on ? QStringLiteral("1") : QStringLiteral("0"));
     });
     autoRow->addWidget(m_autoButton);
@@ -629,32 +651,7 @@ QWidget* DiversityFilterControls::buildToneColumn()
                 [this] { writeCheck(m_autoContourCheck, false); });
     }
 
-    m_apfCheck = buildCheck(QStringLiteral("diversityWindowFilterApfCheck"),
-                            QStringLiteral("apf"), tr("APF (CW)"),
-                            tr("The audio peaking filter: a very narrow "
-                               "resonance for digging one CW note out of noise. "
-                               "It is a CW tool and nothing else -- on speech "
-                               "it rings everything through one note, which "
-                               "sounds like the other station is talking into a "
-                               "tiny cup."));
-    body->addWidget(m_apfCheck);
-    QHBoxLayout* apfRow = newRow(body);
-    apfRow->addWidget(fieldLabel(tr("Hz"), this));
-    m_apfHzSpin = buildSpin(QStringLiteral("diversityWindowFilterApfHzSpin"),
-                            QStringLiteral("apf_hz"), 0, 20000, tr(" Hz"),
-                            tr("Audio peak centre"),
-                            tr("The note the peak sits on -- normally your own "
-                               "sidetone pitch, so a signal you tune to zero "
-                               "beat lands in it."));
-    apfRow->addWidget(m_apfHzSpin);
-    apfRow->addWidget(fieldLabel(tr("W"), this));
-    m_apfWidthSpin = buildSpin(QStringLiteral("diversityWindowFilterApfWidthSpin"),
-                               QStringLiteral("apf_width"), 10, 2000, tr(" Hz"),
-                               tr("Audio peak width"),
-                               tr("How narrow the peak is. Narrower rings more "
-                                  "and hears less either side of the note."));
-    apfRow->addWidget(m_apfWidthSpin);
-    apfRow->addStretch(1);
+    body->addWidget(buildApfBlock());
 
     m_autoEqCheck = buildCheck(QStringLiteral("diversityWindowFilterAutoEqCheck"),
                                QStringLiteral("auto_eq"), tr("AUTO EQ"),

@@ -3109,6 +3109,55 @@ add_test(NAME diversity_filter_test COMMAND diversity_filter_test)
 set_tests_properties(diversity_filter_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# The FILTER page's write hold and the APF block's CW-only visibility -- the
+# live-round bug fix ("I have to click a couple times to get it to turn on";
+# "APF is still in the interface without the CW settings"). An eighth binary
+# rather than more cases in diversity_filter_test.cpp for the reason every one
+# of the seven before it is separate: that file is at the 800-line budget
+# AGENTS.md asks for, and every window case wants the same fresh, process-wide
+# AppSettings start.
+add_executable(diversity_filter_hold_test
+    tests/diversity_filter_hold_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_filter_hold_test PRIVATE src tests)
+target_link_libraries(diversity_filter_hold_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_filter_hold_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_filter_hold_test COMMAND diversity_filter_hold_test)
+set_tests_properties(diversity_filter_hold_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The FILTER page as a picture rather than as a set of controls: the pre-filter
 # spectrum drawn under the response curve, the one-line state readout between
 # the curve and the columns, and the five whole-filter presets under them. A
@@ -3298,6 +3347,52 @@ target_link_libraries(diversity_flow_test PRIVATE
 set_target_properties(diversity_flow_test PROPERTIES AUTOMOC ON)
 add_test(NAME diversity_flow_test COMMAND diversity_flow_test)
 set_tests_properties(diversity_flow_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The FLOW line -- five steps on one label at the foot of the window, only the
+# next one a link, everything belonging to another page dim. Split off
+# diversity_flow_test when that file reached the 800-line budget AGENTS.md
+# asks for; same sources, same closed-window start.
+add_executable(diversity_flow_line_test
+    tests/diversity_flow_line_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_flow_line_test PRIVATE src tests)
+target_link_libraries(diversity_flow_line_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_flow_line_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_flow_line_test COMMAND diversity_flow_line_test)
+set_tests_properties(diversity_flow_line_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(meter_applet_capability_test

@@ -76,9 +76,9 @@ sidebar with the setting `AetherGateDiversityPanel_ShowScope`.
 Open it from the sidebar button. Its geometry and visibility persist; it
 reopens on the next run if it was open at exit.
 
-Three strips sit above the pages, and they do three different jobs. They are
-three rows rather than one because as one row they read as a single sentence
-of controls, and half of them are not.
+Two strips sit above the pages and one line sits under them. They do three
+different jobs. They are three rows rather than one because as one row they
+read as a single sentence of controls, and half of them are not.
 
 **Row 1 — the pages.** SLICE / BAND / SITE / FILTER, and nothing else;
 `pages` is written at the right end of the row to say so. SLICE, described
@@ -107,17 +107,39 @@ seconds. The footer strip is the one line visible from every page, which is
 why both answers go there: on any page but SLICE there was previously no
 sign either button had done anything at all.
 
-**Row 3 — FLOW.** Five steps in the order that gets the best signal, each
-showing what the gate currently says about it: `1 ALIGN`, `2 MODE`,
-`3 HEAR`, `4 NOISE`, `5 FILTER`. The one to do next is lit, the ones behind
-it are plain and the ones ahead are dim. Clicking a step goes to the page it
-lives on, and where there is a single obvious action it also takes it —
-step 1 realigns, step 2 sets track when the combiner is off, step 3 switches
-HEAR to the combined output. Steps 4 and 5 only change the page, because
-there is a choice to make on both and the strip should not make it for you.
-Every state on the strip is a number or a word the gate said; nothing there
-is computed by the window. See *A working session* below for what each step
-is for.
+**The FLOW line — at the foot of the window, not the top.** Five steps in
+the order that gets the best signal, on one line above the gate status
+strip:
+
+```
+FLOW  ✓ align lag −63 · ✓ mode track · ● hear · A only → hear OUT · ○ noise · ○ filter
+```
+
+A tick is a step behind you, a filled dot is the one to do next, a hollow
+circle is one still ahead. **Only the next step is clickable**, and clicking
+it goes to the page that step lives on and, where there is a single obvious
+action, also takes it — align realigns, mode sets track when the combiner is
+off, hear switches to the combined output. The noise and filter steps only
+change the page, because there is a choice to make on both and the line
+should not make it for you. Every state on the line is a number or a word
+the gate said; nothing there is computed by the window.
+
+It was a strip of five buttons under the page tabs until an operator met it,
+and it read as a second row of tabs: five lit boxes under four lit boxes is
+navigation whatever the words on them say. At the bottom of the window,
+written as a checklist rather than as controls, nothing in the layout can be
+mistaken for the tab bar.
+
+**The line follows the tab you are on.** The steps that belong to the page in
+front of you are drawn in full and the rest go dim — align, mode and hear on
+SLICE; noise on SITE; filter on FILTER. The step still ahead on the page you
+are standing on also quotes its state, which is the reason you went there:
+on FILTER the last step reads `○ filter 210–2840 soft · AUTO` rather than
+just its name. BAND owns no step, so there everything is dim except the one
+to do next. The next step is never hidden by any of this: when it lives on
+another page its link says which one (`● noise · 2 findings → SITE`), so the
+single thing to do next is readable, and reachable, from all four pages.
+See *A working session* below for what each step is for.
 
 **STEREO** puts loop A in the left channel and loop B in the right, with
 one AGC gain for both so the loops keep their level difference. On two
@@ -497,15 +519,33 @@ seconds and nothing moves. The page is polled twice a second while it is on
 screen and not at all otherwise, and a mode with no slice filter behind it
 says `Filter is not available for this mode` and greys the lot.
 
+**A click holds.** Every control on FILTER holds the value you just gave
+it for up to 1.5 seconds against a poll, or a write's own reply, that
+still shows the old state. That is the fix for a checkbox, AUTO, or a
+shape/AGC button that used to flicker off and back on after one click:
+what looked like a dead click was a stale poll landing a beat late. A
+refused write (the gate answers with an error) drops the hold, so the
+next poll puts the control back where the gate has it.
+
+**APF is for CW.** APF and its Hz/W row only appear in the TONE column
+while the slice is in CW mode; on every other mode they are hidden, since
+audio peaking has nothing to offer a voice filter.
+
+**Your settings are everyone's.** Edges, shape, AUTO, AUTO EQ, contour and
+the AGC threshold apply to whoever is talking. PER TALKER means the
+automatics remember each voice: the AUTO edges, the EQ tilt and the fitted
+contour bell come back the block a known talker keys up, under your
+settings as they stand now.
+
 ## A working session
 
-This is the order the FLOW strip encodes, and the order to work in. Each step
+This is the order the FLOW line encodes, and the order to work in. Each step
 makes the next one mean something: a mode set before the tuners are aligned
 is solving on two signals that are not the same signal, and a filter set
 before you are hearing the combined output is a filter on the wrong audio.
 
 1. **Align the tuners.** Start the gate, connect, open the window, and wait
-   for step 1 to read a lag. The gate cross-correlates the two tuners and
+   for the align step to read a lag. The gate cross-correlates the two tuners and
    holds them sample-aligned; the lag is usually a few tens of samples and
    stays put. Until it is aligned there is no pair, only two receivers, and
    everything below is meaningless. If it does not settle, or you have just
@@ -523,13 +563,13 @@ before you are hearing the combined output is a filter on the wrong audio.
    listening to it or not. Set it to **OUT** to hear the result. **STEREO**
    is the other honest answer — both loops, one AGC, the difference between
    them as a soundstage. A or B alone is a diagnostic, not a listening
-   state, and step 3 says so while you are in one.
+   state, and the hear step says so while you are in one.
 
 4. **Act on the noise the gate found.** The SITE page's profile runs by
    itself and lists what this address is actually making — mains hum,
    impulses, periodic modulation, tones — with the gate's verdict on each
-   and one button where there is something to do about it. Step 4 counts
-   the findings that still offer an unused button. Work down them; the ones
+   and one button where there is something to do about it. The noise step
+   counts the findings that still offer an unused button. Work down them; the ones
    with no button carry the reason there is none.
 
 5. **Set the filter.** Last, because it acts on the audio the four steps

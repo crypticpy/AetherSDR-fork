@@ -38,6 +38,7 @@
 #include <QButtonGroup>
 #include <QAbstractButton>
 #include <QCheckBox>
+#include <QDateTime>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -125,6 +126,31 @@ QString kiloHertz(const QJsonObject& obj, const char* key)
     if (!jsonNumber(obj, key, &v))
         return emDash();
     return QStringLiteral("%1 kHz").arg(v / 1000.0, 0, 'f', 0);
+}
+
+// The read side of the write hold. See DiversityFilterControls.h for
+// kWriteHoldMs and DiversityFilterControls.cpp's holdWrite() for how a hold
+// gets set. `incoming` is what the poll or write-reply just said this control
+// ought to be; if a hold is live and it disagrees, the write is dropped and
+// the control keeps showing what the operator put there. Once the hold has
+// either expired or been echoed, it is cleared here so the next call is a
+// plain, unheld write.
+bool holdBlocks(QObject* obj, const QVariant& incoming)
+{
+    const QVariant until = obj->property("pendingUntil");
+    if (!until.isValid())
+        return false;
+    if (QDateTime::currentMSecsSinceEpoch() >= until.toLongLong()) {
+        obj->setProperty("pendingUntil", QVariant());
+        obj->setProperty("pendingValue", QVariant());
+        return false;
+    }
+    if (obj->property("pendingValue") == incoming) {
+        obj->setProperty("pendingUntil", QVariant());
+        obj->setProperty("pendingValue", QVariant());
+        return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -278,6 +304,57 @@ QWidget* DiversityFilterControls::buildPresetStrip()
 }
 
 // --------------------------------------------------------------------------
+// APF: one container so applyStatus() can hide it with one call
+// --------------------------------------------------------------------------
+//
+// Built here rather than inline in buildToneColumn() for the file-size reason
+// buildPresetStrip() already is: DiversityFilterControls.cpp is at the budget.
+// APF is a CW tool -- see the tooltip -- and applyStatus() below hides this
+// whole block outside CW rather than leaving a control on the page that does
+// nothing for the mode the operator is actually in.
+
+QWidget* DiversityFilterControls::buildApfBlock()
+{
+    m_apfBlock = new QWidget(this);
+    m_apfBlock->setObjectName(QStringLiteral("diversityWindowFilterApfBlock"));
+    auto* body = new QVBoxLayout(m_apfBlock);
+    body->setContentsMargins(0, 0, 0, 0);
+    body->setSpacing(4);
+
+    m_apfCheck = buildCheck(QStringLiteral("diversityWindowFilterApfCheck"),
+                            QStringLiteral("apf"), tr("APF (CW)"),
+                            tr("The audio peaking filter: a very narrow "
+                               "resonance for digging one CW note out of noise. "
+                               "It is a CW tool and nothing else -- on speech "
+                               "it rings everything through one note, which "
+                               "sounds like the other station is talking into a "
+                               "tiny cup."));
+    body->addWidget(m_apfCheck);
+
+    auto* row = new QHBoxLayout;
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(4);
+    body->addLayout(row);
+    row->addWidget(DiversityWidgets::makeFieldLabel(tr("Hz"), this));
+    m_apfHzSpin = buildSpin(QStringLiteral("diversityWindowFilterApfHzSpin"),
+                            QStringLiteral("apf_hz"), 0, 20000, tr(" Hz"),
+                            tr("Audio peak centre"),
+                            tr("The note the peak sits on -- normally your own "
+                               "sidetone pitch, so a signal you tune to zero "
+                               "beat lands in it."));
+    row->addWidget(m_apfHzSpin);
+    row->addWidget(DiversityWidgets::makeFieldLabel(tr("W"), this));
+    m_apfWidthSpin = buildSpin(QStringLiteral("diversityWindowFilterApfWidthSpin"),
+                               QStringLiteral("apf_width"), 10, 2000, tr(" Hz"),
+                               tr("Audio peak width"),
+                               tr("How narrow the peak is. Narrower rings more "
+                                  "and hears less either side of the note."));
+    row->addWidget(m_apfWidthSpin);
+    row->addStretch(1);
+    return m_apfBlock;
+}
+
+// --------------------------------------------------------------------------
 // The page's half: one status object becomes what the widgets show
 // --------------------------------------------------------------------------
 
@@ -288,6 +365,10 @@ void DiversityFilterControls::writeSpin(QSpinBox* spin, int value)
     // is exactly what the pending edit is about to disagree with.
     if (!spin || spin->hasFocus())
         return;
+    // Nor is one the operator just committed, until the hold either sees its
+    // own value echoed back or times out. See holdBlocks() above.
+    if (holdBlocks(spin, value))
+        return;
     spin->setProperty("gateValue", value);
     const QSignalBlocker block(spin);
     spin->setValue(value);
@@ -295,7 +376,7 @@ void DiversityFilterControls::writeSpin(QSpinBox* spin, int value)
 
 void DiversityFilterControls::writeCheck(QCheckBox* check, bool on)
 {
-    if (!check)
+    if (!check || holdBlocks(check, on))
         return;
     const QSignalBlocker block(check);
     check->setChecked(on);
@@ -303,7 +384,7 @@ void DiversityFilterControls::writeCheck(QCheckBox* check, bool on)
 
 void DiversityFilterControls::checkValue(QButtonGroup* group, const QString& value)
 {
-    if (!group)
+    if (!group || holdBlocks(group, value))
         return;
     for (QAbstractButton* button : group->buttons()) {
         if (button->property("filterValue").toString() != value)
@@ -311,6 +392,20 @@ void DiversityFilterControls::checkValue(QButtonGroup* group, const QString& val
         const QSignalBlocker block(button);
         button->setChecked(true);
         return;
+    }
+}
+
+void DiversityFilterControls::clearWriteHolds()
+{
+    for (QWidget* control : m_controls) {
+        control->setProperty("pendingValue", QVariant());
+        control->setProperty("pendingUntil", QVariant());
+    }
+    for (QButtonGroup* group : {m_shapeGroup, m_agcGroup}) {
+        if (!group)
+            continue;
+        group->setProperty("pendingValue", QVariant());
+        group->setProperty("pendingUntil", QVariant());
     }
 }
 
@@ -326,6 +421,10 @@ void DiversityFilterControls::setControlsEnabled(bool on)
 
 void DiversityFilterControls::showTransient(const QString& text)
 {
+    // A refused write never took, so its hold must not survive it: the next
+    // poll is what puts the refused control back where the gate actually has
+    // it, and a hold still open would keep that poll from doing so.
+    clearWriteHolds();
     m_status->setText(text);
     DiversityWidgets::setLive(m_status, true);
     m_statusTimer->start(kTransientMs);
@@ -467,7 +566,9 @@ void DiversityFilterControls::applyStatus(const QJsonObject& f)
 
     const QJsonObject autoObj = f.value(QStringLiteral("auto")).toObject();
     const bool autoOn = autoObj.value(QStringLiteral("enabled")).toBool();
-    {
+    // Same hold as writeCheck(), by hand: m_autoButton is a QPushButton, not a
+    // QCheckBox, so it cannot go through that helper.
+    if (!holdBlocks(m_autoButton, autoOn)) {
         const QSignalBlocker block(m_autoButton);
         m_autoButton->setChecked(autoOn);
     }
@@ -538,10 +639,20 @@ void DiversityFilterControls::applyStatus(const QJsonObject& f)
                 : tr("no print yet"));
     }
 
-    const QJsonObject apf = f.value(QStringLiteral("apf")).toObject();
-    writeCheck(m_apfCheck, apf.value(QStringLiteral("enabled")).toBool());
-    writeSpin(m_apfHzSpin, jsonInt(apf, "hz", m_apfHzSpin->value()));
-    writeSpin(m_apfWidthSpin, jsonInt(apf, "width_hz", m_apfWidthSpin->value()));
+    // APF is a CW tool -- see its tooltip -- and has nothing to say on a voice
+    // slice, so the whole block is hidden outside CW rather than left on the
+    // page showing a control that does nothing for the mode in force. Hidden
+    // means untouched: nothing about it is written or read while it is not
+    // CW, so a stale hold or a stray value cannot survive a mode change and
+    // reappear the moment the operator switches back.
+    const bool cwMode = mode.compare(QStringLiteral("cw"), Qt::CaseInsensitive) == 0;
+    m_apfBlock->setVisible(cwMode);
+    if (cwMode) {
+        const QJsonObject apf = f.value(QStringLiteral("apf")).toObject();
+        writeCheck(m_apfCheck, apf.value(QStringLiteral("enabled")).toBool());
+        writeSpin(m_apfHzSpin, jsonInt(apf, "hz", m_apfHzSpin->value()));
+        writeSpin(m_apfWidthSpin, jsonInt(apf, "width_hz", m_apfWidthSpin->value()));
+    }
 
     const QJsonObject autoEq = f.value(QStringLiteral("auto_eq")).toObject();
     writeCheck(m_autoEqCheck, autoEq.value(QStringLiteral("enabled")).toBool());

@@ -31,6 +31,7 @@
 #include <QAbstractButton>
 #include <QApplication>
 #include <QCheckBox>
+#include <QDateTime>
 #include <QLabel>
 #include <QListWidget>
 #include <QNetworkReply>
@@ -371,10 +372,18 @@ void testAutoContourWritesAndATypedValueTakesItOff()
     settle();
     CHECK(lastRequest(net, QStringLiteral("/filter/set"))
           == QStringLiteral("/filter/set?auto_contour=0"));
-    // ...and the tick is back on, because this fake gate answers every write
-    // with the same fitted payload. That is the right order and not an
-    // accident of the fixture: the gate is the source of truth, and a control
-    // that stayed where it was clicked would be lying about a refused write.
+    // The fake gate answers every write with the same fitted payload, so the
+    // gate's word is "still on". The click holds for kWriteHoldMs against
+    // that (a stale poll and a refusing gate look the same for a beat); once
+    // the hold has run out, the gate is the source of truth again and the
+    // tick comes back -- a control that stayed where it was clicked for good
+    // would be lying about a refused write.
+    CHECK(!autoCheck->isChecked());
+    CHECK(autoCheck->property("pendingUntil").isValid());
+    autoCheck->setProperty("pendingUntil", QDateTime::currentMSecsSinceEpoch() - 1);
+    if (auto* poller = a.findChild<DiversityBandPoller*>())
+        QMetaObject::invokeMethod(poller, "poll", Qt::DirectConnection);
+    settle();
     CHECK(autoCheck->isChecked());
 
     // A value the operator committed. The gate turns its own fit off when it
@@ -516,9 +525,11 @@ void testVoiceSplitIsLogged()
     closedToStart();
 }
 
-// (g) The FLOW strip's last step quotes whose filter is in force and what the
+// (g) The FLOW line's last step quotes whose filter is in force and what the
 // automatic contour has settled on, because "100-2900 soft" is one fact about
-// one station once PER TALKER is on.
+// one station once PER TALKER is on. Read off the line at the foot of the
+// window -- the five steps stopped being five buttons when the row of them
+// under the tabs turned out to read as a second tab bar.
 void testFlowFilterStepQuotesTheTalkerAndContour()
 {
     closedToStart();
@@ -530,27 +541,27 @@ void testFlowFilterStepQuotesTheTalkerAndContour()
     if (!w)
         return;
 
-    auto* step5 = child<QPushButton>(w, "diversityWindowFlowStep5");
-    CHECK(step5 != nullptr);
-    if (!step5)
+    auto* flow = child<QLabel>(w, "diversityWindowFlowLine");
+    CHECK(flow != nullptr);
+    if (!flow)
         return;
-    CHECK(step5->text().contains(QStringLiteral("Ted's filter (#3)")));
-    CHECK(step5->text().contains(QStringLiteral("auto contour −3 dB at 550 Hz")));
+    CHECK(flow->text().contains(QStringLiteral("Ted's filter (#3)")));
+    CHECK(flow->text().contains(QStringLiteral("auto contour −3 dB at 550 Hz")));
 
     // MUTATION: fitting with nothing heard yet says so rather than quoting a
     // bell at 0 Hz, and an id with no name is quoted as its number.
     net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
                                              kDiversityFilterTalkerNoPrint};
     bandTick(a);
-    CHECK(step5->text().contains(QStringLiteral("filter #4")));
-    CHECK(step5->text().contains(QStringLiteral("auto contour: no print yet")));
+    CHECK(flow->text().contains(QStringLiteral("filter #4")));
+    CHECK(flow->text().contains(QStringLiteral("auto contour: no print yet")));
 
     // PER TALKER off with a manual bell: neither clause appears at all.
     net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
                                              kDiversityFilterTalkerOff};
     bandTick(a);
-    CHECK(!step5->text().contains(QStringLiteral("filter #")));
-    CHECK(!step5->text().contains(QStringLiteral("auto contour")));
+    CHECK(!flow->text().contains(QStringLiteral("filter #")));
+    CHECK(!flow->text().contains(QStringLiteral("auto contour")));
 
     w->close();
     settle();

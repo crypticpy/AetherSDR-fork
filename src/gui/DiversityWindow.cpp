@@ -138,23 +138,23 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     auto* root = new QVBoxLayout(bodyWidget());
     root->setContentsMargins(8, 4, 8, 8);
     root->setSpacing(8);
-    // Three sticky strips, in the order the operator reads them: where you
-    // are, what the pair is doing on every page, and what to do next. Two rows
-    // rather than one because v2's single row read as one sentence and left
-    // "do the controls change with the tab?" unanswerable -- see
-    // DiversityWindowChain.cpp.
-    // Tighter spacing between the three than the 8 px the rest of the window
+    // Two sticky strips, in the order the operator reads them: where you are,
+    // and what the pair is doing on every page. Two rows rather than one
+    // because v2's single row read as one sentence and left "do the controls
+    // change with the tab?" unanswerable -- see DiversityWindowChain.cpp.
+    // Tighter spacing between the two than the 8 px the rest of the window
     // uses: they are one block of "about the window", and a gap as wide as the
-    // one under them would read as three unrelated strips.
+    // one under them would read as two unrelated strips.
+    //
+    // The FLOW line used to be a third row here and is not any more: five lit
+    // pills under four lit tabs read as a second tab bar, which is exactly the
+    // confusion this block was built to end. It is at the foot of the window
+    // now, above the status strip -- see the footer below.
     auto* strips = new QVBoxLayout;
     strips->setContentsMargins(0, 0, 0, 0);
     strips->setSpacing(4);
     strips->addWidget(buildTabRow());
     strips->addWidget(buildChainRow());
-    m_flow = new DiversityFlowStrip(this);
-    connect(m_flow, &DiversityFlowStrip::stepActivated, this,
-            &DiversityWindow::onFlowStep);
-    strips->addWidget(m_flow);
     root->addLayout(strips);
 
     // Everything below the sticky rows scrolls, so the window can be
@@ -224,7 +224,26 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     ThemeManager::instance().applyStyleSheet(m_statusStrip,
                                              QString::fromLatin1(kStatusStripStyle));
     setStatusStripBase(tr("gate not answering"), false);
-    root->addWidget(m_statusStrip);
+
+    // The footer: the two lines that are true on every page. FLOW says what to
+    // do next, the status strip says whether the gate is answering at all, and
+    // they sit at the bottom in that order because nothing down here can be
+    // mistaken for the tabs. 4 px between them, the same gap the two sticky
+    // rows at the top share, because they are one block for the same reason.
+    auto* footer = new QVBoxLayout;
+    footer->setContentsMargins(0, 0, 0, 0);
+    footer->setSpacing(4);
+    m_flow = new DiversityFlowStrip(this);
+    connect(m_flow, &DiversityFlowStrip::stepActivated, this,
+            &DiversityWindow::onFlowStep);
+    // The line is about the page in front of the operator, so it follows the
+    // stack itself rather than the tab buttons: a page switch made from a FLOW
+    // click or a SITE row's button reaches it the same way a tab does.
+    connect(m_pages, &QStackedWidget::currentChanged,
+            m_flow, &DiversityFlowStrip::setCurrentPage);
+    footer->addWidget(m_flow);
+    footer->addWidget(m_statusStrip);
+    root->addLayout(footer);
 }
 
 DiversityWindow* DiversityWindow::createFor(AetherGateDiversityPanel* panel)
