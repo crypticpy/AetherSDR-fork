@@ -1624,6 +1624,26 @@ add_test(NAME test_event_loop_test COMMAND test_event_loop_test)
 
 # Just the voice fixture — linking the full resources.qrc pulled 5.8 MB of
 # application assets into a unit test to reach one 458 KB WAV (PR #4689 review).
+# DeepFilterNet3 (DFNR) — the speech-model stage B18 asked for. The test is
+# split on HAVE_DFNR at the top level so it builds and passes whether or not
+# the pre-built library is present; the definition reaches it from aethercore.
+add_executable(deep_filter_filter_test
+    tests/deep_filter_filter_test.cpp
+)
+target_link_libraries(deep_filter_filter_test PRIVATE aethercore Qt6::Core)
+add_test(NAME deep_filter_filter_test COMMAND deep_filter_filter_test)
+
+# The speech-band SNR score behind the "DFNR beats RN2" claim: pure core, no Qt
+# widgets, an SSB fixture built in the test.
+add_executable(speech_snr_score_test
+    tests/speech_snr_score_test.cpp
+    src/core/SpeechSnrScore.cpp
+    src/core/Biquad.cpp
+)
+target_include_directories(speech_snr_score_test PRIVATE src)
+target_link_libraries(speech_snr_score_test PRIVATE Qt6::Core)
+add_test(NAME speech_snr_score_test COMMAND speech_snr_score_test)
+
 qt_add_resources(RNNOISE_FILTER_TEST_RESOURCES tests/rnnoise_filter_test.qrc)
 add_executable(rnnoise_filter_test
     tests/rnnoise_filter_test.cpp

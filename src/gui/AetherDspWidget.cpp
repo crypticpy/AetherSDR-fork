@@ -57,6 +57,17 @@ const char* dspNameForIndex(int index)
 const QString kDfnrUnavailableToolTip = QStringLiteral(
     "DFNR requires DeepFilterNet to be set up and AetherSDR rebuilt.");
 
+// Honesty label for both neural NR modes (RN2, DFNR — see B18 design doc):
+// a speech-model denoiser has a learned prior on what speech sounds like,
+// so at very low input SNR it can hallucinate speech-like artifacts that
+// were never transmitted. Shared text so the RN2 and DFNR tabs can't drift
+// out of sync with each other.
+const QString kSpeechModelHonestyNote = QStringLiteral(
+    "This is a neural model with a learned prior on what speech sounds "
+    "like: at very low SNR it can invent speech-like sounds that were "
+    "never transmitted. Off by default — verify anything you can't "
+    "otherwise confirm.");
+
 void rememberLastClientNr(int index)
 {
     const char* name = dspNameForIndex(index);
@@ -1133,9 +1144,11 @@ QWidget* AetherDspWidget::buildRn2Page()
     auto* lbl = new QLabel(
         "RNNoise — open-source recurrent neural-network voice denoiser. "
         "Removes stationary background noise (fans, hum, white-noise floor) "
-        "while preserving speech.  Lightweight and CPU-only.");
+        "while preserving speech.  Lightweight and CPU-only. "
+        + kSpeechModelHonestyNote);
     lbl->setWordWrap(true);
     lbl->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    lbl->setToolTip(kSpeechModelHonestyNote);
     AetherSDR::ThemeManager::instance().applyStyleSheet(lbl, "QLabel { color: {{color.text.secondary}}; font-size: 12px; }");
     {
         auto* infoRow = new QHBoxLayout;
@@ -1583,7 +1596,9 @@ QWidget* AetherDspWidget::buildDfnrPage()
     auto& s = AppSettings::instance();
 
     auto* info = new QLabel("AI-powered speech enhancement — higher fidelity than RNNoise "
-                            "in high-noise HF environments. CPU-only, 10 ms latency, 48 kHz.");
+                            "in high-noise HF environments. CPU-only, 10 ms latency, 48 kHz. "
+                            + kSpeechModelHonestyNote);
+    info->setToolTip(kSpeechModelHonestyNote);
 #ifndef HAVE_DFNR
     info->setText("DFNR is unavailable in this build. Set up the platform "
                   "DeepFilterNet library and rebuild AetherSDR to enable it.");
