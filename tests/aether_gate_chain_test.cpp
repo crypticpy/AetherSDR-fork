@@ -1,5 +1,5 @@
-// The CHAIN window -- the filter chain as a block diagram -- driven through a
-// real AetherGateApplet and socket-free.
+// The CHAIN window's array contract -- design §0.1 -- driven through a real
+// AetherGateApplet and socket-free.
 //
 // Same harness as tests/diversity_band_test.cpp and for the same reason: the
 // window owns no transport. It is reached by pressing the applet's own door,
@@ -7,167 +7,35 @@
 // request signal the applet turns into one GET. Driving it any other way would
 // be testing a wiring diagram we drew rather than the one that ships.
 //
-// The cases are the contract in §0.1 of the design, one assertion each:
-// the strip renders the gate's array in the gate's order, all four kinds; a
-// toggle sends exactly the gate's own query and does NOT move until the reply;
-// a select appends its value to a query ending in "="; the free entry refuses a
-// width there is no filter to design; a fixed row has no control; an absent
-// `measured` is an em dash and never a zero; a chain-less gate still gets
-// thirteen honest rows; nothing scrolls at the initial size; every widget the
-// window builds has a name the automation bridge can address it by.
-
-#include "DiversityGateFixture.h"
-#include "TestSettingsProfile.h"
-#include "gui/AetherGateApplet.h"
-#include "gui/AetherGateChainStage.h"
-#include "gui/AetherGateChainStrip.h"
-#include "gui/AetherGateChainWindow.h"
-#include "gui/DiversityBandPoller.h"
+// One assertion each: the strip renders the gate's array in the gate's order,
+// all four kinds; a toggle sends exactly the gate's own query and does NOT move
+// until the reply; a select appends its value to a query ending in "="; the
+// free entry refuses a width there is no filter to design; a fixed row has no
+// control and says why on its own face; an absent `measured` is an em dash and
+// never a zero; a chain-less gate still gets thirteen honest rows; selecting a
+// tile fills the detail area; nothing scrolls at the initial size; every widget
+// the window builds has a name the automation bridge can address it by.
+//
+// The eight things the operator asked for after the first build are the other
+// file: tests/aether_gate_chain_ux_test.cpp.
+#include "AetherGateChainFixture.h"
 
 #include <QApplication>
 #include <QComboBox>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QStandardItem>
+#include <QStandardItemModel>
 #include <QTest>
-#include <QToolButton>
 
 #include <cstdio>
 
-using AetherSDR::AetherGateApplet;
-using AetherSDR::AetherGateChainControl;
-using AetherSDR::AetherGateChainStrip;
-using AetherSDR::AetherGateChainTile;
-using AetherSDR::AetherGateChainWindow;
-using AetherSDR::DiversityBandPoller;
-
-using namespace DiversityGateFixture;
+using namespace AetherGateChainFixture;
 
 namespace {
-
-int g_failed = 0;
-
-#define CHECK(cond)                                                                  \
-    do {                                                                             \
-        if (!(cond)) {                                                               \
-            std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);              \
-            ++g_failed;                                                              \
-        }                                                                            \
-    } while (0)
-
-// A gate that authors its own chain[], with one row of every kind the contract
-// defines: two selects (one of them the digital roof, which is the row that
-// carries the radio menus and the free entry), a toggle, a fixed row, and a
-// value row the app has no built-in knowledge of at all.
-const QByteArray kChainFilter = R"JSON({
-  "low_hz": 350, "high_hz": 2400,
-  "roofing": {"analogue_hz": 200000.0, "digital_hz": 25000},
-  "chain": [
-    {"id": "roof_rf", "name": "ROOFING · RF", "kind": "select", "fixed": false,
-     "enabled": true, "detail": "200 kHz", "value": 200000,
-     "options": [200000, 300000, 600000, 1536000],
-     "measured": {"in_db": null, "out_db": -97.4},
-     "action": {"label": "SET", "route": "/filter/set", "query": "roof_hz="}},
-    {"id": "roof_digital", "name": "ROOFING · DIGITAL", "kind": "select",
-     "enabled": true, "detail": "3.0 kHz", "value": 3000,
-     "options": [12000, 6000, 3000, 1200, 600, 300],
-     "measured": {"in_db": -97.4, "out_db": -101.2},
-     "action": {"label": "SET", "route": "/filter/set", "query": "digital_roof_hz="}},
-    {"id": "nb", "name": "NB", "kind": "toggle", "enabled": false,
-     "detail": "12.0 dB · 0.0 % blanked · auto: idle",
-     "action": {"label": "ON", "route": "/filter/set", "query": "nb=on"}},
-    {"id": "lna", "name": "LNA", "kind": "fixed", "fixed": true, "enabled": true,
-     "detail": "state 4", "why": "set on the setup page"},
-    {"id": "steer", "name": "BEAM STEER", "kind": "value", "enabled": true,
-     "detail": "42 degrees"}
-  ]})JSON";
-
-// The same payload with the noise blanker on, so a toggle can be shown to move
-// on the GATE'S answer and on nothing else.
-QByteArray chainFilterNbOn()
-{
-    QByteArray body = kChainFilter;
-    body.replace("\"enabled\": false,\n     \"detail\": \"12.0 dB",
-                 "\"enabled\": true,\n     \"detail\": \"12.0 dB");
-    return body;
-}
-
-// GET /filter on the live gate, 2026-09-03: no chain[] anywhere in it. This is
-// the payload the fallback exists for.
-const QByteArray kChainlessFilter = R"JSON({
-  "low_hz": 100, "high_hz": 2900, "width_hz": 2800,
-  "set_low_hz": 100, "set_high_hz": 2900,
-  "shape": "soft", "taps": 255, "transition_hz": 196, "sideband": "lsb",
-  "notches": [],
-  "anf": {"enabled": false, "found_hz": [], "depth_db": []},
-  "contour": {"enabled": true, "hz": 1450.0, "db": -2.9, "width_hz": 300.0,
-              "auto": true, "source": "print"},
-  "apf": {"enabled": false, "hz": 600.0, "width_hz": 150.0},
-  "auto": {"enabled": false, "source": null, "low_hz": null, "high_hz": null},
-  "auto_eq": {"enabled": false, "tilt_db": 0.0, "lean_db": 0.0},
-  "nb": {"enabled": false, "threshold_db": 12.0, "blanked_pct": 0.0},
-  "agc": {"mode": "med", "attack_ms": 5.0, "decay_ms": 250.0, "hang_ms": 250.0,
-          "threshold_db": 20.0, "gain_db": -5.8},
-  "talker": {"enabled": true, "snap": "fast", "id": 32,
-             "remembered": [30, 31, 32, 33]},
-  "roofing": {"analogue_hz": 200000.0, "digital_hz": 25000},
-  "available": true, "mode": "LSB"})JSON";
-
-void connectGate(AetherGateApplet& a, FakeGate& net, const QByteArray& filter)
-{
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityFull};
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError, filter};
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-}
-
-// One more tick of the filter poller, without waiting out 500 ms of real time.
-void filterTick(AetherGateApplet& a)
-{
-    auto* poller = a.findChild<DiversityBandPoller*>();
-    if (!poller)
-        return;
-    QMetaObject::invokeMethod(poller, "poll", Qt::DirectConnection);
-    settle();
-}
-
-AetherGateChainWindow* openChain(AetherGateApplet& a)
-{
-    auto* door = a.findChild<QPushButton*>(QStringLiteral("gateOpenChainWindowButton"));
-    if (!door)
-        return nullptr;
-    door->click();
-    settle();
-    filterTick(a);
-    return a.chainWindow();
-}
-
-AetherGateChainStrip* strip(AetherGateChainWindow* w)
-{
-    return w ? w->findChild<AetherGateChainStrip*>(QStringLiteral("gateChainStrip"))
-             : nullptr;
-}
-
-QString lastRequest(const FakeGate& net)
-{
-    return net.log.isEmpty() ? QString() : net.log.last();
-}
-
-QString labelText(AetherGateChainWindow* w, const char* name)
-{
-    auto* label = w->findChild<QLabel*>(QString::fromLatin1(name));
-    return label ? label->text() : QString();
-}
-
-// --------------------------------------------------------------------------
 
 void testStripRendersTheGatesArrayInTheGatesOrder()
 {
@@ -193,13 +61,16 @@ void testStripRendersTheGatesArrayInTheGatesOrder()
         CHECK(s->tileAt(i)->id() == expect.at(i));
 
     // A stage the app has never heard of renders from its own name and detail
-    // rather than being dropped -- the entire point of a gate-authored array.
+    // rather than being dropped -- the entire point of a gate-authored array --
+    // and it is on the strip in EVERY mode, because the app cannot reason about
+    // whether a stage it has never seen is for phone or for CW.
     AetherGateChainTile* unknown = s->tile(QStringLiteral("steer"));
     CHECK(unknown != nullptr);
     if (unknown) {
         CHECK(unknown->stage().name == QStringLiteral("BEAM STEER"));
         CHECK(unknown->stage().detail == QStringLiteral("42 degrees"));
     }
+    CHECK(s->tilesInMode().size() == 5);
 }
 
 void testToggleSendsTheGatesQueryAndDoesNotFlipUntilTheReply()
@@ -209,7 +80,7 @@ void testToggleSendsTheGatesQueryAndDoesNotFlipUntilTheReply()
     connectGate(applet, net, kChainFilter);
     // The write answers with the noise blanker still OFF, which is the whole
     // point: a gate that refused, or that has not applied it yet, must not see
-    // the latch move.
+    // the switch move.
     net.routes[QStringLiteral("/filter/set")] = {QNetworkReply::NoError, kChainFilter};
     AetherGateChainWindow* w = openChain(applet);
     CHECK(w != nullptr);
@@ -221,22 +92,25 @@ void testToggleSendsTheGatesQueryAndDoesNotFlipUntilTheReply()
     if (!toggle)
         return;
     CHECK(!toggle->isChecked());
+    CHECK(toggle->text() == QStringLiteral("OFF"));
 
     toggle->click();
-    // Before the event loop has turned: one write is on the wire and the latch
+    // Before the event loop has turned: one write is on the wire and the switch
     // has not moved.
     CHECK(!toggle->isChecked());
     settle();
     CHECK(lastRequest(net) == QStringLiteral("/filter/set?nb=on"));
     CHECK(!toggle->isChecked());
 
-    // Now the gate says it happened, and only now does the latch move.
+    // Now the gate says it happened, and only now does the switch move.
     net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError, chainFilterNbOn()};
     filterTick(applet);
     auto* after = w->findChild<QPushButton*>(QStringLiteral("gateChainToggle_nb"));
     CHECK(after != nullptr);
-    if (after)
+    if (after) {
         CHECK(after->isChecked());
+        CHECK(after->text() == QStringLiteral("ON"));
+    }
 }
 
 void testSelectAppendsItsValueToAQueryEndingInEquals()
@@ -302,7 +176,7 @@ void testFreeEntryRefusesAWidthThereIsNoFilterFor()
     CHECK(lastRequest(net) == QStringLiteral("/filter/set?digital_roof_hz=3000"));
 }
 
-void testAFixedRowCarriesNoControlAndSaysWhy()
+void testAFixedRowCarriesNoControlAndSaysWhyOnItsOwnFace()
 {
     FakeGate net;
     AetherGateApplet applet(nullptr, &net);
@@ -318,8 +192,24 @@ void testAFixedRowCarriesNoControlAndSaysWhy()
 
     AetherGateChainTile* tile = strip(w)->tile(QStringLiteral("lna"));
     CHECK(tile != nullptr);
-    if (tile)
+    if (tile) {
         CHECK(tile->toolTip() == QStringLiteral("set on the setup page"));
+        // Visibly inert (design §0.3 item 3): no hand, and the reason printed
+        // on the tile rather than hidden on a hover.
+        CHECK(tile->cursor().shape() == Qt::ArrowCursor);
+        CHECK(tile->property("fixed").toBool());
+    }
+    QLabel* why = label(w, QStringLiteral("gateChainWhy_lna"));
+    CHECK(why != nullptr);
+    if (why) {
+        CHECK(why->isVisibleTo(w));
+        CHECK(why->toolTip() == QStringLiteral("set on the setup page"));
+    }
+    // And an ACTIONABLE row carries the hand it promises.
+    AetherGateChainTile* live = strip(w)->tile(QStringLiteral("nb"));
+    CHECK(live != nullptr);
+    if (live)
+        CHECK(live->cursor().shape() == Qt::PointingHandCursor);
 }
 
 void testAnAbsentMeasurementIsADashAndNeverAZero()
@@ -389,7 +279,7 @@ void testAChainlessGateStillGetsThirteenHonestRows()
           != nullptr);
 }
 
-void testSelectingATileFillsTheDetailArea()
+void testSelectingATileFillsTheDetailAreaAndSharesItsAccent()
 {
     FakeGate net;
     AetherGateApplet applet(nullptr, &net);
@@ -399,20 +289,27 @@ void testSelectingATileFillsTheDetailArea()
     if (!w)
         return;
 
-    auto* name = w->findChild<QToolButton*>(QStringLiteral("gateChainName_agc"));
-    CHECK(name != nullptr);
-    if (!name)
+    AetherGateChainTile* tile = strip(w)->tile(QStringLiteral("agc"));
+    CHECK(tile != nullptr);
+    if (!tile)
         return;
-    name->click();
+    QTest::mouseClick(tile, Qt::LeftButton);
     settle();
 
-    CHECK(labelText(w, "gateChainDetailName") == QStringLiteral("AGC"));
-    CHECK(labelText(w, "gateChainDetailText").startsWith(QStringLiteral("med")));
+    // The pane's title names the stage (design §0.3 item 7) and the tile it
+    // names is the one wearing the accent frame.
+    CHECK(labelText(w, "gateChainDetailName") == QStringLiteral("SELECTED: AGC"));
+    CHECK(tile->isSelected());
+    CHECK(tile->property("selected").toBool());
+    CHECK(!strip(w)->tile(QStringLiteral("nb"))->property("selected").toBool());
+
+    // First the sentence that says what the stage IS, then its control, then
+    // what the gate measured.
     auto* tip = w->findChild<QLabel*>(QStringLiteral("gateChainDetailTip"));
     CHECK(tip != nullptr);
     if (tip)
         CHECK(tip->toolTip().contains(QStringLiteral("AGC-T")));
-    // The same control again, larger, under it.
+    CHECK(labelText(w, "gateChainDetailText").startsWith(QStringLiteral("med")));
     CHECK(w->findChild<QComboBox*>(QStringLiteral("gateChainDetailSelect_agc")) != nullptr);
 }
 
@@ -426,7 +323,7 @@ void testNothingScrollsOnTheChainWindowAtTheInitialSize()
     CHECK(w != nullptr);
     if (!w)
         return;
-    w->resize(1120, 820);
+    w->resize(1120, 760);
     settle();
     w->grab();   // forces a full layout pass on an offscreen platform
 
@@ -484,6 +381,18 @@ void testEveryWidgetTheWindowBuildsHasAName()
     CHECK(pane != nullptr);
     if (pane)
         CHECK(sweep(pane) == 0);
+
+    // The mode row's own widgets, by the names the design fixed.
+    for (const QString& id : {QStringLiteral("phone"), QStringLiteral("cw"),
+                              QStringLiteral("data")}) {
+        CHECK(button(w, QStringLiteral("gateChainMode_") + id) != nullptr);
+        CHECK(button(w, QStringLiteral("gateChainSetButton_") + id) != nullptr);
+    }
+    CHECK(w->findChild<QWidget*>(QStringLiteral("gateChainNotForMode")) != nullptr);
+    auto* row = w->findChild<QWidget*>(QStringLiteral("gateChainModeRow"));
+    CHECK(row != nullptr);
+    if (row)
+        CHECK(sweep(row) == 0);
 }
 
 } // namespace
@@ -497,10 +406,10 @@ int main(int argc, char** argv)
     testToggleSendsTheGatesQueryAndDoesNotFlipUntilTheReply();
     testSelectAppendsItsValueToAQueryEndingInEquals();
     testFreeEntryRefusesAWidthThereIsNoFilterFor();
-    testAFixedRowCarriesNoControlAndSaysWhy();
+    testAFixedRowCarriesNoControlAndSaysWhyOnItsOwnFace();
     testAnAbsentMeasurementIsADashAndNeverAZero();
     testAChainlessGateStillGetsThirteenHonestRows();
-    testSelectingATileFillsTheDetailArea();
+    testSelectingATileFillsTheDetailAreaAndSharesItsAccent();
     testNothingScrollsOnTheChainWindowAtTheInitialSize();
     testEveryWidgetTheWindowBuildsHasAName();
 

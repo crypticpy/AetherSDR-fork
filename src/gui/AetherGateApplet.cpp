@@ -80,13 +80,16 @@ static constexpr double kUnboundedDouble = 1.0e9;
 // would have visibly darkened them against every sibling applet. TunerApplet
 // and ProfileSwitcherApplet still carry their own copy of the old literal;
 // converging all three on this token is a follow-up, not this PR's business.
-// The CHAIN door. Same shape as the Diversity panel's own open-window button
-// (AetherGateDiversityPanel.cpp), so the two doors read as a pair rather than
-// as one button and one afterthought.
+// The CHAIN door. Character for character the Diversity panel's own
+// kOpenWindowStyle (AetherGateDiversityPanel.cpp:45-50): the operator's first
+// note on this window was that the two doors did not look like the same kind
+// of thing (design §0.3 item 1), and they did not -- this one had the subtle
+// border, the smaller padding and a left-aligned label. Same border, same
+// padding, same centring, so the pair reads as a pair.
 static const char* kOpenChainStyle =
     "QPushButton { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold; "
-    "background: transparent; border: 1px solid {{color.border.subtle}}; "
-    "border-radius: 3px; padding: 4px 6px; text-align: left; }"
+    "padding: 5px 8px; border: 1px solid {{color.accent}}; border-radius: 4px; "
+    "background: transparent; }"
     "QPushButton:hover { background: {{color.background.1}}; }"
     "QPushButton:pressed { background: {{color.background.3}}; }";
 

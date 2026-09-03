@@ -977,6 +977,7 @@ set(GUI_SOURCES
     src/gui/AppletPanel.cpp
     src/gui/KiwiSdrApplet.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp

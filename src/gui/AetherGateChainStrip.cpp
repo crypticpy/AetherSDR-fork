@@ -1,20 +1,35 @@
 #include "gui/AetherGateChainStrip.h"
 
+#include "core/ThemeManager.h"
+
 #include <QCoreApplication>
 #include <QGridLayout>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QKeyEvent>
+#include <QPushButton>
+#include <QVBoxLayout>
 
 namespace AetherSDR {
 
 namespace {
 
-// Five tiles across. At 200 px a tile that is 1032 px of diagram, which fits
-// inside the 1102 px viewport the sibling Diversity window measured for itself
-// at the same initial width (DiversityWindow.cpp:196-199) with room to spare.
-constexpr int kColumns = 5;
+// Four tiles across, at the operator's own number (design §0.3 item 8). At
+// 220 px a tile that is 916 px of diagram, which fits inside the 1102 px
+// viewport the sibling Diversity window measured for itself at the same
+// initial width (DiversityWindow.cpp:196-199) with room to spare.
+constexpr int kColumns = 4;
 constexpr int kTileSpacing = 8;
+
+// The header of the collapsed group. Its own style rather than a toggle button
+// because it is a disclosure, not a switch on the receiver: nothing about it
+// reaches the gate.
+const char* kAsideStyle =
+    "QPushButton { color: {{color.text.secondary}}; font-size: 10px;"
+    " font-weight: bold; background: transparent; border: none;"
+    " text-align: left; padding: 2px 0px; }"
+    "QPushButton:hover { color: {{color.accent.bright}}; }";
 
 QString emDash()
 {
@@ -88,8 +103,12 @@ ChainStage toggleRow(const QString& id, const QString& name, const QString& key,
     return row;
 }
 
+// `why` is the short line PRINTED ON THE TILE ("set on the setup page", "gate
+// does not offer this yet"); `tip` is the paragraph on the hover and in the
+// detail pane. They are different lengths for different places, and an empty
+// tip falls back to the why.
 ChainStage fixedRow(const QString& id, const QString& name, const QString& detail,
-                    const QString& why)
+                    const QString& why, const QString& tip = QString())
 {
     ChainStage row;
     row.id = id;
@@ -99,7 +118,7 @@ ChainStage fixedRow(const QString& id, const QString& name, const QString& detai
     row.enabled = true;
     row.detail = detail;
     row.why = why;
-    row.tip = why;
+    row.tip = tip.isEmpty() ? why : tip;
     return row;
 }
 
@@ -147,22 +166,34 @@ const RadioPresets kRadios[] = {
 };
 
 // Group the widths by the radio whose menu they come from. When the gate sent
-// its own `options` the groups are filtered to it -- the app must not offer a
-// width the gate said it cannot design. When the gate sent none (every gate
-// shipping today), the whole menu is offered and the gate refuses what it
-// cannot do, which is the same answer one round trip later and never a number
-// invented on screen.
+// its own `options`, a width that is not on that list stays on the menu and
+// goes UNPICKABLE rather than disappearing (design §0.3 item 6): an operator
+// who knows his K3 has a 250 Hz filter is owed "this receiver cannot make
+// one", not a menu that quietly lost it. When the gate sent no options at all
+// (every gate shipping today) everything is pickable and the gate refuses what
+// it cannot do, which is the same answer one round trip later and never a
+// number invented on screen.
 QList<ChainOption> roofingPresets(const QList<double>& gateOptions)
 {
     QList<ChainOption> out;
     for (const RadioPresets& radio : kRadios) {
         for (int i = 0; i < radio.count; ++i) {
             const double hz = double(radio.widths[i]);
-            if (!gateOptions.isEmpty() && !gateOptions.contains(hz))
-                continue;
+            const bool offered = gateOptions.isEmpty() || gateOptions.contains(hz);
             out.append({formatWidth(hz), QString::number(radio.widths[i]),
-                        QString::fromLatin1(radio.radio)});
+                        QString::fromLatin1(radio.radio), offered});
         }
+    }
+    return out;
+}
+
+// The numbers in a gate `options` array, as doubles.
+QList<double> numericOptions(const QJsonArray& options)
+{
+    QList<double> out;
+    for (const QJsonValue& v : options) {
+        if (v.isDouble())
+            out.append(v.toDouble());
     }
     return out;
 }
@@ -202,12 +233,8 @@ ChainStage stageFromJson(const QJsonObject& obj)
     else if (value.isString())
         row.value = value.toString();
 
-    QList<double> numeric;
     const QJsonArray options = obj.value(QStringLiteral("options")).toArray();
-    for (const QJsonValue& v : options) {
-        if (v.isDouble())
-            numeric.append(v.toDouble());
-    }
+    const QList<double> numeric = numericOptions(options);
     // The roofing rows get the radio menu of §0; everything else gets exactly
     // what the gate listed, in the gate's order.
     if (row.id.startsWith(QStringLiteral("roof")) && !numeric.isEmpty()
@@ -255,23 +282,48 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
     const QJsonObject roofing = f.value(QStringLiteral("roofing")).toObject();
     const double analogueHz = num(roofing, "analogue_hz");
     const double digitalHz = num(roofing, "digital_hz");
+    const QList<double> analogueOptions =
+        numericOptions(roofing.value(QStringLiteral("analogue_options")).toArray());
+    const QList<double> digitalOptions =
+        numericOptions(roofing.value(QStringLiteral("digital_options")).toArray());
 
-    // 1 -- the analogue IF filter. Honest about the number and about the fact
-    // that 200 kHz is the narrowest an RSP has in any mode: an operator told
-    // "roofing filter" and shown 200 kHz has to be told why in the same
-    // breath, or the feature reads as broken rather than as physics.
-    rows << fixedRow(QStringLiteral("roof_rf"), tr_("ROOFING · RF"),
-                     analogueHz > 0.0
-                         ? (analogueHz <= 200000.0
-                                ? tr_("200 kHz — the narrowest this hardware has")
-                                : formatWidth(analogueHz))
-                         : emDash(),
-                     tr_("The analogue IF filter inside the receiver, ahead of the "
-                         "ADC. It follows the sample rate and nothing in the product "
-                         "moves it. It protects the converter, not your ear: an "
-                         "FTdx101MP's 300 Hz roofing filter is two orders of "
-                         "magnitude narrower and there is no analogue path to it "
-                         "here."));
+    const QString rfDetail = analogueHz > 0.0
+                                 ? (analogueHz <= 200000.0
+                                        ? tr_("200 kHz — the narrowest this hardware has")
+                                        : formatWidth(analogueHz))
+                                 : emDash();
+    const QString rfTip =
+        tr_("The analogue IF filter inside the receiver, ahead of the ADC. It "
+            "protects the converter, not your ear: an FTdx101MP's 300 Hz roofing "
+            "filter is two orders of magnitude narrower and there is no analogue "
+            "path to it here. It follows the sample rate unless the gate offers "
+            "an analogue_options list, and until it does nothing in the product "
+            "can move it.");
+
+    // 1 -- the analogue IF filter. Two rows in one, decided by the gate rather
+    // than by hope: a gate that lists `analogue_options` gets a real menu on
+    // roof_hz, and a gate that does not gets a DIMMED tile whose own face says
+    // so (design §0.3 item 6). The alternative -- a live-looking combo that
+    // answers every choice with an error -- is the failure the operator
+    // reported.
+    if (analogueOptions.isEmpty()) {
+        rows << fixedRow(QStringLiteral("roof_rf"), tr_("ROOFING · RF"), rfDetail,
+                         tr_("gate does not offer this yet"), rfTip);
+    } else {
+        ChainStage rf;
+        rf.id = QStringLiteral("roof_rf");
+        rf.name = tr_("ROOFING · RF");
+        rf.kind = QStringLiteral("select");
+        rf.enabled = true;
+        rf.detail = rfDetail;
+        rf.tip = rfTip;
+        rf.value = QString::number(analogueHz, 'f', 0);
+        for (double hz : analogueOptions)
+            rf.options.append({formatWidth(hz), QString::number(hz, 'f', 0), QString(), true});
+        rf.actionRoute = QStringLiteral("/filter/set");
+        rf.actionQuery = QStringLiteral("roof_hz=");
+        rows << rf;
+    }
 
     // 2 -- the digital roof, which IS the menu operators know.
     ChainStage digital;
@@ -281,7 +333,7 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
     digital.enabled = true;
     digital.detail = digitalHz > 0.0 ? formatWidth(digitalHz) : emDash();
     digital.value = digitalHz > 0.0 ? QString::number(digitalHz, 'f', 0) : QString();
-    digital.options = roofingPresets({});
+    digital.options = roofingPresets(digitalOptions);
     digital.freeEntryHz = true;
     digital.actionRoute = QStringLiteral("/filter/set");
     digital.actionQuery = QStringLiteral("digital_roof_hz=");
@@ -473,10 +525,49 @@ AetherGateChainStrip::AetherGateChainStrip(QWidget* parent)
 {
     setObjectName(QStringLiteral("gateChainStrip"));
     setAccessibleName(tr("Filter chain, in signal order"));
-    m_grid = new QGridLayout(this);
+    // The strip itself takes focus, so the arrow keys have somewhere to land
+    // that is not one particular tile's switch.
+    setFocusPolicy(Qt::StrongFocus);
+
+    auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(6);
+
+    auto* mine = new QWidget(this);
+    mine->setObjectName(QStringLiteral("gateChainStripGrid"));
+    mine->setAccessibleName(tr("Stages for this mode"));
+    m_grid = new QGridLayout(mine);
     m_grid->setContentsMargins(0, 0, 0, 0);
     m_grid->setHorizontalSpacing(kTileSpacing);
     m_grid->setVerticalSpacing(kTileSpacing);
+    root->addWidget(mine);
+
+    // The group the mode puts aside. Collapsed by default and never empty of
+    // meaning: an APF on phone is not broken, it is not what you reach for.
+    m_asideToggle = new QPushButton(this);
+    m_asideToggle->setObjectName(QStringLiteral("gateChainNotForModeToggle"));
+    m_asideToggle->setAccessibleName(tr("Show the stages that are not for this mode"));
+    m_asideToggle->setToolTip(tr("The stages this mode does not normally reach for. "
+                                 "They are still running and still switchable -- "
+                                 "the mode chooses what is on the strip, it does "
+                                 "not turn anything off."));
+    m_asideToggle->setAccessibleDescription(m_asideToggle->toolTip());
+    m_asideToggle->setCursor(Qt::PointingHandCursor);
+    m_asideToggle->setCheckable(true);
+    ThemeManager::instance().applyStyleSheet(m_asideToggle,
+                                             QString::fromLatin1(kAsideStyle));
+    connect(m_asideToggle, &QPushButton::clicked, this, [this] { relayout(); });
+    root->addWidget(m_asideToggle);
+
+    m_aside = new QWidget(this);
+    m_aside->setObjectName(QStringLiteral("gateChainNotForMode"));
+    m_aside->setAccessibleName(tr("Not for this mode"));
+    m_asideGrid = new QGridLayout(m_aside);
+    m_asideGrid->setContentsMargins(0, 0, 0, 0);
+    m_asideGrid->setHorizontalSpacing(kTileSpacing);
+    m_asideGrid->setVerticalSpacing(kTileSpacing);
+    m_aside->setVisible(false);
+    root->addWidget(m_aside);
 }
 
 AetherGateChainTile* AetherGateChainStrip::tileAt(int index) const
@@ -491,6 +582,16 @@ AetherGateChainTile* AetherGateChainStrip::tile(const QString& id) const
             return t;
     }
     return nullptr;
+}
+
+QList<AetherGateChainTile*> AetherGateChainStrip::tilesInMode() const
+{
+    QList<AetherGateChainTile*> out;
+    for (AetherGateChainTile* t : m_tiles) {
+        if (chainStageInMode(t->id(), m_mode))
+            out.append(t);
+    }
+    return out;
 }
 
 void AetherGateChainStrip::setStages(const QList<ChainStage>& stages)
@@ -514,6 +615,24 @@ void AetherGateChainStrip::setStages(const QList<ChainStage>& stages)
         selectStage(m_stages.first().id);
 }
 
+void AetherGateChainStrip::setMode(ChainMode mode)
+{
+    if (m_mode == mode)
+        return;
+    m_mode = mode;
+    relayout();
+    // A selection that has just dropped into the collapsed group is a
+    // selection nobody can see. Move it to the first stage the mode DOES show.
+    const QList<AetherGateChainTile*> mine = tilesInMode();
+    if (mine.isEmpty())
+        return;
+    for (AetherGateChainTile* t : mine) {
+        if (t->id() == m_selected)
+            return;
+    }
+    selectStage(mine.first()->id());
+}
+
 void AetherGateChainStrip::clear()
 {
     m_stages.clear();
@@ -530,16 +649,53 @@ void AetherGateChainStrip::rebuild()
 
     for (int i = 0; i < m_stages.size(); ++i) {
         auto* t = new AetherGateChainTile(m_stages.at(i), this);
-        connect(t, &AetherGateChainTile::clicked, this,
-                [this](const QString& id) { selectStage(id); });
+        connect(t, &AetherGateChainTile::clicked, this, [this](const QString& id) {
+            setFocus(Qt::MouseFocusReason);
+            selectStage(id);
+        });
         connect(t, &AetherGateChainTile::requestWrite, this,
                 &AetherGateChainStrip::requestWrite);
-        m_grid->addWidget(t, i / kColumns, i % kColumns, Qt::AlignLeft | Qt::AlignTop);
         m_tiles.append(t);
     }
-    for (int c = 0; c < kColumns; ++c)
+    relayout();
+}
+
+// Both grids, from scratch, in gate order. Cheap enough to do on a mode change
+// and on a rebuild, and there is no second source of truth about which tile is
+// where.
+void AetherGateChainStrip::relayout()
+{
+    const auto drain = [](QGridLayout* grid) {
+        while (QLayoutItem* item = grid->takeAt(0))
+            delete item;
+    };
+    drain(m_grid);
+    drain(m_asideGrid);
+
+    int mine = 0;
+    int aside = 0;
+    for (AetherGateChainTile* t : m_tiles) {
+        const bool forMode = chainStageInMode(t->id(), m_mode);
+        QGridLayout* grid = forMode ? m_grid : m_asideGrid;
+        const int n = forMode ? mine++ : aside++;
+        grid->addWidget(t, n / kColumns, n % kColumns, Qt::AlignLeft | Qt::AlignTop);
+        // Always shown in its own grid; the collapsed group hides its children
+        // wholesale, so a tile never carries a visibility of its own to get
+        // out of step with.
+        t->setVisible(true);
+    }
+    for (int c = 0; c < kColumns; ++c) {
         m_grid->setColumnStretch(c, 0);
+        m_asideGrid->setColumnStretch(c, 0);
+    }
     m_grid->setColumnStretch(kColumns, 1);
+    m_asideGrid->setColumnStretch(kColumns, 1);
+
+    m_asideToggle->setVisible(aside > 0);
+    m_aside->setVisible(aside > 0 && m_asideToggle->isChecked());
+    m_asideToggle->setText(m_asideToggle->isChecked()
+                               ? tr("NOT FOR THIS MODE (%1) — HIDE").arg(aside)
+                               : tr("NOT FOR THIS MODE (%1) — SHOW").arg(aside));
 }
 
 void AetherGateChainStrip::selectStage(const QString& id)
@@ -548,6 +704,54 @@ void AetherGateChainStrip::selectStage(const QString& id)
     for (AetherGateChainTile* t : m_tiles)
         t->setSelected(t->id() == id);
     emit stageSelected(id);
+}
+
+// Reading order, which is signal order: right/down step forward, left/up step
+// back, and the walk stops at both ends rather than wrapping -- a strip that
+// wrapped from the last stage to the first would be claiming the chain is a
+// loop.
+void AetherGateChainStrip::moveSelection(int delta)
+{
+    const QList<AetherGateChainTile*> mine = tilesInMode();
+    if (mine.isEmpty())
+        return;
+    int at = 0;
+    for (int i = 0; i < mine.size(); ++i) {
+        if (mine.at(i)->id() == m_selected) {
+            at = i;
+            break;
+        }
+    }
+    const int next = qBound(0, at + delta, mine.size() - 1);
+    if (next != at || m_selected.isEmpty())
+        selectStage(mine.at(next)->id());
+}
+
+void AetherGateChainStrip::keyPressEvent(QKeyEvent* event)
+{
+    switch (event->key()) {
+    case Qt::Key_Right:
+        moveSelection(1);
+        return;
+    case Qt::Key_Left:
+        moveSelection(-1);
+        return;
+    case Qt::Key_Down:
+        moveSelection(kColumns);
+        return;
+    case Qt::Key_Up:
+        moveSelection(-kColumns);
+        return;
+    case Qt::Key_Space:
+        // One press, one write -- the tile's own switch, with the tile's own
+        // "nothing optimistic" rule and its own busy latch behind it.
+        if (AetherGateChainTile* t = tile(m_selected))
+            t->activateSwitch();
+        return;
+    default:
+        break;
+    }
+    QWidget::keyPressEvent(event);
 }
 
 } // namespace AetherSDR

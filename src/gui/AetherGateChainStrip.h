@@ -5,6 +5,13 @@
 // reorders -- a strip that rearranged the stages would be describing a
 // receiver nobody owns.
 //
+// What the MODE does to it (design §0.3 item 2): the stages that are for the
+// mode stay on the strip, in gate order; the rest drop into a "not for this
+// mode" group under it that is collapsed by default. Nothing is hidden and
+// nothing is disabled -- an APF still works on phone, it is simply not what
+// you reach for -- and a stage the app has never heard of is for every mode,
+// because the app must not collapse a row it cannot reason about.
+//
 // It also carries the two functions that turn a /filter payload into rows:
 //
 //   * chainFromFilter() -- the gate's `chain` array when there is one. Rows
@@ -27,7 +34,13 @@
 // operator has to discover to see the second half of his own receiver is the
 // failure this window exists to avoid. Reading order (left to right, then
 // down) is still signal order.
+//
+// KEYBOARD. The strip takes focus, the arrow keys walk the tiles that are on
+// it, and space presses the selected tile's switch (design §0.3 item 8). The
+// walk follows the same reading order the eye does, and it never steps into
+// the collapsed group -- a selection nobody can see is not a selection.
 
+#include "gui/AetherGateChainModes.h"
 #include "gui/AetherGateChainStage.h"
 
 #include <QList>
@@ -37,6 +50,7 @@
 
 class QGridLayout;
 class QJsonObject;
+class QPushButton;
 
 namespace AetherSDR {
 
@@ -60,6 +74,10 @@ public:
     // second would eat a half-typed frequency and close an open combo.
     void setStages(const QList<ChainStage>& stages);
 
+    // Which stages are on the strip and which drop into the collapsed group.
+    void setMode(ChainMode mode);
+    ChainMode mode() const { return m_mode; }
+
     // Drops every tile -- the gate stopped answering, and last minute's
     // numbers must not sit there looking live.
     void clear();
@@ -69,6 +87,10 @@ public:
     AetherGateChainTile* tileAt(int index) const;
     AetherGateChainTile* tile(const QString& id) const;
 
+    // The tiles on the strip proper, in reading order -- what the arrow keys
+    // walk and what "4 per row" is counted over.
+    QList<AetherGateChainTile*> tilesInMode() const;
+
     // The stage the detail area is showing. Empty when the strip is empty.
     QString selectedId() const { return m_selected; }
     void selectStage(const QString& id);
@@ -77,14 +99,23 @@ signals:
     void stageSelected(QString id);
     void requestWrite(QString route, QUrlQuery query);
 
+protected:
+    void keyPressEvent(QKeyEvent* event) override;
+
 private:
     void rebuild();
+    void relayout();
+    void moveSelection(int delta);
 
-    QGridLayout*               m_grid{nullptr};
+    QGridLayout*               m_grid{nullptr};      // the stages for this mode
+    QGridLayout*               m_asideGrid{nullptr}; // "not for this mode"
+    QWidget*                   m_aside{nullptr};
+    QPushButton*               m_asideToggle{nullptr};
     QList<ChainStage>          m_stages;
     QList<AetherGateChainTile*> m_tiles;
     QString                    m_shape;      // rebuild-only-on-change fingerprint
     QString                    m_selected;
+    ChainMode                  m_mode{ChainMode::Phone};
 };
 
 } // namespace AetherSDR

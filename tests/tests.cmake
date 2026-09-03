@@ -2875,6 +2875,7 @@ set_tests_properties(health_applet_test PROPERTIES
 add_executable(aether_gate_applet_test
     tests/aether_gate_applet_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -2926,6 +2927,7 @@ set_tests_properties(aether_gate_applet_test PROPERTIES
 add_executable(diversity_window_test
     tests/diversity_window_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -2978,6 +2980,7 @@ set_tests_properties(diversity_window_test PROPERTIES
 add_executable(diversity_band_test
     tests/diversity_band_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3030,6 +3033,7 @@ set_tests_properties(diversity_band_test PROPERTIES
 add_executable(aether_gate_chain_test
     tests/aether_gate_chain_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3072,6 +3076,59 @@ add_test(NAME aether_gate_chain_test COMMAND aether_gate_chain_test)
 set_tests_properties(aether_gate_chain_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# The same window, the other story: design §0.3 -- the two bugs the operator
+# found in the first build (a stale poll undoing a write; a roof select that
+# looked live and was not) and the eight things he asked for. A second binary
+# for the reason every window test here is its own: both files are at the
+# 800-line budget AGENTS.md asks for, and both need a fresh, process-wide
+# AppSettings start. The payloads and the slow gate they share live in
+# tests/AetherGateChainFixture.h.
+add_executable(aether_gate_chain_ux_test
+    tests/aether_gate_chain_ux_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(aether_gate_chain_ux_test PRIVATE src tests)
+target_link_libraries(aether_gate_chain_ux_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(aether_gate_chain_ux_test PROPERTIES AUTOMOC ON)
+add_test(NAME aether_gate_chain_ux_test COMMAND aether_gate_chain_ux_test)
+set_tests_properties(aether_gate_chain_ux_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The Diversity window's SITE page: the NOISE PROFILE panel, the BEACONS watch
 # and its own gate route (/diversity/beacons at 1 Hz), plus the per-bin weights
 # checkbox the SLICE page grew alongside it. A fourth binary rather than more
@@ -3083,6 +3140,7 @@ set_tests_properties(aether_gate_chain_test PROPERTIES
 add_executable(diversity_site_test
     tests/diversity_site_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3134,6 +3192,7 @@ set_tests_properties(diversity_site_test PROPERTIES
 add_executable(diversity_filter_test
     tests/diversity_filter_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3186,6 +3245,7 @@ set_tests_properties(diversity_filter_test PROPERTIES
 add_executable(diversity_filter_hold_test
     tests/diversity_filter_hold_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3238,6 +3298,7 @@ set_tests_properties(diversity_filter_hold_test PROPERTIES
 add_executable(diversity_filter_layout_test
     tests/diversity_filter_layout_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3289,6 +3350,7 @@ set_tests_properties(diversity_filter_layout_test PROPERTIES
 add_executable(diversity_site_actions_test
     tests/diversity_site_actions_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3337,6 +3399,7 @@ set_tests_properties(diversity_site_actions_test PROPERTIES
 add_executable(diversity_beacon_sweep_test
     tests/diversity_beacon_sweep_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3387,6 +3450,7 @@ set_tests_properties(diversity_beacon_sweep_test PROPERTIES
 add_executable(diversity_talker_test
     tests/diversity_talker_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3437,6 +3501,7 @@ set_tests_properties(diversity_talker_test PROPERTIES
 add_executable(diversity_flow_test
     tests/diversity_flow_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
@@ -3486,6 +3551,7 @@ set_tests_properties(diversity_flow_test PROPERTIES
 add_executable(diversity_flow_line_test
     tests/diversity_flow_line_test.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainWindow.cpp
