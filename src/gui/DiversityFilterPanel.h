@@ -121,9 +121,13 @@ public:
     double xForHz(double hz) const;
     double hzForX(double x) const;
 
-    // True from the press on a handle OR on a notch mark to the release. The
-    // page checks it before feeding a poll: see the header comment.
-    bool dragging() const { return m_drag != Edge::None || m_notchDrag >= 0; }
+    // True from the press on a handle OR on a notch mark OR on the roof
+    // handle to the release. The page checks it before feeding a poll: see
+    // the header comment.
+    bool dragging() const
+    {
+        return m_drag != Edge::None || m_notchDrag >= 0 || m_roofDrag;
+    }
 
     // What the widget currently draws for the two edges. The page reads these
     // back on a release to work out WHICH edge moved, so a drag of the low
@@ -200,6 +204,19 @@ public:
     int     squeezeToothCount() const { return int(m_squeezeTeethHz.size()); }
     double  squeezeToothHzAt(int index) const;
 
+    // ROOFING · DIGITAL PEAK OFFSET (A1): the digital roof drawn as a band
+    // on this same axis -- see DiversityFilterPanelRoof.cpp. `roofAvailable`
+    // is `roofing.digital_hz > 0` (there is a roof to draw at all);
+    // `roofDraggable` is `roofing.offset_max_hz > 0` (there is a handle to
+    // drag) -- the two are asked separately because a roof too narrow for
+    // its passband holds `offset_max_hz` at 0 and still has a band to show.
+    bool    roofAvailable() const { return m_roofAvailable; }
+    bool    roofDraggable() const { return m_roofMaxHz > 0.0; }
+    bool    roofChecked() const { return m_roofChecked; }
+    double  roofOffsetHz() const { return m_roofOffsetHz; }
+    double  roofMaxHz() const { return m_roofMaxHz; }
+    double  roofDigitalHz() const { return m_roofDigitalHz; }
+
 signals:
     // A handle has been let go, and the two edges are now `lowHz`/`highHz`,
     // snapped to 10 Hz. Emitted on RELEASE, not per pixel: a set per mouse-move
@@ -238,6 +255,12 @@ signals:
     void squeezeRequested(double hz);
     // Right-click, or Shift+click, ON the bracket or a tooth: squeeze=off.
     void squeezeReleaseRequested();
+
+    // ROOFING · DIGITAL PEAK OFFSET (A1): the handle was let go at a new,
+    // already-clamped offset. Emitted on RELEASE, the same rule an edge
+    // drag keeps -- a write per pixel would be dozens of gate writes for one
+    // adjustment.
+    void roofOffsetDragged(int offsetHz);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -324,6 +347,19 @@ private:
     // of how this panel draws squeeze.hz.
     double  squeezeHzForClick(double x) const;
 
+    // ROOFING · DIGITAL PEAK OFFSET (A1), defined in
+    // DiversityFilterPanelRoof.cpp: parses `roofing` off /filter, draws the
+    // band into the cached layer and the handle live (it drags), and answers
+    // the one hit test the gesture needs.
+    void    resetRoof();
+    void    parseRoof(const QJsonObject& filter);
+    void    paintRoofBand(QPainter& p, const QRectF& r) const;
+    void    paintRoofHandle(QPainter& p, const QRectF& r) const;
+    bool    roofHandleHit(double x) const;
+    // `hz` clamped to +/- offset_max_hz -- what a drag past either end of
+    // the allowed range settles at instead of past it.
+    double  roofClampedHz(double hz) const;
+
     QVector<double> m_hz;
     QVector<double> m_db;
     double m_minHz{0.0};
@@ -372,6 +408,20 @@ private:
     double  m_squeezeCombSpacingHz{0.0};
     int     m_squeezeCombTeethSeen{0};
     QVector<double> m_squeezeTeethHz;
+
+    // ROOFING · DIGITAL PEAK OFFSET (A1). m_roofOffsetHz/m_roofDigitalHz/
+    // m_roofMaxHz come straight off /filter's own "roofing" object -- not a
+    // chain[] row -- so the band is drawn whether or not the gate's chain[]
+    // carries roof_digital's checks[] at all. m_roofDrag/m_roofDragHz are
+    // the ghost position while the handle is down, the same shape m_notch
+    // Drag/m_notchGhostHz use for a notch.
+    bool    m_roofAvailable{false};   // roofing.digital_hz > 0
+    bool    m_roofChecked{false};     // roofing.offset_enabled
+    double  m_roofDigitalHz{0.0};
+    double  m_roofOffsetHz{0.0};      // roofing.offset_applied_hz
+    double  m_roofMaxHz{0.0};         // roofing.offset_max_hz
+    bool    m_roofDrag{false};
+    double  m_roofDragHz{0.0};
 
     Edge   m_drag{Edge::None};
     Edge   m_focusEdge{Edge::Low};

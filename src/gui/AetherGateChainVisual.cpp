@@ -213,6 +213,16 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
         q.addQueryItem(QStringLiteral("squeeze"), QStringLiteral("off"));
         emit requestWrite(QStringLiteral("/diversity/set"), q);
     });
+    // ROOFING · DIGITAL PEAK OFFSET (A1): the handle's own release, straight
+    // to /filter/set the way an edge drag is -- roof_offset_hz is the gate's
+    // own parameter name (docs/DIVERSITY.md's "For scripts" section), sent
+    // verbatim, no string built beyond the number itself.
+    connect(m_panel, &DiversityFilterPanel::roofOffsetDragged, this,
+            [this](int offsetHz) {
+                QUrlQuery q;
+                q.addQueryItem(QStringLiteral("roof_offset_hz"), QString::number(offsetHz));
+                emit requestWrite(QStringLiteral("/filter/set"), q);
+            });
     connect(m_panel, &DiversityFilterPanel::cursorMoved, this,
             [this](double hz, double db) {
                 if (std::isnan(hz)) {

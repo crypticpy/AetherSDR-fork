@@ -42,6 +42,7 @@
 #include <QString>
 #include <QUrlQuery>
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -62,6 +63,20 @@ struct ChainOption {
     QString value;
     QString group;
     bool    enabled{true};
+};
+
+// One entry of a stage's own `checks[]` array -- ROOFING · DIGITAL's PEAK
+// OFFSET is the first, but the card draws any row that carries one, from
+// these fields alone: no per-stage code, no string building. `route` and
+// `queryOn`/`queryOff` are sent verbatim, exactly as the gate wrote them, the
+// same rule every other control in this window keeps.
+struct ChainCheck {
+    QString key;
+    QString label;
+    bool    on{false};
+    QString route;
+    QString queryOn;
+    QString queryOff;
 };
 
 struct ChainStage {
@@ -107,6 +122,11 @@ struct ChainStage {
     // gate did not choose.
     QString toggleObjectName;
     QString floorObjectName;
+
+    // Any check marks this row's own `checks[]` array carried -- drawn one
+    // per entry, under whatever control the row already has. Empty for every
+    // row that never sent one, which is most of them.
+    QList<ChainCheck> checks;
 
     bool actionable() const { return !fixed && !actionRoute.isEmpty(); }
 
@@ -170,6 +190,12 @@ private:
     // under the first" shape buildSelect() already uses for the digital
     // roof's free-entry field.
     void buildFloor(const QString& prefix, bool large);
+    // The generic checks[] row -- one QCheckBox per entry, built regardless
+    // of the row's own `kind`, stacked under whatever control (or nothing)
+    // that kind already built. A check with no key or no route is skipped:
+    // there is nothing to draw a box for and nothing it could write.
+    void buildChecks(const QString& prefix, bool large);
+    const ChainCheck* findCheck(const QString& key) const;
     void syncToGate();
     void applyBusy();
 
@@ -179,6 +205,7 @@ private:
     QPushButton* m_action{nullptr};
     QLineEdit*   m_free{nullptr};
     QComboBox*   m_floor{nullptr};
+    QList<QCheckBox*> m_checks;
     bool         m_busy{false};
     // The value in force when it is NOT on the gate's own option list, kept so
     // the row it was shown on is replaced rather than stacked up poll on poll.

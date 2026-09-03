@@ -82,6 +82,7 @@ DiversityFilterPanel::DiversityFilterPanel(QWidget* parent) : QWidget(parent)
     m_notchFromHz = std::numeric_limits<double>::quiet_NaN();
     m_notchGhostHz = std::numeric_limits<double>::quiet_NaN();
     resetSqueeze();
+    resetRoof();
 }
 
 void DiversityFilterPanel::clear()
@@ -109,6 +110,9 @@ void DiversityFilterPanel::clear()
     m_notchDrag = -1;
     resetSqueeze();
     m_squeezeLsb = false;
+    resetRoof();
+    m_roofDrag = false;
+    m_roofDragHz = 0.0;
     m_layersDirty = true;
     m_specAreaDirty = true;
     update();
@@ -162,7 +166,11 @@ QByteArray DiversityFilterPanel::filterFingerprint() const
              m_squeezeTool == QLatin1String("null")   ? 1.0
              : m_squeezeTool == QLatin1String("notch") ? 2.0
                                                         : 0.0,
-             m_squeezeHz, m_squeezeWidthHz, m_squeezeDepthDb});
+             m_squeezeHz, m_squeezeWidthHz, m_squeezeDepthDb,
+             // ROOFING · DIGITAL PEAK OFFSET (A1): the band's own position and
+             // whether it is the applied (solid) or held-off (dashed) picture.
+             double(m_roofAvailable), double(m_roofChecked), m_roofDigitalHz,
+             m_roofOffsetHz, m_roofMaxHz});
     feed(b, m_squeezeTeethHz);
     return b;
 }
@@ -290,6 +298,15 @@ void DiversityFilterPanel::applyStatus(const QJsonObject& filter)
     }
 
     parseSqueeze(filter);
+
+    // ROOFING · DIGITAL PEAK OFFSET (A1). Frozen the same defensive way
+    // low_hz/high_hz are above: the page does not feed a poll in while
+    // dragging() is true, but a poll already in flight when the press
+    // happened could still land here, and it must not snatch the ghost back.
+    const double heldRoofOffset = m_roofOffsetHz;
+    parseRoof(filter);
+    if (m_roofDrag)
+        m_roofOffsetHz = heldRoofOffset;
 
     const bool specChanged = spectrumFingerprint() != wasSpectrum;
     const bool filterChanged = filterFingerprint() != wasFilter;
@@ -529,6 +546,16 @@ void DiversityFilterPanel::mousePressEvent(QMouseEvent* ev)
         ev->accept();
         return;
     }
+    // ROOFING · DIGITAL PEAK OFFSET (A1): the roof's own handle, asked after
+    // the notch drag and before the undraggable marks below -- it is a
+    // handle, not a door, the same standing edgeAt()/notchAt() have.
+    if (roofHandleHit(x)) {
+        m_roofDrag = true;
+        m_roofDragHz = m_roofOffsetHz;
+        setFocus(Qt::MouseFocusReason);
+        ev->accept();
+        return;
+    }
     // A mark that cannot be dragged. Nothing happens on the press: the release
     // decides, so a press that wanders off is not a jump to another tab.
     m_pressMark = markAt(x, ev->position().y());
@@ -556,11 +583,19 @@ void DiversityFilterPanel::mouseMoveEvent(QMouseEvent* ev)
         ev->accept();
         return;
     }
+    if (m_roofDrag) {
+        const QRect before = handleRect(m_roofDragHz);
+        m_roofDragHz = roofClampedHz(hzForX(x));
+        update(before.united(handleRect(m_roofDragHz)));
+        ev->accept();
+        return;
+    }
     // The cursor is the affordance: nothing says "draggable" except that the
     // pointer changes over the two handles and over a notch mark.
     const Edge overEdge = edgeAt(x);
     setCursor(overEdge != Edge::None ? Qt::SplitHCursor
               : notchAt(x) >= 0      ? Qt::SizeHorCursor
+              : roofHandleHit(x)     ? Qt::SizeHorCursor
               : !markAt(x, ev->position().y()).isEmpty() ? Qt::PointingHandCursor
                                      : Qt::CrossCursor);
     // The arrow keys move whichever edge the pointer is nearest; Up/Down still
@@ -604,6 +639,22 @@ void DiversityFilterPanel::mouseReleaseEvent(QMouseEvent* ev)
             emit notchMoveRequested(from, to);
         else
             emit markClicked(QStringLiteral("notch"));
+        ev->accept();
+        return;
+    }
+    if (m_roofDrag) {
+        // m_roofOffsetHz is untouched through the whole drag (frozen above in
+        // applyStatus(), and no poll is fed in at all while dragging()) so it
+        // is still the value the press started from -- no separate "press"
+        // field needed the way the edges keep one.
+        const double from = m_roofOffsetHz;
+        const double to = m_roofDragHz;
+        m_roofDrag = false;
+        update();
+        if (std::lround(to) != std::lround(from))
+            emit roofOffsetDragged(int(std::lround(to)));
+        else
+            emit markClicked(QStringLiteral("roof_digital"));
         ev->accept();
         return;
     }

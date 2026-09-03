@@ -119,6 +119,11 @@ void DiversityFilterPanel::paintLayer(QPainter& p, const QRectF& r) const
                       r.height()),
                shade);
 
+    // ROOFING · DIGITAL PEAK OFFSET (A1): the digital roof's own band, drawn
+    // faint and under everything else that marks a frequency -- see
+    // DiversityFilterPanelRoof.cpp.
+    paintRoofBand(p, r);
+
     // The tones the automatic notcher found, dashed: they are not filters the
     // operator placed and must not read as if they were.
     p.setPen(QPen(tm.color(this, QStringLiteral("color.spectrum.average")), 1,
@@ -250,6 +255,10 @@ void DiversityFilterPanel::paintEvent(QPaintEvent* ev)
     };
     drawHandle(Edge::Low, m_lowHz);
     drawHandle(Edge::High, m_highHz);
+
+    // ROOFING · DIGITAL PEAK OFFSET (A1): the roof's own handle, live like
+    // the two above -- see DiversityFilterPanelRoof.cpp.
+    paintRoofHandle(p, r);
 
     // The notch being dragged, as a ghost: the mark it came from stays where
     // the gate put it, so one gesture shows both ends of the move.

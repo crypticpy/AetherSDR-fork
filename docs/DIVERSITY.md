@@ -702,6 +702,11 @@ from somewhere else always does.
   handle back.
 - **Double-click** inside the passband to place a notch there;
   **right-click** a notch to take it away.
+- **Drag the roof mark**, the small diamond at the digital roof's centre,
+  and release to write `roof_offset_hz=`. The roof itself is a faint
+  band, `digital_hz` wide, drawn where it sits even with `PEAK OFFSET`
+  off, dashed, to say where it would sit if switched on. No handle is
+  drawn once `offset_max_hz` reaches 0.
 - **Drag a notch** to move it. That is genuinely two writes, a clear
   and an add, and they go through the same one-at-a-time sequencer as a
   preset — the add waits for the clear's answer.
@@ -742,6 +747,13 @@ offset is clamped so the roof still covers the whole passband; a roof too
 narrow for the passband it is meant to carry holds the offset at 0 and
 reports `offset_max_hz: 0`. The clamp is applied when the offset is
 written; narrowing the passband afterwards does not re-clamp it.
+
+**Checks.** A card can carry check marks of its own, one per entry in the
+gate's `checks[]`, labelled and wired exactly as the gate wrote them; no
+route or query is built in the app. ROOFING · DIGITAL's `PEAK OFFSET` is
+the first. A check greys while its own write is out and moves only on
+read-back, the same as every other control; a refusal is quoted on the
+card and in the inspector.
 
 ## SQUEEZE
 

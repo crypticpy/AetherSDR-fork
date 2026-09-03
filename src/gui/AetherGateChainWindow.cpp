@@ -456,24 +456,36 @@ void AetherGateChainWindow::onWriteRequested(const QString& route, const QUrlQue
     // 500 ms flash of the one sentence that says why nothing happened.
     const QString sent = query.toString();
     for (const ChainStage& stage : m_strip->stages()) {
-        QString key;
-        if (stage.actionable() && stage.actionRoute == route)
-            key = stage.actionQuery;
-        else if (stage.hasFloorControl && stage.floorActionRoute == route
-                 && stage.floorActionQuery.endsWith(QLatin1Char('=')))
-            key = stage.floorActionQuery;
-        else
-            continue;
-        if (sent == key || (key.endsWith(QLatin1Char('=')) && sent.startsWith(key))) {
-            m_lastWriteStage = stage.id;
-            PendingWrite pending;
-            pending.before = stage.settingKey();
-            pending.age.start();
-            m_pending.insert(stage.id, pending);
-            if (AetherGateChainTile* tile = m_strip->tile(stage.id))
-                tile->setError(QString());
-            break;
+        bool matched = false;
+        if (stage.actionable() && stage.actionRoute == route) {
+            const QString key = stage.actionQuery;
+            matched = sent == key || (key.endsWith(QLatin1Char('=')) && sent.startsWith(key));
         }
+        if (!matched && stage.hasFloorControl && stage.floorActionRoute == route
+            && stage.floorActionQuery.endsWith(QLatin1Char('='))) {
+            matched = sent.startsWith(stage.floorActionQuery);
+        }
+        // A check on this row -- ROOFING · DIGITAL's PEAK OFFSET is the
+        // first, and the query is a whole string the gate wrote, not a
+        // prefix the app appends to.
+        if (!matched) {
+            for (const ChainCheck& check : stage.checks) {
+                if (check.route == route && (sent == check.queryOn || sent == check.queryOff)) {
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if (!matched)
+            continue;
+        m_lastWriteStage = stage.id;
+        PendingWrite pending;
+        pending.before = stage.settingKey();
+        pending.age.start();
+        m_pending.insert(stage.id, pending);
+        if (AetherGateChainTile* tile = m_strip->tile(stage.id))
+            tile->setError(QString());
+        break;
     }
     // A new attempt clears the last refusal: the note is about THIS write.
     setNote(QString());

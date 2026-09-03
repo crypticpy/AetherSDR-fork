@@ -238,6 +238,27 @@ ChainStage stageFromJson(const QJsonObject& obj)
     row.actionRoute = word(action, "route");
     row.actionQuery = word(action, "query");
 
+    // checks[] -- ROOFING · DIGITAL's PEAK OFFSET is the first, any row can
+    // carry one. An entry with no key, or nothing to write with, is dropped
+    // here rather than drawn: a check nobody can click is not a check.
+    const QJsonArray checksArray = obj.value(QStringLiteral("checks")).toArray();
+    for (const QJsonValue& cv : checksArray) {
+        if (!cv.isObject())
+            continue;
+        const QJsonObject co = cv.toObject();
+        ChainCheck check;
+        check.key = word(co, "key");
+        check.label = word(co, "label");
+        check.on = co.value(QStringLiteral("on")).toBool();
+        check.route = word(co, "route");
+        check.queryOn = word(co, "query_on");
+        check.queryOff = word(co, "query_off");
+        if (check.key.isEmpty() || check.route.isEmpty() || check.queryOn.isEmpty()
+            || check.queryOff.isEmpty())
+            continue;
+        row.checks.append(check);
+    }
+
     row.tip = row.why.isEmpty()
                   ? (row.actionRoute.isEmpty()
                          ? row.detail

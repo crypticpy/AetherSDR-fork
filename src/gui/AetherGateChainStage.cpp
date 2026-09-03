@@ -1,4 +1,5 @@
 #include "gui/AetherGateChainStage.h"
+#include "gui/AetherGateChainStagePrivate.h"
 
 #include "gui/AetherGateChainModes.h"
 
@@ -6,6 +7,7 @@
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QFont>
@@ -24,131 +26,8 @@
 
 namespace AetherSDR {
 
-namespace {
+using namespace chainstage;
 
-// The tile's rows. A block diagram whose blocks change size when a number
-// gains a digit is not a diagram, so the width is fixed and the height has a
-// floor -- 220 x 84 is the operator's own number (design §0.3 item 8), and a
-// tile carrying a refusal is allowed to grow past the floor rather than elide
-// the one sentence that says what went wrong.
-constexpr int kRowHeight = 20;
-constexpr int kLargeRowHeight = 26;
-constexpr int kDetailControlWidth = 300;
-
-// A switch is a small thing on a card, not the card's headline. The first
-// build gave it the whole width and the operator read the strip as a wall of
-// ON buttons with dim words over them; the NAME leads now and the switch is
-// the size of the word on it.
-constexpr int kSwitchWidth = 54;
-constexpr int kMenuWidth = 116;
-
-// What the one measured line has to fit inside, on each of the two shapes.
-constexpr int kCardTextWidth = kChainCardWidth - 4 - 14;
-constexpr int kLineTextWidth =
-    kChainSummaryWidth - 14 - kChainSummaryNameWidth - 6;
-
-// The lowest and highest a synthesised digital roofing filter can be asked
-// for. 100 Hz is narrower than any radio's narrowest CW roofing filter and
-// 25 kHz is the gate's own decimated rate -- past either end there is nothing
-// to design.
-constexpr int kFreeEntryMinHz = 100;
-constexpr int kFreeEntryMaxHz = 25000;
-
-// The border is 2 px in BOTH states so that selecting a tile cannot move the
-// text inside it by a pixel; only the colour changes. The accent is
-// color.accent.bright, the same token the detail pane's title uses, which is
-// how the tile and the pane say they are about the same stage (design §0.3
-// items 3 and 7).
-//
-// A fixed row gets the dashed frame and no hover: nothing about it responds,
-// and a border that looked like the others would be inviting a click that does
-// nothing.
-const char* kTileStyle =
-    "QFrame { border: 2px solid {{color.background.1}};"
-    " border-radius: 4px; background: transparent; }"
-    "QFrame[fixed=\"true\"] { border: 2px dashed {{color.background.1}}; }"
-    "QFrame[line=\"true\"] { border: 2px solid transparent;"
-    " border-radius: 3px; background: transparent; }"
-    "QFrame[selected=\"true\"] { border: 2px solid {{color.accent.bright}}; }"
-    "QFrame[line=\"true\"][selected=\"true\"] {"
-    " border: 2px solid {{color.accent.bright}}; }";
-
-// makeFieldLabel()/makeValue() with the colour taken down to the disabled
-// token, for a row nothing in the product can move. Same size and weight, so
-// a dimmed tile still reads as the same kind of object.
-const char* kDimNameStyle =
-    "QLabel { color: {{color.text.disabled}}; font-size: 10px; font-weight: bold;"
-    " background: transparent; }";
-
-const char* kDimValueStyle =
-    "QLabel { color: {{color.text.disabled}}; font-size: 11px; font-weight: bold;"
-    " background: transparent; }";
-
-// The line under the value: why a fixed stage cannot move, or -- when the gate
-// has just refused a write -- what it said. Two meanings, one line, told apart
-// by colour rather than by position, so the tile's height does not change when
-// a refusal arrives.
-const char* kUnderStyle =
-    "QLabel { color: {{color.text.disabled}}; font-size: 10px;"
-    " background: transparent; }"
-    "QLabel[live=\"true\"] { color: {{color.accent.warning}}; }";
-
-const char* kSelectStyle =
-    "QComboBox { background: {{color.background.1}}; color: {{color.text.primary}};"
-    " border: 1px solid {{color.border.subtle}}; border-radius: 3px;"
-    " font-size: 11px; padding: 1px 3px; }"
-    "QComboBox::drop-down { width: 14px; border: none; }"
-    "QComboBox:disabled { color: {{color.text.disabled}}; }";
-
-const char* kFreeStyle =
-    "QLineEdit { background: {{color.background.0}}; color: {{color.text.primary}};"
-    " border: 1px solid {{color.border.subtle}}; border-radius: 3px;"
-    " font-size: 11px; padding: 1px 3px; }";
-
-QString emDash()
-{
-    return QStringLiteral("—");
-}
-
-QString suffixFor(const QString& id)
-{
-    QString clean = id;
-    clean.replace(QLatin1Char(' '), QLatin1Char('_'));
-    return clean;
-}
-
-// Elide rather than wrap. Every detail cell in this window has a fixed field
-// width (DiversityWidgets::makeReadoutLine reserves its worst case), and a
-// gate sentence longer than the field lives on the hover instead of reflowing
-// the row -- there is exactly one setWordWrap() in this codebase and it is
-// false.
-void setElided(QLabel* label, const QString& text, int width)
-{
-    const QFontMetrics fm(label->font());
-    label->setText(fm.elidedText(text, Qt::ElideRight, width));
-    label->setToolTip(text);
-    label->setAccessibleDescription(text);
-}
-
-// Tabular figures: every digit the same width, so a number that changes twice
-// a second does not shuffle the characters beside it. Purely a font feature --
-// the face, the size and the colour token are all unchanged.
-void applyTabularFigures(QLabel* label)
-{
-    QFont f = label->font();
-    f.setFeature(QFont::Tag("tnum"), 1);
-    label->setFont(f);
-}
-
-// The one reason the FRONT END card prints once, under all of its rows,
-// instead of once per row. It is the gate's own wording.
-QString frontEndSharedWhy()
-{
-    return QCoreApplication::translate("AetherGateChainStage",
-                                       "set on the setup page");
-}
-
-} // namespace
 
 QString chainFrontEndSharedWhy()
 {
@@ -182,6 +61,14 @@ QString ChainStage::shape() const
         out += QLatin1Char('|') + opt.group + QLatin1Char('/') + opt.value
                + (opt.enabled ? QLatin1Char('+') : QLatin1Char('-'));
     }
+    // Which checks this row carries, and where each one writes -- not
+    // whether they are ON, which settingKey() below is for. A gate that adds
+    // or removes a check, or changes its route, is a WIDGET change; a gate
+    // that flips one on or off is not.
+    for (const ChainCheck& check : checks) {
+        out += QLatin1Char('|') + QStringLiteral("chk:") + check.key
+               + QLatin1Char('/') + check.route;
+    }
     return out;
 }
 
@@ -193,6 +80,10 @@ QString ChainStage::settingKey() const
     // carries one, so no other row's confirmation check changes shape.
     if (hasFloorControl)
         key += QLatin1Char('|') + floorValue;
+    // Every check's own on/off, in the gate's own order -- what a write to
+    // roof_offset (or any future check) is confirmed against.
+    for (const ChainCheck& check : checks)
+        key += QLatin1Char('|') + (check.on ? QStringLiteral("1") : QStringLiteral("0"));
     return key;
 }
 
@@ -257,6 +148,11 @@ AetherGateChainControl::AetherGateChainControl(const ChainStage& stage,
     // kind == "fixed" (and any kind a future gate invents that carries no
     // action) deliberately builds nothing: the row's `why` is printed on the
     // tile and there is no control to press.
+
+    // The generic checks[] row, built regardless of `kind` -- a select row
+    // (ROOFING · DIGITAL) can carry one exactly as a toggle or a fixed row
+    // could.
+    buildChecks(prefix, large);
 
     syncToGate();
 }
@@ -352,6 +248,62 @@ void AetherGateChainControl::buildFloor(const QString& prefix, bool large)
         emit requestWrite(m_stage.floorActionRoute, QUrlQuery(m_stage.floorActionQuery + wire));
     });
     layout()->addWidget(m_floor);
+}
+
+const ChainCheck* AetherGateChainControl::findCheck(const QString& key) const
+{
+    for (const ChainCheck& check : m_stage.checks) {
+        if (check.key == key)
+            return &check;
+    }
+    return nullptr;
+}
+
+// One QCheckBox per checks[] entry, stacked under whatever the row's own
+// `kind` already built (or under nothing, on a fixed row). A malformed entry
+// -- no key, or nothing to write with -- draws no box at all rather than one
+// that could crash on the click; AetherGateChainRows.cpp already drops those
+// before this ever sees them, but a defensive skip here costs nothing and
+// means a future gate's mistake still cannot crash this window.
+void AetherGateChainControl::buildChecks(const QString& prefix, bool large)
+{
+    for (const ChainCheck& check : m_stage.checks) {
+        if (check.key.isEmpty() || check.route.isEmpty())
+            continue;
+        auto* box = new QCheckBox(
+            check.label.isEmpty() ? check.key : check.label, this);
+        const QString name =
+            prefix == QStringLiteral("gateChain")
+                ? QStringLiteral("gateChainCheck_%1_%2").arg(m_stage.id, check.key)
+                : prefix + QStringLiteral("Check_") + suffixFor(m_stage.id)
+                      + QLatin1Char('_') + check.key;
+        box->setObjectName(name);
+        box->setAccessibleName(tr("%1 %2").arg(m_stage.name, check.label));
+        box->setFixedHeight(large ? kLargeRowHeight : kRowHeight);
+        ThemeManager::instance().applyStyleSheet(box, QString::fromLatin1(kCheckStyle));
+        const QString tip =
+            tr("Switches %1. The box moves only when the receiver says the "
+               "check actually changed.")
+                .arg(check.label.isEmpty() ? check.key : check.label);
+        box->setToolTip(tip);
+        box->setAccessibleDescription(tip);
+        const QString key = check.key;
+        // clicked(), not toggled(): the box goes back where the gate had it
+        // and greys until an answer comes back, the same rule every other
+        // control in this window keeps -- nothing here is optimistic.
+        connect(box, &QCheckBox::clicked, this, [this, key](bool) {
+            const ChainCheck* c = findCheck(key);
+            if (!c || m_busy) {
+                syncToGate();
+                return;
+            }
+            setBusy(true);
+            syncToGate();
+            emit requestWrite(c->route, QUrlQuery(c->on ? c->queryOff : c->queryOn));
+        });
+        layout()->addWidget(box);
+        m_checks.append(box);
+    }
 }
 
 void AetherGateChainControl::buildSelect(const QString& prefix, bool large)
@@ -474,7 +426,7 @@ void AetherGateChainControl::buildAction(const QString& prefix, bool large)
 bool AetherGateChainControl::hasControl() const
 {
     return m_toggle != nullptr || m_select != nullptr || m_free != nullptr
-           || m_action != nullptr || m_floor != nullptr;
+           || m_action != nullptr || m_floor != nullptr || !m_checks.isEmpty();
 }
 
 void AetherGateChainControl::setStage(const ChainStage& stage)
@@ -510,6 +462,11 @@ void AetherGateChainControl::applyBusy()
         m_action->setEnabled(live && m_stage.actionable());
     if (m_floor)
         m_floor->setEnabled(live && m_stage.hasFloorControl);
+    // Every check on the row greys with the rest of it: one write out on
+    // this stage must not let a second one leave from its own check while
+    // the first is still on the wire.
+    for (QCheckBox* box : m_checks)
+        box->setEnabled(live);
 }
 
 void AetherGateChainControl::syncToGate()
@@ -544,253 +501,15 @@ void AetherGateChainControl::syncToGate()
         if (index >= 0)
             m_floor->setCurrentIndex(index);
     }
+    // Zipped by position, not by key: shape() already guarantees the widget
+    // list and m_stage.checks agree on count and keys, in order, or this
+    // control would have been rebuilt rather than resynced (AetherGateChain
+    // Strip.cpp only calls setStage() when shape() has not changed).
+    for (int i = 0; i < m_checks.size() && i < m_stage.checks.size(); ++i) {
+        const QSignalBlocker block(m_checks.at(i));
+        m_checks.at(i)->setChecked(m_stage.checks.at(i).on);
+    }
     applyBusy();
-}
-
-// --------------------------------------------------------------------------
-// AetherGateChainTile
-// --------------------------------------------------------------------------
-
-AetherGateChainTile::AetherGateChainTile(const ChainStage& stage,
-                                         ChainTileShape shape, QWidget* parent)
-    : QFrame(parent), m_stage(stage), m_shape(shape)
-{
-    setObjectName(QStringLiteral("gateChainTile_") + suffixFor(stage.id));
-    setProperty("stageId", stage.id);
-    setProperty("fixed", stage.fixed);
-    setProperty("line", shape == ChainTileShape::Line);
-    setProperty("selected", false);
-    setAccessibleName(stage.name);
-    // A hand over a stage nothing can move is a promise the card cannot keep.
-    // It can still be SELECTED -- the inspector explains a fixed stage as
-    // readily as a switchable one -- so the click is live either way.
-    setCursor(stage.fixed ? Qt::ArrowCursor : Qt::PointingHandCursor);
-    ThemeManager::instance().applyStyleSheet(this, QString::fromLatin1(kTileStyle));
-
-    if (shape == ChainTileShape::Line)
-        buildLine();
-    else
-        buildCard();
-
-    setStage(stage);
-}
-
-// The block of the diagram: NAME, then the one measured line, then the one
-// control. The name is the biggest thing on it.
-void AetherGateChainTile::buildCard()
-{
-    setFixedWidth(kChainCardWidth);
-    setMinimumHeight(kChainCardHeight);
-    m_lineWidth = kCardTextWidth;
-
-    auto* box = new QVBoxLayout(this);
-    box->setContentsMargins(7, 4, 7, 4);
-    box->setSpacing(2);
-
-    // makeValue() is the window's bright 11 px bold role. The first build put
-    // the name in the dim field-label role and the switch in the bright one,
-    // which is exactly backwards: the operator reads the strip for what the
-    // stages ARE.
-    m_name = DiversityWidgets::makeValue(
-        QStringLiteral("gateChainName_") + suffixFor(m_stage.id),
-        m_stage.name, this);
-    m_name->setText(m_stage.name);
-    m_name->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    m_name->setAccessibleName(m_stage.name);
-    if (m_stage.fixed)
-        ThemeManager::instance().applyStyleSheet(m_name,
-                                                 QString::fromLatin1(kDimValueStyle));
-    box->addWidget(m_name);
-
-    m_value = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainValue_") + suffixFor(m_stage.id), QString(),
-        m_stage.detail, this);
-    m_value->setFixedWidth(m_lineWidth);
-    m_value->setAccessibleName(tr("%1 now").arg(m_stage.name));
-    applyTabularFigures(m_value);
-    if (m_stage.fixed)
-        ThemeManager::instance().applyStyleSheet(m_value,
-                                                 QString::fromLatin1(kDimNameStyle));
-    box->addWidget(m_value);
-
-    m_under = new QLabel(this);
-    m_under->setObjectName(QStringLiteral("gateChainWhy_") + suffixFor(m_stage.id));
-    m_under->setAccessibleName(tr("%1 note").arg(m_stage.name));
-    m_under->setWordWrap(false);
-    ThemeManager::instance().applyStyleSheet(m_under, QString::fromLatin1(kUnderStyle));
-    box->addWidget(m_under);
-
-    m_control = new AetherGateChainControl(m_stage, QStringLiteral("gateChain"),
-                                           /*large=*/false, this);
-    connect(m_control, &AetherGateChainControl::requestWrite, this,
-            &AetherGateChainTile::requestWrite);
-    m_control->setVisible(m_control->hasControl());
-    box->addWidget(m_control, 0, Qt::AlignLeft);
-    box->addStretch(1);
-}
-
-// One row of the FRONT END summary card: a dim name, then either the one
-// measured line or -- when the row can actually be set -- its control in the
-// same slot, because a menu already reads out the value it is showing.
-void AetherGateChainTile::buildLine()
-{
-    setFixedWidth(kChainSummaryWidth - 14);
-    setMinimumHeight(kChainSummaryRowHeight);
-    m_lineWidth = kLineTextWidth;
-
-    auto* box = new QHBoxLayout(this);
-    box->setContentsMargins(2, 0, 2, 0);
-    box->setSpacing(6);
-
-    m_name = DiversityWidgets::makeFieldLabel(m_stage.name, this);
-    m_name->setObjectName(QStringLiteral("gateChainName_") + suffixFor(m_stage.id));
-    m_name->setAccessibleName(m_stage.name);
-    m_name->setFixedWidth(kChainSummaryNameWidth);
-    m_name->setText(chainFitToWidth(m_name, m_stage.name, kChainSummaryNameWidth));
-    m_name->setToolTip(m_stage.name);
-    m_name->setAccessibleDescription(m_stage.name);
-    box->addWidget(m_name);
-
-    m_value = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainValue_") + suffixFor(m_stage.id), QString(),
-        m_stage.detail, this);
-    m_value->setFixedWidth(m_lineWidth);
-    m_value->setAccessibleName(tr("%1 now").arg(m_stage.name));
-    applyTabularFigures(m_value);
-    box->addWidget(m_value);
-
-    m_control = new AetherGateChainControl(m_stage, QStringLiteral("gateChain"),
-                                           /*large=*/false, this);
-    connect(m_control, &AetherGateChainControl::requestWrite, this,
-            &AetherGateChainTile::requestWrite);
-    m_control->setVisible(m_control->hasControl());
-    m_value->setVisible(!m_control->hasControl());
-    box->addWidget(m_control);
-    box->addStretch(1);
-
-    // The why line is built but starts hidden: on a summary row it appears
-    // only for something the card's own hint does not already cover.
-    m_under = new QLabel(this);
-    m_under->setObjectName(QStringLiteral("gateChainWhy_") + suffixFor(m_stage.id));
-    m_under->setAccessibleName(tr("%1 note").arg(m_stage.name));
-    m_under->setWordWrap(false);
-    ThemeManager::instance().applyStyleSheet(m_under, QString::fromLatin1(kUnderStyle));
-    box->addWidget(m_under);
-}
-
-void AetherGateChainTile::setStage(const ChainStage& stage)
-{
-    m_stage = stage;
-    const QString tip = stage.tip.isEmpty() ? stage.why : stage.tip;
-    setToolTip(tip);
-    setAccessibleDescription(tip);
-    refreshPrimary();
-    m_control->setStage(stage);
-    if (m_shape == ChainTileShape::Line)
-        m_value->setVisible(!m_control->hasControl());
-    refreshUnderline();
-}
-
-QString AetherGateChainTile::primaryText() const
-{
-    return m_value ? m_value->text() : QString();
-}
-
-// The one line, and the rule that makes it honest: parts are dropped whole
-// from the end until what is left fits, and then WORDS are dropped whole off
-// the last part. Nothing is ever cut through the middle, and nothing is ever
-// followed by three dots. The sentence the gate wrote is on the hover.
-void AetherGateChainTile::refreshPrimary()
-{
-    const QStringList parts = chainPrimaryParts(m_stage);
-    const QFontMetrics fm(m_value->font());
-    const QString join = QStringLiteral(" · ");
-
-    QStringList kept = parts;
-    QString text = kept.join(join);
-    while (kept.size() > 1 && fm.horizontalAdvance(text) > m_lineWidth) {
-        kept.removeLast();
-        text = kept.join(join);
-    }
-    while (fm.horizontalAdvance(text) > m_lineWidth
-           && text.contains(QLatin1Char(' '))) {
-        text.truncate(text.lastIndexOf(QLatin1Char(' ')));
-        text = text.trimmed();
-    }
-    if (text.isEmpty())
-        text = emDash();
-
-    m_value->setText(text);
-    // The FRONT END card's HEADROOM row wears the same warning tone the
-    // underline already carries for a refusal -- makeReadoutLine()'s own
-    // [live="true"] rule, not a new one.
-    DiversityWidgets::setLive(m_value, m_stage.warn);
-    // The hover and the screen reader get the whole thing, always.
-    const QString whole = m_stage.detail.isEmpty() ? text : m_stage.detail;
-    m_value->setToolTip(whole);
-    m_value->setAccessibleDescription(whole);
-}
-
-// The line under the value says one of two things and never both: what the
-// receiver just refused (warning-coloured, and the more urgent of the two), or
-// why a fixed row cannot move. A row that is neither refused nor fixed hides
-// it, so the card does not carry an empty line.
-//
-// On a summary ROW the shared "all set on the setup page" hint under the card
-// already answers the common case, so only a DIFFERENT reason shows.
-void AetherGateChainTile::refreshUnderline()
-{
-    const bool refused = !m_error.isEmpty();
-    QString text = refused ? m_error : m_stage.why;
-    if (!refused && m_shape == ChainTileShape::Line
-        && text == chainFrontEndSharedWhy()) {
-        text.clear();
-    }
-    // A summary ROW never carries one: the card's single hint under all seven
-    // rows says the one thing they have in common, and anything else is on
-    // the hover and in the inspector. Seven reasons stacked in a 244 px
-    // column was the "there is a lot of stuff" the operator read.
-    if (m_shape == ChainTileShape::Line)
-        text.clear();
-    m_under->setVisible(!text.isEmpty());
-    DiversityWidgets::setLive(m_under, refused);
-    m_under->setText(chainFitToWidth(m_under, text, m_lineWidth));
-    m_under->setToolTip(text);
-    m_under->setAccessibleDescription(text);
-}
-
-void AetherGateChainTile::setSelected(bool on)
-{
-    if (m_selected == on)
-        return;
-    m_selected = on;
-    setProperty("selected", on);
-    style()->unpolish(this);
-    style()->polish(this);
-}
-
-void AetherGateChainTile::setBusy(bool busy)
-{
-    m_control->setBusy(busy);
-}
-
-void AetherGateChainTile::setError(const QString& error)
-{
-    if (m_error == error)
-        return;
-    m_error = error;
-    refreshUnderline();
-}
-
-void AetherGateChainTile::activateSwitch()
-{
-    m_control->activateSwitch();
-}
-
-void AetherGateChainTile::mousePressEvent(QMouseEvent* event)
-{
-    emit clicked(m_stage.id);
-    QFrame::mousePressEvent(event);
 }
 
 } // namespace AetherSDR
