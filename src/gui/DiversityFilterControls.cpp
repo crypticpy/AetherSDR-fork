@@ -377,6 +377,8 @@ QWidget* DiversityFilterControls::buildWidthColumn()
            "trade."));
 
     QHBoxLayout* presets = newRow(body);
+    m_widthPresets = new QButtonGroup(this);
+    m_widthPresets->setExclusive(false);
     const QList<QPair<QString, int>> widths = {{QStringLiteral("1.8k"), 1800},
                                               {QStringLiteral("2.4k"), 2400},
                                               {QStringLiteral("2.7k"), 2700},
@@ -393,9 +395,18 @@ QWidget* DiversityFilterControls::buildWidthColumn()
                                .arg(entry.second));
         button->setAccessibleDescription(button->toolTip());
         button->setFixedHeight(kRowHeight);
+        button->setCheckable(true);
+        button->setProperty("spanHz", entry.second);
         applyToggleButtonStyle(button);
         m_controls.append(button);
-        connect(button, &QPushButton::clicked, this, [this, span = entry.second] {
+        m_widthPresets->addButton(button);
+        connect(button, &QPushButton::clicked, this, [this, button, span = entry.second] {
+            // Lit at once and held against the poll until the gate echoes
+            // this width back (2026-09-03: "the one I selected doesn't
+            // highlight"). Non-exclusive group, so the others go out by hand.
+            for (QAbstractButton* other : m_widthPresets->buttons())
+                other->setChecked(other == button);
+            holdWrite(m_widthPresets, span);
             QUrlQuery q;
             q.addQueryItem(QStringLiteral("low"), QString::number(m_lowHz));
             q.addQueryItem(QStringLiteral("high"), QString::number(m_lowHz + span));

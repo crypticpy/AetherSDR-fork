@@ -561,8 +561,16 @@ void DiversityFilterControls::applyStatus(const QJsonObject& f)
     // The spin boxes show what was ASKED for, not what is in force: with AUTO
     // on those differ, and rewriting the operator's own numbers with the
     // tracker's would lose them the moment they switched AUTO off.
-    writeSpin(m_lowSpin, jsonInt(f, "set_low_hz", m_lowHz));
-    writeSpin(m_highSpin, jsonInt(f, "set_high_hz", m_highHz));
+    const int setLow = jsonInt(f, "set_low_hz", m_lowHz);
+    const int setHigh = jsonInt(f, "set_high_hz", m_highHz);
+    writeSpin(m_lowSpin, setLow);
+    writeSpin(m_highSpin, setHigh);
+    // The preset whose span is the asked-for width lights; a custom width
+    // lights none. Same hold as the spins, keyed on the span.
+    if (!holdBlocks(m_widthPresets, setHigh - setLow)) {
+        for (QAbstractButton* button : m_widthPresets->buttons())
+            button->setChecked(button->property("spanHz").toInt() == setHigh - setLow);
+    }
 
     const QJsonObject autoObj = f.value(QStringLiteral("auto")).toObject();
     const bool autoOn = autoObj.value(QStringLiteral("enabled")).toBool();

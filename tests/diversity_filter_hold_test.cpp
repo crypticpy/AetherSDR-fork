@@ -336,6 +336,54 @@ void testApfBlockIsVisibleOnlyInCwMode()
 
 } // namespace
 
+// A width preset lights when the asked-for width is its span, and none
+// lights for a custom width. A click lights at once and holds through a
+// stale echo; the gate's own width decides once the hold is off.
+void testWidthPresetLightsFromTheStatusAndHoldsAfterAClick()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net);
+    DiversityWindow* w = openOnFilter(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* p2400 = child<QPushButton>(w, "diversityWindowFilterPreset2400");
+    auto* p2700 = child<QPushButton>(w, "diversityWindowFilterPreset2700");
+    CHECK(p2400 != nullptr && p2700 != nullptr);
+    if (!p2400 || !p2700)
+        return;
+    CHECK(!p2400->isChecked() && !p2700->isChecked());   // 100..2900 is custom
+
+    p2400->click();                                       // lit at once...
+    settle();
+    CHECK(p2400->isChecked());
+    filterTick(a);                                        // ...through the stale echo
+    CHECK(p2400->isChecked());
+
+    QByteArray high2500 = kDiversityFilterStatus;         // the gate took it
+    high2500.replace("\"set_high_hz\": 2900", "\"set_high_hz\": 2500");
+    CHECK(high2500 != kDiversityFilterStatus);
+    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError, high2500};
+    filterTick(a);
+    CHECK(p2400->isChecked() && !p2700->isChecked());
+
+    QByteArray high2800 = kDiversityFilterStatus;         // someone else moved it
+    high2800.replace("\"set_high_hz\": 2900", "\"set_high_hz\": 2800");
+    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError, high2800};
+    filterTick(a);
+    CHECK(!p2400->isChecked() && p2700->isChecked());
+
+    // MUTATION: a click on the lit preset keeps it lit (a plain checkable
+    // button would toggle it off).
+    p2700->click();
+    settle();
+    CHECK(p2700->isChecked() && !p2400->isChecked());
+    closedToStart();
+}
+
 int main(int argc, char** argv)
 {
     TestSettingsProfile profile(QStringLiteral("diversity_filter_hold_test"));
@@ -345,6 +393,7 @@ int main(int argc, char** argv)
     testSpinAndShapeGroupHoldsSurviveAStaleEchoThenFollow();
     testExpiredHoldStopsBlocking();
     testApfBlockIsVisibleOnlyInCwMode();
+    testWidthPresetLightsFromTheStatusAndHoldsAfterAClick();
 
     std::printf("\n%d diversity filter hold test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

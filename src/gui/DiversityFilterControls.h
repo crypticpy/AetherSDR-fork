@@ -174,6 +174,11 @@ private:
 
     // --- WIDTH -----------------------------------------------------------
     QButtonGroup* m_shapeGroup{nullptr};
+    // The 1.8k/2.4k/2.7k/3.0k buttons. Non-exclusive: the one whose span is
+    // set_high - set_low lights, and a custom width lights none. The group
+    // is also the hold's QObject (see holdWrite()); each button carries its
+    // span in a "spanHz" property.
+    QButtonGroup* m_widthPresets{nullptr};
     QSpinBox*     m_lowSpin{nullptr};
     QSpinBox*     m_highSpin{nullptr};
     QPushButton*  m_autoButton{nullptr};
