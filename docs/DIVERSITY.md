@@ -715,10 +715,40 @@ inspector and on the card that asked, and the row does not move — a
 refused value never happened. The status line in the corner says only
 one of three things: `live`, `applying...`, or `no connection`.
 
+### ROOFING · DIGITAL — PEAK OFFSET
 
-## SQUEEZE` heading
-near AUTO CLEAN once someone owns the merge. Route bullet matches the style
-of `##
+The digital roof's centre can be dragged off the slice centre, the Icom
+VC-Tune / Kenwood Digi-Sel move: park a strong neighbour on the roof's
+skirt instead of inside it, so the AGC and the combiner never see it. A
+PEAK OFFSET check mark sits on the ROOFING · DIGITAL card itself: on
+applies the remembered offset, off holds it without discarding it. The
+card's detail line appends `· offset +800 Hz` while it is in force. The
+offset is clamped so the roof still covers the whole passband; a roof too
+narrow for the passband it is meant to carry holds the offset at 0 and
+reports `offset_max_hz: 0`. The clamp is applied when the offset is
+written; narrowing the passband afterwards does not re-clamp it.
+
+## SQUEEZE
+
+SQUEEZE is one target, one tool, chosen by measurement. Name a carrier
+(`squeeze=<hz>`, slice-relative, signed) or the mains comb the noise
+profile found (`squeeze=comb`) and the gate measures the target's
+coherence between the two loops: at or above 0.5 it earns a spatial
+null, steered at that one frequency while the rest of the passband keeps
+the combiner's own weights; below it a spectral notch, since two
+antennas cannot null what they do not both hear. `squeeze=off` releases.
+The status block (`squeeze` on `/diversity` and `/filter`) says which tool
+it chose and why (`tool`, `why`, `coherence`, `depth_db`), what it cost the
+talker (`talker_cost_db`), and, for a comb, the teeth it is holding
+(`comb.teeth_in_band[]`, `comb.spacing_hz`, `comb.offset_hz`). `held` is
+true only while the gate is actually holding the target; `reason` is
+quoted when it is not.
+
+In the CHAIN window the VISUAL tab is where you aim it: Shift+click a
+signal on the curve to squeeze it, a bracket marks the held target,
+teeth mark a comb; COMB and RELEASE are buttons under the curve. The
+SQUEEZE row of the chain carries the same words the gate wrote, and
+RELEASE on that row is the only control while a target is held.
 
 ## AUTO CLEAN: the chain decides
 
@@ -962,7 +992,8 @@ The gate's HTTP control port (default 8731) serves:
   `auto` {enabled, source: "print" | "spectrum" | null, low_hz, high_hz},
   `auto_eq` {enabled, tilt_db}, `nb` {enabled, threshold_db, blanked_pct},
   `agc` {mode, attack_ms, decay_ms, hang_ms, gain_db}, `roofing`
-  {analogue_hz, digital_hz}, `response` {hz[], db[]} — the measured curve —
+  {analogue_hz, digital_hz, offset_hz, offset_enabled, offset_applied_hz,
+  offset_max_hz}, `response` {hz[], db[]} — the measured curve —
   and `spectrum` {hz[], db[], floor_db} or null: the one-second pre-filter
   spectrum on the SAME grid as `response`, in dB below its own peak (so its
   maximum is 0.0) with `floor_db` the median of those points on that same
@@ -972,6 +1003,11 @@ The gate's HTTP control port (default 8731) serves:
   — any subset; `shape=soft|sharp`, `agc=fast|med|slow|long|off`,
   0 ≤ low < high ≤ 20000. Replies with the status object above, or with
   `{"error": "..."}` if a value is refused.
+- `GET /filter/set?roof_offset_hz=<hz>` — signed Hz from the slice centre
+  for the digital roof's PEAK OFFSET, clamped to `roofing.offset_max_hz`;
+  `GET /filter/set?roof_offset=on|off` — the check mark. `/filter`'s
+  `chain[]` row `roof_digital` carries `checks: [{key: "roof_offset",
+  label: "PEAK OFFSET", on, applied_hz, max_hz}]`.
 - `GET /filter/notch?add=<hz>&width=<hz>` places a notch;
   `GET /filter/notch?clear=<hz>` removes one; `GET /filter/notch?clear=1`
   removes them all. The automatic notcher's own tones are not in this list
@@ -1015,3 +1051,12 @@ over the better loop, best-loop share, talkers, passband flatness).
 - Talker matching is spatial. Two stations at the same phase and level are
   one talker to the memory.
 - The audio blanker and the diversity blanker are separate; use one.
+- The RSPduo driver flushes each tuner's FIFO lazily, on that tuner's next
+  read, so the two rings used to come up 66 driver packets (33.3 ms) apart
+  at every stream start and after every overflow, and the correlator
+  reported it faithfully as a lag of −4158 samples at 125 kS/s. The gate
+  now primes both FIFOs together at stream start and after a fault, and
+  folds any leftover whole-packet skew off the stream that is ahead; the
+  `[soapy] ring sync` line in the log says what came off. The lag you see
+  after alignment should be small (under a packet, ±63 samples at
+  125 kS/s), not thousands.
