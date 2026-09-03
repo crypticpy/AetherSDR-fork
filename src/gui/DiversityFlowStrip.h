@@ -267,6 +267,15 @@ private:
     // "post v2, width 100-2400, nb 11 dB", built from "changed" as it lands so
     // the step's derivation stays a pure read of members like the other five.
     QString m_digChanged;
+    // The best trial whether or not it was kept ("post v2", +4.8), the margin
+    // it had to clear, and the gate's own word on a baseline that swung while
+    // it sampled. A run that kept nothing is not the same as a run that
+    // measured nothing, and the line says which.
+    QString m_digNearMiss;
+    double  m_digNearMissDb{0.0};
+    double  m_digMarginDb{0.0};
+    bool    m_digUnsteady{false};
+    double  m_digSpreadDb{0.0};
 };
 
 } // namespace AetherSDR

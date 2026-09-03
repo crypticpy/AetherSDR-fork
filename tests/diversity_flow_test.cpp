@@ -681,6 +681,41 @@ void testDigNarratesTheRunTheReportAndTheVerdict()
     digTick(w);
     CHECK(flowHas(w, QStringLiteral("nothing beat your settings")));
 
+    // MUTATION: a run that kept nothing but MEASURED something. The near miss
+    // and the margin it fell short of are on the line, worded like the report
+    // (the gate's "measured_best" is one step, kept or not), and a baseline
+    // that swung while sampling is said in the gate's own number.
+    QByteArray nearMiss = nothing;
+    nearMiss.replace("\"best\": {",
+                     "\"measured_best\": {\"knob\": \"post\", \"to\": \"v2\", "
+                     "\"delta_db\": 4.79, \"kept\": false}, "
+                     "\"measured_best_db\": 4.79, \"margin_db\": 2.0, "
+                     "\"baseline_spread_db\": 7.7, \"unsteady\": true, \"best\": {");
+    CHECK(nearMiss != nothing);
+    digRoute(net, nearMiss);
+    digTick(w);
+    CHECK(flowHas(w, QStringLiteral("nothing cleared the 2.0 dB margin · post v2 measured "
+                                    "+4.8 dB · tentative, band swung 7.7 dB")));
+    // The verdict row stays: a report the operator can still judge.
+    CHECK(child<QWidget>(w, "diversityWindowFlowDigVerdict") == stack->currentWidget());
+
+    // MUTATION: a steady band says nothing about steadiness.
+    QByteArray steady = nearMiss;
+    steady.replace("\"unsteady\": true", "\"unsteady\": false");
+    digRoute(net, steady);
+    digTick(w);
+    CHECK(flowHas(w, QStringLiteral("nothing cleared the 2.0 dB margin · post v2 measured +4.8 dB")));
+    CHECK(!flowHas(w, QStringLiteral("tentative")));
+
+    // MUTATION: a kept step on an unsteady band wears the note too.
+    QByteArray shaky = kDigDone;
+    shaky.replace("\"best\": {", "\"unsteady\": true, \"baseline_spread_db\": 5.2, \"best\": {");
+    CHECK(shaky != kDigDone);
+    digRoute(net, shaky);
+    digTick(w);
+    CHECK(flowHas(w, QStringLiteral("+4.1 dB: post v2, width 100-2400, nb 11 dB · tentative, "
+                                    "band swung 5.2 dB")));
+
     QByteArray cancelled = kDigDone;
     cancelled.replace("\"cancelled\": false", "\"cancelled\": true");
     digRoute(net, cancelled);

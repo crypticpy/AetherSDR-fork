@@ -382,6 +382,17 @@ void DiversityFlowStrip::applyDig(const QJsonObject& dig)
                         ? QString()
                         : steps.last().toObject().value(QStringLiteral("knob")).toString();
     m_digChanged = changedText(dig.value(QStringLiteral("changed")).toObject());
+    // "measured_best" is one step, kept or not; its knob and target read as a
+    // one-knob "changed" so the near miss is worded like the report.
+    const QJsonObject best = dig.value(QStringLiteral("measured_best")).toObject();
+    m_digNearMiss = best.isEmpty()
+                        ? QString()
+                        : changedText({{best.value(QStringLiteral("knob")).toString(),
+                                        best.value(QStringLiteral("to"))}});
+    m_digNearMissDb = dig.value(QStringLiteral("measured_best_db")).toDouble();
+    m_digMarginDb = dig.value(QStringLiteral("margin_db")).toDouble();
+    m_digUnsteady = dig.value(QStringLiteral("unsteady")).toBool();
+    m_digSpreadDb = dig.value(QStringLiteral("baseline_spread_db")).toDouble();
     rebuild();
 }
 
@@ -434,6 +445,11 @@ void DiversityFlowStrip::clear()
     m_digSeconds = 0.0;
     m_digLastKnob.clear();
     m_digChanged.clear();
+    m_digNearMiss.clear();
+    m_digNearMissDb = 0.0;
+    m_digMarginDb = 0.0;
+    m_digUnsteady = false;
+    m_digSpreadDb = 0.0;
     rebuild();
 }
 
@@ -562,9 +578,21 @@ DiversityFlowStrip::State DiversityFlowStrip::digState() const
         return {tr("found %1 dB (put back)").arg(signedDb(m_digGainDb)), true};
     if (m_digPhase != QLatin1String("done"))
         return {QString(), true};
-    QString text = m_digChanged.isEmpty()
-                       ? tr("nothing beat your settings")
-                       : tr("%1 dB: %2").arg(signedDb(m_digGainDb), m_digChanged);
+    // A run that kept nothing still measured something: the best trial and
+    // the margin it fell short of are the difference between "your settings
+    // are right" and "the band was too jumpy to tell", and the operator is
+    // the one who can act on that difference.
+    QString text;
+    if (!m_digChanged.isEmpty())
+        text = tr("%1 dB: %2").arg(signedDb(m_digGainDb), m_digChanged);
+    else if (!m_digNearMiss.isEmpty() && m_digNearMissDb > 0.0)
+        text = tr("nothing cleared the %1 dB margin · %2 measured %3 dB")
+                   .arg(m_digMarginDb, 0, 'f', 1)
+                   .arg(m_digNearMiss, signedDb(m_digNearMissDb));
+    else
+        text = tr("nothing beat your settings");
+    if (m_digUnsteady)
+        text += tr(" · tentative, band swung %1 dB").arg(m_digSpreadDb, 0, 'f', 1);
     // The word the operator gave it, kept on the line until the next run --
     // "what did I decide about that?" is a question the strip should answer
     // without another click.

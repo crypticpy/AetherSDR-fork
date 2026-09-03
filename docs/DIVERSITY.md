@@ -196,6 +196,20 @@ gate that cannot dig has no sixth step and no buttons — nothing greyed out
 to wonder about. DIG is never the *next* step and never a tick: it is a
 button that is either worth pressing tonight or not.
 
+A trial has to beat the chain you had by a margin before it is kept, and
+the margin comes from how much the band itself swung while the gate was
+sampling the baseline: half that swing, never less than 0.5 dB and never
+more than 2 dB, because 2 dB is about the smallest change you reliably
+hear on a weak signal and a run that demands more than that cannot
+conclude anything. A run that kept nothing still tells you the best thing
+it measured — `nothing cleared the 2.0 dB margin · post v2 measured
++4.8 dB` — so "your settings are right" and "the band was too jumpy to
+tell" read differently. When the baseline swung more than 3 dB the line
+ends `· tentative, band swung 7.7 dB`: the gate went ahead anyway, but
+that is its word on how much to trust the result. The gain on the line is
+the sum of what was *kept*; the band drifting upward during the run is
+not credited to knobs that never moved.
+
 **STEREO** puts loop A in the left channel and loop B in the right, with
 one AGC gain for both so the loops keep their level difference. On two
 speakers the loops become a soundstage: a station arriving from one side
@@ -758,7 +772,12 @@ The gate's HTTP control port (default 8731) serves:
   `record`, `error`, `cancelled`, `gain_db`, `steps[]`, `best`, `changed`,
   `started`, `ends`, `elapsed_s`, `seconds`, `remaining_s`,
   `objective_before`, `objective_after`, `trials_planned`, `trials_done`,
-  `talker_id`, `kind`, `margin_db`, `snapshot`. Knob values in `best`,
+  `talker_id`, `kind`, `margin_db`, `snapshot`, plus `measured_best_db`
+  and `measured_best` (the best trial's step, kept or not),
+  `baseline_spread_db`, `unsteady` and `note` (the gate's own sentence on
+  a baseline that swung more than 3 dB while sampling). `gain_db` is the
+  sum of the kept steps' deltas, 0.0 when nothing was kept;
+  `objective_before`/`objective_after` stay the raw reads. Knob values in `best`,
   `changed` and each step: `post` true|false|"v2"; `subband`, `mrc`, `nb`,
   `contour`, `anf`, `apf`, `auto_eq` booleans; `nb_db` a float; `width` a
   [low_hz, high_hz] pair; `agc` "fast"|"med"|"slow". `available: false` is
