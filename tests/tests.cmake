@@ -3139,6 +3139,115 @@ add_test(NAME aether_gate_chain_ux_test COMMAND aether_gate_chain_ux_test)
 set_tests_properties(aether_gate_chain_ux_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# The applet's device line and its two diversity controls (B13): what the gate
+# has plugged in, a DIVERSITY switch, and the A/B selector for which tuner is
+# left feeding the receiver. Its own binary rather than more cases in
+# aether_gate_applet_test for the reason every gate binary here is separate --
+# that file is at the 800-line budget AGENTS.md asks for, and each needs a
+# fresh, process-wide AppSettings start. Socket-free: the applet takes the
+# injected QNetworkAccessManager and the strip owns no transport at all.
+add_executable(aether_gate_device_strip_test
+    tests/aether_gate_device_strip_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainRows.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(aether_gate_device_strip_test PRIVATE src tests)
+target_link_libraries(aether_gate_device_strip_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(aether_gate_device_strip_test PROPERTIES AUTOMOC ON)
+add_test(NAME aether_gate_device_strip_test COMMAND aether_gate_device_strip_test)
+set_tests_properties(aether_gate_device_strip_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# B22: the panadapter follows the beacon check's tune. The gate has no tune
+# verb, so the SITE page's BEACON CHECK moves AetherSDR's own slice through the
+# applet -- and an out-of-span target has to recentre the pan through
+# RadioModel::requestPanCenter(), because Aether-gate has no autopan for
+# `slice tune` to lean on. Model-level and socket-free; the fake gate is
+# injected and never answers anything this file reads.
+add_executable(aether_gate_tune_test
+    tests/aether_gate_tune_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainRows.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(aether_gate_tune_test PRIVATE src tests)
+target_link_libraries(aether_gate_tune_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(aether_gate_tune_test PROPERTIES AUTOMOC ON)
+add_test(NAME aether_gate_tune_test COMMAND aether_gate_tune_test)
+set_tests_properties(aether_gate_tune_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The Diversity window's SITE page: the NOISE PROFILE panel, the BEACONS watch
 # and its own gate route (/diversity/beacons at 1 Hz), plus the per-bin weights
 # checkbox the SLICE page grew alongside it. A fourth binary rather than more

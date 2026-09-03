@@ -31,6 +31,14 @@ class SliceModel;
 // write the panel wants to make arrives here as a signal and leaves as a GET.
 class AetherGateDiversityPanel;
 
+// The line under the connection status: what the gate has plugged in, and --
+// on a device that can combine two tuners -- the switch that stops it and the
+// A/B selector that says which tuner is left feeding the receiver. Its writes
+// come back here as requestDiversitySet() and leave through
+// onDiversityRequestSet(), so the applet still owns every socket in the
+// section. See AetherGateDeviceStrip.h.
+class AetherGateDeviceStrip;
+
 // The BAND page's own transport: /diversity/spatial at 4 Hz and
 // /diversity/finder at 1 Hz, off a timer of their own because neither cadence
 // fits the 1 Hz one /status and /diversity share. Constructed with THIS
@@ -116,6 +124,9 @@ private:
     void applyDeviceControls(const QJsonObject& dev, bool isJson);
     void buildDeviceControls(const QJsonObject& dev);
     void sendResolution();
+    // A write whose answer is not read -- see the definition.
+    void sendFireAndForget(const QString& path, const QUrlQuery& query,
+                           int timeoutMs);
     void sendDeviceSet(const QUrlQuery& query);
     void get(const QString& path,
              void (AetherGateApplet::*handler)(const QJsonObject&, bool));
@@ -137,6 +148,12 @@ private:
     // AetherGateDiversityPanel's signals, turned into the matching GET. See
     // AetherGateDiversityPanel.h's own comment on each signal for the exact
     // route and guard.
+    // One shape for the three diversity writes whose reply IS the read-back:
+    // build base + `path` + `query`, GET it, and hand the answer to the panel.
+    // `requirePresent` is false for exactly one caller — see
+    // onDiversityRequestCompareRestore().
+    void sendDiversityWrite(const QString& path, const QUrlQuery& query,
+                            bool requirePresent);
     void onDiversityRequestSet(QUrlQuery query);
     void onDiversityRequestCompareRestore(QUrlQuery query);
     void onDiversityRequestAlign();
@@ -170,6 +187,10 @@ private:
 
     // Header
     QLabel* m_status{nullptr};
+
+    // The device line and its two diversity controls, fed from /status's
+    // optional "device" object.
+    AetherGateDeviceStrip* m_deviceStrip{nullptr};
 
     // CHAIN -- the door and the window behind it.
     QPushButton*                   m_openChainButton{nullptr};

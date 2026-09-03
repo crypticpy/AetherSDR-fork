@@ -982,6 +982,7 @@ set(GUI_SOURCES
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateDeviceStrip.cpp
     src/gui/AetherGateDiversityPanel.cpp
     src/gui/AetherGateDiversityFormat.cpp
     src/gui/DiversityBandPoller.cpp

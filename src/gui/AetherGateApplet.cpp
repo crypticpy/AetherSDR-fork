@@ -2,8 +2,10 @@
 
 #include "core/ThemeManager.h"
 #include "gui/AetherGateChainWindow.h"
+#include "gui/AetherGateDeviceStrip.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/DiversityBandPoller.h"
+#include "models/PanadapterModel.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
 
@@ -203,6 +205,13 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
     m_status->setObjectName(QStringLiteral("gateStatusLabel"));
     styleRowLabel(m_status);
     root->addWidget(m_status);
+
+    // --- what is plugged in, and the way out of diversity (B13) ----------
+    // "A gate is answering" and "both tuners are running" are one question.
+    m_deviceStrip = new AetherGateDeviceStrip(this);
+    connect(m_deviceStrip, &AetherGateDeviceStrip::requestDiversitySet, this,
+            &AetherGateApplet::onDiversityRequestSet);
+    root->addWidget(m_deviceStrip);
 
     // --- panadapter resolution ------------------------------------------
     // Duplicated with the pan's own zoom on purpose: the zoom is a gesture and
@@ -516,6 +525,9 @@ void AetherGateApplet::applyStatus(const QJsonObject& root, bool isJson)
                                                                     : tr("idle"))
                           : tr("gate up · waiting for the app"));
 
+    // Optional: an older gate sends no "device", and the strip shows a dash.
+    m_deviceStrip->applyDevice(root.value(QStringLiteral("device")));
+
     // A gate older than the "res" field is still a gate: keep presence and the
     // device controls, and only fold away the rows it cannot serve.
     const QJsonObject res = root.value(QStringLiteral("res")).toObject();
@@ -567,11 +579,24 @@ void AetherGateApplet::applyStatus(const QJsonObject& root, bool isJson)
         refreshDeviceControls();
 }
 
-void AetherGateApplet::sendResolution()
+// A write whose answer is not read: the next poll carries the result.
+void AetherGateApplet::sendFireAndForget(const QString& path,
+                                         const QUrlQuery& query, int timeoutMs)
 {
     const QString base = baseUrl();
     if (base.isEmpty() || !m_present)
         return;
+    QUrl url(base + path);
+    if (!query.isEmpty())
+        url.setQuery(query);
+    QNetworkRequest req{url};
+    req.setTransferTimeout(timeoutMs);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
+}
+
+void AetherGateApplet::sendResolution()
+{
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("bins"), m_bins->currentText());
     if (m_span->isEnabled()) {
@@ -580,12 +605,8 @@ void AetherGateApplet::sendResolution()
             q.addQueryItem(QStringLiteral("rate"),
                            QString::number(m_span->itemData(idx).toDouble(), 'f', 0));
     }
-    QUrl url(base + QStringLiteral("/resolution"));
-    url.setQuery(q);
-    QNetworkRequest req{url};
-    req.setTransferTimeout(8000);          // a rate change restarts the stream
-    QNetworkReply* reply = m_net->get(req);
-    connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
+    // 8 s, not the usual 4: a rate change restarts the stream.
+    sendFireAndForget(QStringLiteral("/resolution"), q, 8000);
 }
 
 // One path for every write. A radio drop mid-edit leaves the widgets alive
@@ -932,12 +953,24 @@ void AetherGateApplet::onDiversityRequestTune(double hz)
     SliceModel* target = (hz > 0.0) ? activeSlice() : nullptr;
     if (!target)
         return;
-    // Through the recentre policy, not a bare setFrequency(): a BEACON CHECK
-    // tunes from 80 m to 14.100, and with the slice moved but the pan left
-    // where it was the operator saw 3.8 MHz all through the check
-    // (2026-09-03). An out-of-span target re-centres the display; an in-span
-    // one keeps autopan=0 as before.
-    m_model->tuneSliceForCat(target, hz / 1.0e6);
+    const double mhz = hz / 1.0e6;
+    // Asked BEFORE the tune: the pan has moved by the time it returns.
+    const PanadapterModel* pan = m_model->panadapter(target->panId());
+    const bool outOfSpan = !pan || !pan->spanContainsMhz(mhz);
+    // A refusal (locked slice, implausible target) must not move the display.
+    if (!m_model->tuneSliceForCat(target, mhz))
+        return;
+    // Then move the pan OURSELVES. tuneSliceForCat's out-of-span arm sends
+    // `slice tune <id> <mhz>` without autopan=0, asking the RADIO to recentre
+    // -- and Aether-gate has no autopan: it took the tune, the slice read 14.1,
+    // and the pan model kept the 80 m centre and span labels with new FFT rows
+    // painted under the old scale (B22, 2026-09-03). The GUI's cross-band tune
+    // does not rely on autopan either -- applyTuneRequest ->
+    // revealFrequencyIfNeeded -> applyTuneCenteringWrite ends in this same call,
+    // which is what puts `display pan set <pan> center=` on the wire and
+    // re-labels the waterfall rows. Centre only: the span is not ours to move.
+    if (outOfSpan)
+        m_model->requestPanCenter(target->panId(), mhz);
 }
 
 // Same non-critical-to-presence contract as pollDiversity() above: an
@@ -964,14 +997,18 @@ void AetherGateApplet::pollDiversityMap()
 
 // One path for every diversity write, same shape as sendDeviceSet(): the
 // read-back arrives with the reply, so a control always ends up showing what
-// the gate took rather than what we asked for.
-void AetherGateApplet::onDiversityRequestSet(QUrlQuery query)
+// the gate took rather than what we asked for. An empty query is a route that
+// takes none (/diversity/align), not a write with nothing in it.
+void AetherGateApplet::sendDiversityWrite(const QString& path,
+                                          const QUrlQuery& query,
+                                          bool requirePresent)
 {
     const QString base = baseUrl();
-    if (base.isEmpty() || !m_present)
+    if (base.isEmpty() || (requirePresent && !m_present))
         return;
-    QUrl url(base + QStringLiteral("/diversity/set"));
-    url.setQuery(query);
+    QUrl url(base + path);
+    if (!query.isEmpty())
+        url.setQuery(query);
     QNetworkRequest req{url};
     req.setTransferTimeout(4000);
     QNetworkReply* reply = m_net->get(req);
@@ -985,22 +1022,14 @@ void AetherGateApplet::onDiversityRequestSet(QUrlQuery query)
     });
 }
 
+void AetherGateApplet::onDiversityRequestSet(QUrlQuery query)
+{
+    sendDiversityWrite(QStringLiteral("/diversity/set"), query, true);
+}
+
 void AetherGateApplet::onDiversityRequestAlign()
 {
-    const QString base = baseUrl();
-    if (base.isEmpty() || !m_present)
-        return;
-    QNetworkRequest req{QUrl(base + QStringLiteral("/diversity/align"))};
-    req.setTransferTimeout(4000);
-    QNetworkReply* reply = m_net->get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError)
-            return;
-        QJsonObject obj;
-        const bool json = parseObject(reply->readAll(), &obj);
-        m_diversityPanel->applyDiversity(obj, json);
-    });
+    sendDiversityWrite(QStringLiteral("/diversity/align"), {}, true);
 }
 
 // The "Hear A only" hold's forced resume — see
@@ -1011,22 +1040,7 @@ void AetherGateApplet::onDiversityRequestAlign()
 // its own request, gated only on baseUrl() being non-empty.
 void AetherGateApplet::onDiversityRequestCompareRestore(QUrlQuery query)
 {
-    const QString base = baseUrl();
-    if (base.isEmpty())
-        return;
-    QUrl url(base + QStringLiteral("/diversity/set"));
-    url.setQuery(query);
-    QNetworkRequest req{url};
-    req.setTransferTimeout(4000);
-    QNetworkReply* reply = m_net->get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError)
-            return;
-        QJsonObject obj;
-        const bool json = parseObject(reply->readAll(), &obj);
-        m_diversityPanel->applyDiversity(obj, json);
-    });
+    sendDiversityWrite(QStringLiteral("/diversity/set"), query, false);
 }
 
 // Unlike every other diversity write, the gate does not answer until the
@@ -1085,13 +1099,7 @@ void AetherGateApplet::onDiversityRequestCapture(int seconds)
 // result instead of parsing this reply.
 void AetherGateApplet::onDiversityRequestMemoryClear()
 {
-    const QString base = baseUrl();
-    if (base.isEmpty() || !m_present)
-        return;
-    QNetworkRequest req{QUrl(base + QStringLiteral("/diversity/memory/clear"))};
-    req.setTransferTimeout(4000);
-    QNetworkReply* reply = m_net->get(req);
-    connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
+    sendFireAndForget(QStringLiteral("/diversity/memory/clear"), {}, 4000);
 }
 
 // The operator's own label for a remembered talker. Same no-read-back shape
@@ -1103,19 +1111,11 @@ void AetherGateApplet::onDiversityRequestMemoryClear()
 // second query parameter.
 void AetherGateApplet::onDiversityRequestMemoryName(int id, QString name)
 {
-    const QString base = baseUrl();
-    if (base.isEmpty() || !m_present)
-        return;
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("id"), QString::number(id));
     q.addQueryItem(QStringLiteral("name"),
                    QString::fromLatin1(QUrl::toPercentEncoding(name)));
-    QUrl url(base + QStringLiteral("/diversity/memory/name"));
-    url.setQuery(q);
-    QNetworkRequest req{url};
-    req.setTransferTimeout(4000);
-    QNetworkReply* reply = m_net->get(req);
-    connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
+    sendFireAndForget(QStringLiteral("/diversity/memory/name"), q, 4000);
 }
 
 } // namespace AetherSDR
