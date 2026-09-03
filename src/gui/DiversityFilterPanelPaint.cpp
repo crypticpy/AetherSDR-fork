@@ -144,6 +144,12 @@ void DiversityFilterPanel::paintLayer(QPainter& p, const QRectF& r) const
                             QString::number(std::abs(notch.y()), 'f', 0)));
     }
 
+    // SQUEEZE: the operator's own null or notch (or comb), drawn over the
+    // manual notches and under the contour/APF ticks -- see
+    // DiversityFilterPanelSqueeze.cpp for the Hz-axis conversion this needs
+    // and the reason it needs one at all.
+    paintSqueeze(p, r);
+
     // Contour and audio-peak centres: short ticks off the bottom axis. They
     // shape the passband rather than cutting it, so they get a tick and not a
     // full-height line.

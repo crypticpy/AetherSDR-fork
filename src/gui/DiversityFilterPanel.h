@@ -172,6 +172,34 @@ public:
     int paintCount() const { return m_paintCount; }
     int staticRebuildCount() const { return m_staticRebuilds; }
 
+    // SQUEEZE (B24): the gate's own held/armed/off target, out of applyStatus()'s
+    // "squeeze" block. Off is "since" absent; armed is "since" present and not
+    // held (a target is configured but not yet accepted, or was refused);
+    // held is the tool actually in force. See DiversityFilterPanelSqueeze.cpp
+    // for the Hz-axis conversion this is drawn under.
+    bool    squeezeOff() const { return !m_squeezeActive; }
+    bool    squeezeArmed() const { return m_squeezeActive && !m_squeezeHeld; }
+    bool    squeezeHeld() const { return m_squeezeHeld; }
+    QString squeezeTarget() const { return m_squeezeTarget; }   // "signal" | "comb" | ""
+    QString squeezeTool() const { return m_squeezeTool; }       // "null" | "notch" | ""
+    QString squeezeReason() const { return m_squeezeReason; }
+    QString squeezeWhy() const { return m_squeezeWhy; }
+    // Signed, in the SLICE's own frame -- the gate's own squeeze.hz, not
+    // abs-ified the way low_hz/high_hz are. NaN when there is no signal target.
+    double  squeezeHz() const { return m_squeezeHz; }
+    double  squeezeDepthDb() const { return m_squeezeDepthDb; }
+    double  squeezeCombSpacingHz() const { return m_squeezeCombSpacingHz; }
+    int     squeezeCombTeethSeen() const { return m_squeezeCombTeethSeen; }
+    int     squeezeCombTeethInBandCount() const { return int(m_squeezeTeethHz.size()); }
+
+    // Where the SQUEEZE mark is actually DRAWN, on this panel's own always-
+    // positive axis -- read back by tests the way notchHzAt() is. NaN / no
+    // entries when there is nothing of that kind held.
+    double  squeezeBracketLowHz() const;
+    double  squeezeBracketHighHz() const;
+    int     squeezeToothCount() const { return int(m_squeezeTeethHz.size()); }
+    double  squeezeToothHzAt(int index) const;
+
 signals:
     // A handle has been let go, and the two edges are now `lowHz`/`highHz`,
     // snapped to 10 Hz. Emitted on RELEASE, not per pixel: a set per mouse-move
@@ -202,6 +230,14 @@ signals:
     // A click on a mark that did not become a drag: the id of the chain stage
     // the mark belongs to. See the header comment.
     void markClicked(QString stageId);
+
+    // Shift+click on the curve, away from the SQUEEZE bracket/teeth: place
+    // (or move) the target there. `hz` is SIGNED, in the slice's own frame --
+    // what the gate's squeeze=<hz> takes -- not this panel's own positive
+    // axis. See DiversityFilterPanelSqueeze.cpp.
+    void squeezeRequested(double hz);
+    // Right-click, or Shift+click, ON the bracket or a tooth: squeeze=off.
+    void squeezeReleaseRequested();
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -274,6 +310,20 @@ private:
     // instead of the widget -- the drag path.
     void   moveEdge(Edge edge, double hz, bool partial = false);
 
+    // SQUEEZE (B24), defined in DiversityFilterPanelSqueeze.cpp: parses the
+    // "squeeze" block and the "mode" field (for the sign flip below), draws
+    // the bracket/teeth into the cached layer, and answers the two hit tests
+    // the gestures need.
+    void    resetSqueeze();
+    void    parseSqueeze(const QJsonObject& filter);
+    void    paintSqueeze(QPainter& p, const QRectF& r) const;
+    // Whether (x, y) is on the bracket or a tooth -- asked by markAt() (the
+    // door) and by mousePressEvent (Shift+click / right-click's release).
+    bool    squeezeHit(double x) const;
+    // The signed, slice-relative Hz a click at `x` asks for -- the inverse
+    // of how this panel draws squeeze.hz.
+    double  squeezeHzForClick(double x) const;
+
     QVector<double> m_hz;
     QVector<double> m_db;
     double m_minHz{0.0};
@@ -302,6 +352,26 @@ private:
     // frequency and no business being drawn.
     double m_contourHz{0.0};
     double m_apfHz{0.0};
+
+    // SQUEEZE (B24). m_squeezeHz/m_squeezeWidthHz/m_squeezeTeethHz are all in
+    // the SLICE's own signed frame -- the gate does not abs-ify squeeze the
+    // way it does low_hz/high_hz/found_hz, so this panel does it at paint and
+    // hit-test time (DiversityFilterPanelSqueeze.cpp). m_squeezeLsb is which
+    // way a FUTURE click's sign should go, kept even while off so a Shift+
+    // click on an empty curve still asks for the right sign.
+    bool    m_squeezeActive{false};    // "since" present: held or armed
+    bool    m_squeezeHeld{false};
+    bool    m_squeezeLsb{false};
+    QString m_squeezeTarget;           // "signal" | "comb" | ""
+    QString m_squeezeTool;             // "null" | "notch" | ""
+    QString m_squeezeReason;
+    QString m_squeezeWhy;
+    double  m_squeezeHz{0.0};
+    double  m_squeezeWidthHz{0.0};
+    double  m_squeezeDepthDb{0.0};
+    double  m_squeezeCombSpacingHz{0.0};
+    int     m_squeezeCombTeethSeen{0};
+    QVector<double> m_squeezeTeethHz;
 
     Edge   m_drag{Edge::None};
     Edge   m_focusEdge{Edge::Low};

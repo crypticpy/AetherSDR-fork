@@ -67,7 +67,9 @@ DiversityFilterPanel::DiversityFilterPanel(QWidget* parent) : QWidget(parent)
            "anywhere on the curve to notch that frequency, drag a notch mark "
            "to move it, right-click one to take it away, and use the left and "
            "right arrow keys (hold Shift for ten times the step) to move the "
-           "edge nearest the pointer. Up and down choose which edge that is."));
+           "edge nearest the pointer. Up and down choose which edge that is. "
+           "Shift+click a signal to SQUEEZE a null or notch onto it; Shift+"
+           "click or right-click the SQUEEZE mark itself to let it go."));
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
     setCursor(Qt::CrossCursor);
@@ -79,6 +81,7 @@ DiversityFilterPanel::DiversityFilterPanel(QWidget* parent) : QWidget(parent)
     m_autoHighHz = std::numeric_limits<double>::quiet_NaN();
     m_notchFromHz = std::numeric_limits<double>::quiet_NaN();
     m_notchGhostHz = std::numeric_limits<double>::quiet_NaN();
+    resetSqueeze();
 }
 
 void DiversityFilterPanel::clear()
@@ -104,6 +107,8 @@ void DiversityFilterPanel::clear()
     m_autoHighHz = std::numeric_limits<double>::quiet_NaN();
     m_drag = Edge::None;
     m_notchDrag = -1;
+    resetSqueeze();
+    m_squeezeLsb = false;
     m_layersDirty = true;
     m_specAreaDirty = true;
     update();
@@ -146,7 +151,19 @@ QByteArray DiversityFilterPanel::filterFingerprint() const
              // The spectrum APPEARING or going away is a filter-layer change
              // too: the floor tick and the "no audio yet" corner turn on and
              // off with it, and both are drawn in the cached layer.
-             double(m_specDb.isEmpty())});
+             double(m_specDb.isEmpty()),
+             // SQUEEZE (B24): held-ness, which tool/target (coded, so a
+             // QString need not go through this double-only feed()), and the
+             // numbers the bracket/label are drawn from.
+             double(m_squeezeHeld),
+             m_squeezeTarget == QLatin1String("comb")   ? 2.0
+             : m_squeezeTarget == QLatin1String("signal") ? 1.0
+                                                          : 0.0,
+             m_squeezeTool == QLatin1String("null")   ? 1.0
+             : m_squeezeTool == QLatin1String("notch") ? 2.0
+                                                        : 0.0,
+             m_squeezeHz, m_squeezeWidthHz, m_squeezeDepthDb});
+    feed(b, m_squeezeTeethHz);
     return b;
 }
 
@@ -272,6 +289,8 @@ void DiversityFilterPanel::applyStatus(const QJsonObject& filter)
             m_autoHighHz = v;
     }
 
+    parseSqueeze(filter);
+
     const bool specChanged = spectrumFingerprint() != wasSpectrum;
     const bool filterChanged = filterFingerprint() != wasFilter;
     if (!specChanged && !filterChanged)
@@ -394,6 +413,11 @@ QString DiversityFilterPanel::markAt(double x, double y) const
         if (!std::isnan(edge) && std::abs(x - xForHz(edge)) <= kGrabPx)
             return QStringLiteral("auto");
     }
+    // SQUEEZE's own mark, asked last: it is wide (a bracket, or several
+    // teeth) and must not steal a click meant for a mark it happens to sit
+    // near, so every narrower mark above is asked first.
+    if (squeezeHit(x))
+        return QStringLiteral("squeeze");
     return QString();
 }
 
@@ -456,7 +480,29 @@ void DiversityFilterPanel::mousePressEvent(QMouseEvent* ev)
             ev->accept();
             return;
         }
+        // SQUEEZE's own release gesture: right-click the bracket or a tooth.
+        if (squeezeHit(x)) {
+            emit squeezeReleaseRequested();
+            ev->accept();
+            return;
+        }
         QWidget::mousePressEvent(ev);
+        return;
+    }
+    // Shift+click is SQUEEZE's gesture end to end, asked ahead of every other
+    // left-button meaning below so it cannot collide with a drag: on the
+    // bracket/a tooth it releases, anywhere else on the curve it places (or
+    // moves) the target there.
+    if (ev->button() == Qt::LeftButton && (ev->modifiers() & Qt::ShiftModifier)) {
+        if (!m_available) {
+            QWidget::mousePressEvent(ev);
+            return;
+        }
+        if (squeezeHit(x))
+            emit squeezeReleaseRequested();
+        else
+            emit squeezeRequested(squeezeHzForClick(x));
+        ev->accept();
         return;
     }
     if (ev->button() != Qt::LeftButton) {

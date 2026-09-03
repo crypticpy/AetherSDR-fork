@@ -3,9 +3,13 @@
 #include "core/ThemeManager.h"
 #include "gui/DiversityFilterPanel.h"
 #include "gui/DiversityWindowPanels.h"
+#include "gui/Theme.h"
 
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPushButton>
+#include <QResizeEvent>
 #include <QVBoxLayout>
 
 #include <cmath>
@@ -43,6 +47,18 @@ const char* kCursorStyle =
     "QLabel { color: {{color.accent.bright}}; font-size: 10px;"
     " background: transparent; }";
 
+// "null"/"notch" -> "NULL"/"NOTCH", the gate's own two SQUEEZE tools. See
+// DiversityFilterPanelSqueeze.cpp's copy of the same mapping for the picture
+// itself; this one is for the status line's own words.
+QString squeezeToolWord(const QString& tool)
+{
+    if (tool == QLatin1String("null"))
+        return QStringLiteral("NULL");
+    if (tool == QLatin1String("notch"))
+        return QStringLiteral("NOTCH");
+    return QString();
+}
+
 } // namespace
 
 AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
@@ -60,9 +76,64 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
                            "move it, double-click to notch what is under the "
                            "pointer, drag a notch mark to move it, right-click "
                            "one to take it away, click any mark to go to its "
-                           "stage on the CHAIN tab."));
+                           "stage on the CHAIN tab. Shift+click a signal to "
+                           "SQUEEZE a null or notch onto it; Shift+click or "
+                           "right-click the SQUEEZE mark, or press RELEASE, "
+                           "to let it go."));
     caption->setAccessibleDescription(caption->toolTip());
-    box->addWidget(caption);
+
+    // SQUEEZE (B24): the operator's own null or notch, asked for either by
+    // pointing (Shift+click on the picture, see DiversityFilterPanel) or, for
+    // a comb of carriers where there is no single point to click, from this
+    // button. RELEASE is the one control that answers BOTH of Shift+click's
+    // targets -- the bracket and the comb -- with the same squeeze=off.
+    auto* captionRow = new QHBoxLayout();
+    captionRow->setContentsMargins(0, 0, 0, 0);
+    captionRow->setSpacing(6);
+    captionRow->addWidget(caption);
+    captionRow->addStretch(1);
+    m_squeezeComb = new QPushButton(tr("SQUEEZE: COMB"), this);
+    m_squeezeComb->setObjectName(QStringLiteral("gateChainSqueezeComb"));
+    m_squeezeComb->setAccessibleName(tr("Squeeze a comb of carriers"));
+    m_squeezeComb->setToolTip(
+        tr("Ask the gate to find and squeeze a comb of evenly spaced carriers "
+           "in this passband, rather than the one signal a click would pick."));
+    m_squeezeComb->setAccessibleDescription(m_squeezeComb->toolTip());
+    m_squeezeComb->setFixedHeight(22);
+    applyToggleButtonStyle(m_squeezeComb, ToggleTribe::Warning);
+    connect(m_squeezeComb, &QPushButton::clicked, this, [this]() {
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("squeeze"), QStringLiteral("comb"));
+        emit requestWrite(QStringLiteral("/diversity/set"), q);
+    });
+    captionRow->addWidget(m_squeezeComb, 0);
+
+    m_squeezeRelease = new QPushButton(tr("RELEASE"), this);
+    m_squeezeRelease->setObjectName(QStringLiteral("gateChainSqueezeRelease"));
+    m_squeezeRelease->setAccessibleName(tr("Let the SQUEEZE go"));
+    m_squeezeRelease->setToolTip(
+        tr("Take away whatever SQUEEZE is armed or holding -- one signal or a "
+           "comb -- and give the passband back."));
+    m_squeezeRelease->setAccessibleDescription(m_squeezeRelease->toolTip());
+    m_squeezeRelease->setFixedHeight(22);
+    m_squeezeRelease->setEnabled(false);
+    applyToggleButtonStyle(m_squeezeRelease, ToggleTribe::Warning);
+    connect(m_squeezeRelease, &QPushButton::clicked, this, [this]() {
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("squeeze"), QStringLiteral("off"));
+        emit requestWrite(QStringLiteral("/diversity/set"), q);
+    });
+    captionRow->addWidget(m_squeezeRelease, 0);
+    box->addLayout(captionRow);
+
+    m_squeezeLine = new QLabel(this);
+    m_squeezeLine->setObjectName(QStringLiteral("gateChainSqueezeLine"));
+    m_squeezeLine->setAccessibleName(tr("SQUEEZE state"));
+    m_squeezeLine->setWordWrap(false);
+    m_squeezeLine->setTextInteractionFlags(Qt::NoTextInteraction);
+    ThemeManager::instance().applyStyleSheet(m_squeezeLine,
+                                             QString::fromLatin1(kCursorStyle));
+    box->addWidget(m_squeezeLine);
 
     m_panel = new DiversityFilterPanel(this);
     m_panel->setMinimumHeight(320);
@@ -131,6 +202,17 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
             });
     connect(m_panel, &DiversityFilterPanel::markClicked, this,
             &AetherGateChainVisual::stageRequested);
+    connect(m_panel, &DiversityFilterPanel::squeezeRequested, this,
+            [this](double hz) {
+                QUrlQuery q;
+                q.addQueryItem(QStringLiteral("squeeze"), QString::number(qint64(hz)));
+                emit requestWrite(QStringLiteral("/diversity/set"), q);
+            });
+    connect(m_panel, &DiversityFilterPanel::squeezeReleaseRequested, this, [this]() {
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("squeeze"), QStringLiteral("off"));
+        emit requestWrite(QStringLiteral("/diversity/set"), q);
+    });
     connect(m_panel, &DiversityFilterPanel::cursorMoved, this,
             [this](double hz, double db) {
                 if (std::isnan(hz)) {
@@ -173,6 +255,7 @@ void AetherGateChainVisual::clear()
     m_panel->clear();
     m_cursor->setText(QString());
     m_readout->setText(QString());
+    refreshSqueezeLine();
 }
 
 void AetherGateChainVisual::applyFilter(const QJsonObject& filter)
@@ -197,6 +280,7 @@ void AetherGateChainVisual::applyFilter(const QJsonObject& filter)
         m_gateHighHz = int(std::lround(high.toDouble()));
     m_panel->applyStatus(filter);
     refreshReadout();
+    refreshSqueezeLine();
 }
 
 // Which edge moved? The one that is no longer where the GATE said it was. A
@@ -246,6 +330,65 @@ void AetherGateChainVisual::refreshReadout()
     const QString text = parts.join(QStringLiteral(" · "));
     m_readout->setText(text);
     m_readout->setAccessibleDescription(text);
+}
+
+// off/armed/held -- told apart the same way DiversityFilterPanel itself
+// tells them apart (see squeezeOff()/squeezeArmed()/squeezeHeld()): "since"
+// null is off, "since" set but not yet "held" is armed (the gate is still
+// listening for enough coherence to commit), "held" is the mark actually on
+// the picture. The gate's own `why` is carried verbatim, per the task -- it
+// is the one sentence that explains a NULL-vs-NOTCH choice the operator did
+// not make.
+QString AetherGateChainVisual::squeezeLineText() const
+{
+    if (!m_panel)
+        return QString();
+    if (m_panel->squeezeOff())
+        return tr("SQUEEZE off — Shift+click a signal, or SQUEEZE: COMB");
+
+    const QString target = m_panel->squeezeTarget();
+    const QString why = m_panel->squeezeWhy();
+    const bool comb = target == QLatin1String("comb");
+
+    if (m_panel->squeezeArmed()) {
+        const QString where =
+            comb ? tr("a comb, spacing %1 Hz")
+                       .arg(groupedHz(qint64(std::lround(m_panel->squeezeCombSpacingHz()))))
+                 : tr("%1 Hz").arg(groupedHz(qint64(std::lround(m_panel->squeezeHz()))));
+        return why.isEmpty() ? tr("SQUEEZE arming on %1").arg(where)
+                              : tr("SQUEEZE arming on %1 — %2").arg(where, why);
+    }
+
+    const QString tool = squeezeToolWord(m_panel->squeezeTool());
+    const QString where =
+        comb ? tr("comb, %1 teeth").arg(m_panel->squeezeCombTeethInBandCount())
+             : tr("%1 Hz").arg(groupedHz(qint64(std::lround(m_panel->squeezeHz()))));
+    QString text = tool.isEmpty() ? tr("SQUEEZE held on %1").arg(where)
+                                  : tr("SQUEEZE %1 on %2").arg(tool, where);
+    if (!why.isEmpty())
+        text += tr(" — %1").arg(why);
+    return text;
+}
+
+// Recomputed on every filter tick and every resize: the RELEASE button's
+// enabled state and the status line's own text both depend on state that
+// only DiversityFilterPanel::applyStatus() (via parseSqueeze()) knows.
+void AetherGateChainVisual::refreshSqueezeLine()
+{
+    if (!m_squeezeLine || !m_panel)
+        return;
+    const QString full = squeezeLineText();
+    m_squeezeLine->setAccessibleDescription(full);
+    const QFontMetrics fm = m_squeezeLine->fontMetrics();
+    m_squeezeLine->setText(fm.elidedText(full, Qt::ElideRight, m_squeezeLine->width()));
+    if (m_squeezeRelease)
+        m_squeezeRelease->setEnabled(!m_panel->squeezeOff());
+}
+
+void AetherGateChainVisual::resizeEvent(QResizeEvent* ev)
+{
+    QWidget::resizeEvent(ev);
+    refreshSqueezeLine();
 }
 
 } // namespace AetherSDR

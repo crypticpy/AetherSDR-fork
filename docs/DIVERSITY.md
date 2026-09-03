@@ -716,6 +716,65 @@ refused value never happened. The status line in the corner says only
 one of three things: `live`, `applying...`, or `no connection`.
 
 
+## SQUEEZE` heading
+near AUTO CLEAN once someone owns the merge. Route bullet matches the style
+of `##
+
+## AUTO CLEAN: the chain decides
+
+The gate owns every tool; what it has never owned is the decision. AUTO CLEAN
+is that decision, made by measurement: it maps what the noise profile FOUND
+onto the one tool that can do something about it, makes one move at a time,
+scores it against the same speech-band objective DIG OUT uses, and puts the
+move back if the audio got worse.
+
+**Off by default. Off, it holds nothing.**
+
+    GET /diversity/set?auto=on      turn it on
+    GET /diversity/set?auto=off     turn it off (releases; does NOT revert)
+    GET /diversity/governor         what it is holding, and why
+
+`auto=` takes exactly `on` or `off`; anything else answers HTTP 200 with
+`{"error": "bad value: auto='x' (want on|off)"}`. The same block appears under
+`governor` in `/diversity`, and as the first row (`auto_clean`) of `/filter`'s
+chain, at the head because it drives the rows below rather than being one.
+
+### The rules
+
+Stack order is the receive chain's order, so each stage acts on the residual of
+the one before it. At most one move is ever in flight.
+
+| what it saw | condition | tool | undone when |
+|---|---|---|---|
+| **neighbour** | ADC headroom < 3 dB | front-end guard on (it steps the LNA) | objective falls > margin |
+| **impulse** | >= 1 impulse/s | blanker on at the SITE page's own threshold | objective falls; and off again after 30 s quiet |
+| **floor** | noise coherence >= 0.4, mode `off`/`manual`, no focus | combiner `mode=null` | objective falls > margin |
+| **carrier** | finder says "carrier", in the passband, >= 6 dB over the floor, strongest first | `squeeze=<hz>` | objective falls > margin |
+| **mains** | mains comb found AND coherence >= 0.4 | `squeeze=comb` | objective falls > margin |
+| **weak** | talker, objective < 6 dB, band steady to 1.5 dB | hands it to DIG OUT | never — the dig has its own A/B rule |
+
+Coherence chooses the squeeze's TOOL, not the governor: at or above 0.5 the
+target gets a spatial null, below it a spectral notch (see SQUEEZE). Hum with
+no direction is left alone — the audio chain's ANF and notches already have
+the tones — and a comb is never stacked on a null already 6 dB deep.
+`nb=auto` means the blanker's own arm owns that knob, and AUTO stands aside.
+
+### Not fighting you
+
+* A knob you moved is yours for 60 s; AUTO will not touch it.
+* A tool AUTO was holding that you then move is **released** to you — from any
+  route, detected by the setting changing under it.
+* A move that cost more than the margin (half the recent objective spread,
+  0.5–2.0 dB, the DIG OUT rule) is put back, and that (kind, tool) pair is not
+  tried again for 5 minutes.
+* Turning AUTO off releases everything and leaves your settings exactly where
+  they stand. Releasing is not reverting: what it kept, it kept on measurement.
+
+The CHAIN window shows all of this as the first card, AUTO CLEAN, at the
+head of the chain: its detail line is the governor's state, the tools it
+is holding, and its one-sentence why. While AUTO holds a tool, that
+tool's own card says so.
+
 ## A working session
 
 This is the order the FLOW line encodes, and the order to work in. Each step
@@ -917,6 +976,16 @@ The gate's HTTP control port (default 8731) serves:
   /frontend/set?guard=on|off` switches the guard; `GET
   /frontend/set?floor=<state>` sets how far down it is allowed to
   take the LNA.
+- `GET /diversity/set?squeeze=<hz>|comb|off&squeeze_width=<hz>&spacing=<hz>&offset=<hz>` — `squeeze` is a signed offset Hz (a "signal" target, slice-relative baseband, not absolute RF), the literal `comb` (with `spacing`/`offset` given: that pair outright; neither given: auto-detect off the next ~2 s), or `off`/empty to release; omit it to leave the target alone and only move `squeeze_width` on one already held. `/filter`'s `squeeze` object answers with `hz, width_hz, held, reason, tool ("null"|"notch"|null), why, phase_deg, ratio_db, coherence, depth_db, scope, target ("signal"|"comb"), comb {spacing_hz, offset_hz, teeth_in_band[], teeth_seen, coherence} | null, since, talker_cost_db, bearing_deg, mirror_deg`. `since` null means off; a number with `held` false means armed (still measuring); `held` true means the tool is live. `hz` and every `comb.teeth_in_band[]` entry are signed and slice-relative, the same baseband convention as the write side — not the absolute Hz `low_hz`/`high_hz` use elsewhere on `/filter`.
+- `GET /diversity/set?auto=on|off` — the AUTO CLEAN switch (exact strings;
+  anything else is `{"error": ...}`). `GET /diversity/governor` — what it
+  holds and why: `auto`, `state` (`idle|measuring|applying|settling|backoff`),
+  `why`, `settle_s`, `margin_db`, `spread_db`, `holding[]` {tool, params,
+  kind, why, since, delta_db}, `pending`, `events[]` (last 50, each with
+  `result: pending|kept|undone|released|error` and `delta_db`), `backoff[]`
+  {kind, tool, until}, `available`, `error`. The same block is `governor`
+  on `/diversity`, and the chain's first row (`auto_clean`) is its toggle.
+  Off, it holds nothing; turning it off releases without reverting.
 
 `tools/diversity_recorder.py` polls the status to a CSV and
 `tools/diversity_report.py` summarises a session (hours, talk share, gain

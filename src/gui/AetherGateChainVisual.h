@@ -46,6 +46,8 @@
 #include <QWidget>
 
 class QLabel;
+class QPushButton;
+class QResizeEvent;
 
 namespace AetherSDR {
 
@@ -83,13 +85,27 @@ signals:
     // the CHAIN tab and selects that stage's card.
     void stageRequested(QString stageId);
 
+protected:
+    // The status line under the caption is elided by hand rather than left to
+    // wrap: this tab, unlike CHAIN, sits directly in a QTabWidget page with no
+    // QScrollArea to absorb an overlong `why` sentence, so a resize is the one
+    // moment the elision needs to be redone.
+    void resizeEvent(QResizeEvent* ev) override;
+
 private:
     void onEdgesDragged(int lowHz, int highHz);
     void refreshReadout();
+    // SQUEEZE (B24): off/armed/held, in the gate's own words. See
+    // AetherGateChainVisual.cpp for the exact text each state uses.
+    void refreshSqueezeLine();
+    QString squeezeLineText() const;
 
     DiversityFilterPanel* m_panel{nullptr};
     QLabel*               m_readout{nullptr};
     QLabel*               m_cursor{nullptr};
+    QPushButton*          m_squeezeComb{nullptr};
+    QPushButton*          m_squeezeRelease{nullptr};
+    QLabel*               m_squeezeLine{nullptr};
     QJsonObject           m_last;
     // The edges the GATE last reported, which is what a drag is compared
     // against to work out which one the operator moved. Not the panel's own
