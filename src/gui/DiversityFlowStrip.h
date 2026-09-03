@@ -27,6 +27,15 @@
 //             is always a filter in force -- so it is the strip's last stop
 //             rather than a thing to finish.
 //
+//   6 DIG     Not a step in the order at all, which is why it comes after the
+//             five that are: it is the offer at the end of the checklist. The
+//             gate spends a minute, three or five moving one knob of the chain
+//             at a time against a live objective, keeps whatever helped, and
+//             tells you what it changed and what it bought. Nothing above it
+//             is a prerequisite the strip can check, so it is never "next" and
+//             never a chore -- it is a button that is either worth pressing
+//             tonight or not.
+//
 // The state beside each step is the gate's own, quoted back: no number here is
 // recomputed and nothing is set optimistically when a step is clicked. The
 // step the operator should do NEXT is the first one in order that is not done,
@@ -54,11 +63,13 @@
 // hidden by that rule -- when it belongs to another page its link says which
 // one, so the one thing to do next is always readable from every page.
 //
-// It keeps no transport and no timers. Two payloads reach it, both of which the
-// window already receives for other reasons (/diversity every poll, /filter
-// whenever the FILTER page is up or a filter write is answered), and one signal
-// leaves it: stepActivated(), which the window turns into a page switch and,
-// where the step has a one-click cure, the write that applies it.
+// It keeps no transport and no timers. Three payloads reach it (/diversity
+// every poll, /filter whenever the FILTER page is up or a filter write is
+// answered, /diversity/dig at whatever cadence the window is asking for it),
+// and one signal leaves it: stepActivated(), which the window turns into a page
+// switch and, where the step has a one-click cure, the write that applies it.
+// The dig's three buttons sit on the same row but belong to the window: they
+// WRITE, and this strip does not.
 
 #include <QHash>
 #include <QString>
@@ -75,7 +86,7 @@ namespace AetherSDR {
 class DiversityFlowStrip : public QWidget {
     Q_OBJECT
 public:
-    // The five steps, in the order the strip draws them and in the order
+    // The six steps, in the order the strip draws them and in the order
     // "which one is next" walks. The values are also what stepActivated()
     // carries, so a slot can switch on them rather than on a magic index.
     enum Step {
@@ -84,6 +95,9 @@ public:
         StepHear,
         StepNoise,
         StepFilter,
+        // Drawn last and never "next" -- see the header. It is also the one
+        // step that is not drawn at all when the gate cannot do it.
+        StepDig,
         StepCount
     };
 
@@ -111,6 +125,23 @@ public:
     // {"error": ...} refusal both leave the step where it is: the FILTER step
     // states what is IN FORCE, and a failed request did not change that.
     void applyFilter(const QJsonObject& filter);
+
+    // One /diversity/dig answer, or the identical object one of that route's
+    // writes replies with. An empty object, or "available": false, is a gate
+    // that cannot dig: the step and its buttons go away entirely rather than
+    // sitting there greyed, because there is nothing about them to explain.
+    void applyDig(const QJsonObject& dig);
+
+    // Whether the gate said it can dig. Read by the window, which polls
+    // /diversity/dig, and by tests.
+    bool digAvailable() const { return m_digAvailable; }
+
+    // Whether a run is going, and whether a finished one is still owed a
+    // verdict. Read by the window, which owns the dig's three buttons and the
+    // cadence its status is polled at -- both are decisions about transport,
+    // and this strip keeps none.
+    bool digRunning() const { return m_digRunning; }
+    bool digAwaitingVerdict() const;
 
     // /diversity's memory[], for the name behind the talker id /filter reports.
     // A separate call rather than a read out of applyDiversity() because the
@@ -173,6 +204,7 @@ private:
     State hearState() const;
     State noiseState() const;
     State filterState() const;
+    State digState() const;
 
     QLabel*             m_caption{nullptr};
     QLabel*             m_line{nullptr};
@@ -216,6 +248,25 @@ private:
     bool    m_haveContour{false};
     double  m_contourHz{0.0};
     double  m_contourDb{0.0};
+
+    // --- last /diversity/dig ------------------------------------------------
+    // Nothing here is remembered across a run: every field is the gate's own,
+    // and the report survives a finished run only because the gate keeps
+    // reporting it until the next one starts.
+    bool    m_digAvailable{false};
+    bool    m_digRunning{false};
+    QString m_digPhase;
+    QString m_digVerdict;
+    QString m_digError;
+    bool    m_digCancelled{false};
+    double  m_digGainDb{0.0};
+    double  m_digElapsedS{0.0};
+    double  m_digSeconds{0.0};
+    // The knob of the last step the gate tried, for "trying width".
+    QString m_digLastKnob;
+    // "post v2, width 100-2400, nb 11 dB", built from "changed" as it lands so
+    // the step's derivation stays a pure read of members like the other five.
+    QString m_digChanged;
 };
 
 } // namespace AetherSDR

@@ -117,6 +117,12 @@ public:
     void applyActionReply(const QJsonObject& reply);
 
     // Gate gone, or diversity no longer available.
+    // Which way the profiled noise is arriving, already worded by the window
+    // (it is the only object that sees /diversity/compass). `reason` is the
+    // gate's own sentence about why there is no bearing, and belongs in the
+    // tooltip rather than on the line -- the line has to stay one line.
+    void setBearing(const QString& text, const QString& reason);
+
     void clear();
 
     QTableWidget* kindsTable() const { return m_kinds; }
@@ -140,6 +146,10 @@ private:
     QLabel* m_periodic{nullptr};
     QLabel* m_seconds{nullptr};
     QLabel* m_subband{nullptr};
+    QLabel* m_bearing{nullptr};
+    // The bearing line's own explanation, kept so the gate's "reason" can be
+    // appended to it and replaced rather than accumulated.
+    QString m_bearingTip;
     QLabel* m_status{nullptr};
     QTimer* m_statusTimer{nullptr};
     QTableWidget* m_kinds{nullptr};

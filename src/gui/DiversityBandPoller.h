@@ -89,6 +89,16 @@ signals:
     void spatialReceived(QJsonObject spatial);
     // One /diversity/finder answer, same contract.
     void finderReceived(QJsonObject finder);
+    // One /diversity/compass answer, same contract. Fetched beside the beacons
+    // because it is the same page's other half: the beacon table is what has
+    // been heard, the compass is what the phases of those beacons -- and of
+    // the noise between them -- add up to.
+    void compassReceived(QJsonObject compass);
+    // One /diversity/dig answer: the status of the gate's timed "dig this out"
+    // run, or the identical object a start/cancel/verdict write replies with.
+    // An empty object is a gate with no such route, which the FLOW strip reads
+    // as "this gate cannot dig" and hides the control for.
+    void digReceived(QJsonObject dig);
     // One /diversity/beacons answer, same contract. An empty object is a gate
     // that has no such route, not a band with no beacons on it -- the panel
     // tells those two apart from the payload's own "available" flag.
@@ -126,6 +136,16 @@ public slots:
     // new action gets a working button without a new build.
     void sendSite(const QString& path, const QUrlQuery& query);
 
+    // One GET on /diversity/dig with `query`, answered by digReceived(). An
+    // empty query is the status read; seconds=/cancel=/verdict= are the three
+    // writes, and all four answer with the same object. Unlike every other
+    // route here it is NOT gated on a page being visible: a run started from
+    // the FLOW strip goes on wherever the operator navigates to, and the strip
+    // is at the foot of every page. The window owns the cadence (see
+    // DiversityWindow::updateDigPoll) for the same reason -- it is the thing
+    // that knows whether a run is still going.
+    void sendDig(const QUrlQuery& query);
+
 private:
     void restart();
     // The one GET both write doors are made of; `asSite` picks which of the
@@ -134,6 +154,7 @@ private:
     void fetchSpatial();
     void fetchFinder();
     void fetchBeacons();
+    void fetchCompass();
     void fetchFilter();
 
     QNetworkAccessManager* m_net{nullptr};
@@ -149,6 +170,7 @@ private:
     bool                   m_spatialInFlight{false};
     bool                   m_finderInFlight{false};
     bool                   m_beaconsInFlight{false};
+    bool                   m_compassInFlight{false};
     bool                   m_filterInFlight{false};
 };
 

@@ -328,6 +328,25 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
         this);
     m_subband->setAccessibleName(tr("Per-bin weight refinement"));
     lines->addWidget(m_subband);
+
+    // On this row rather than on one of its own: the SITE page has no spare
+    // height at the size the window opens at, and a bearing is one more fact
+    // about the same noise the two lines beside it describe.
+    m_bearing = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowSiteNoiseBearing"),
+        tr("impulse from 212° (or 32°) · coh 0.42 · since 03:14"),
+        tr("Which way the noise this profile is about is arriving from. It "
+           "needs the beacon compass to have fitted the two loops' geometry "
+           "first -- until then the phase between them is a number, not a "
+           "direction, and this line says so rather than printing one. Two "
+           "elements in a line cannot tell a bearing from its reflection about "
+           "the baseline, so when there is a fit you get both and break the tie "
+           "by turning something off. \"since\" is when this direction first "
+           "held."),
+        this);
+    m_bearing->setAccessibleName(tr("Noise bearing"));
+    m_bearingTip = m_bearing->toolTip();
+    lines->addWidget(m_bearing);
     lines->addStretch(1);
     root->addLayout(lines);
 
@@ -425,6 +444,18 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
     clear();
 }
 
+void DiversityNoiseProfilePanel::setBearing(const QString& text, const QString& reason)
+{
+    if (!m_bearing)
+        return;
+    m_bearing->setText(text);
+    const QString tip = reason.isEmpty()
+                            ? m_bearingTip
+                            : m_bearingTip + QStringLiteral("\n\n") + reason;
+    m_bearing->setToolTip(tip);
+    m_bearing->setAccessibleDescription(tip);
+}
+
 void DiversityNoiseProfilePanel::clear()
 {
     m_verdict->setText(tr("no noise profile yet — the gate profiles once the "
@@ -433,6 +464,7 @@ void DiversityNoiseProfilePanel::clear()
     m_periodic->setText(tr("lines: %1").arg(emDash()));
     m_seconds->setText(tr("measured over %1 s").arg(emDash()));
     m_subband->setText(tr("Per-bin weights: %1").arg(emDash()));
+    setBearing(emDash(), QString());
     m_strip->clearHistory();
     m_actionPending = false;
     m_statusTimer->stop();
@@ -653,6 +685,7 @@ void DiversityNoiseProfilePanel::applySubband(const QJsonValue& subband)
 {
     if (!subband.isObject()) {
         m_subband->setText(tr("Per-bin weights: %1").arg(emDash()));
+    setBearing(emDash(), QString());
         return;
     }
     const QJsonObject s = subband.toObject();

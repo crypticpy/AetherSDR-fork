@@ -25,6 +25,7 @@
 
 #include <QAbstractButton>
 #include <QApplication>
+#include <QDateTime>
 #include <QCheckBox>
 #include <QLabel>
 #include <QNetworkReply>
@@ -70,9 +71,29 @@ void closedToStart()
 
 // Brings an applet up to "gate present, diversity live" with every route the
 // SITE page needs answered.
+// /diversity/compass, reduced to the one block the SITE page reads. The gate
+// answers phase and coherence long before it can turn either into a bearing --
+// that needs beacons of known bearing on two bands -- so the with-bearing and
+// phase-only forms below are both ordinary, and the page has to say which it
+// has rather than printing a direction nothing measured.
+const QByteArray kCompassBearing = R"({"available": true,
+    "noise": {"available": true, "kind": "hum", "phase_deg": 106.5,
+              "coherence": 0.415, "bearing_deg": 212.0, "mirror_deg": 32.0,
+              "bins": 147, "since": 1756867200, "reason": ""}})";
+
+const QByteArray kCompassPhaseOnly = R"({"available": true,
+    "noise": {"available": true, "kind": "hum", "phase_deg": 106.5,
+              "coherence": 0.415, "bearing_deg": null, "mirror_deg": null,
+              "bins": 147, "since": null,
+              "reason": "hum on 147 bins at 0.42, phase only: 0 beacon(s) with a bearing and a ratio, 4 needed over 2 bands"}})";
+
 void connectGate(AetherGateApplet& a, FakeGate& net, const QByteArray& diversity,
-                 const QByteArray& beacons = kDiversityBeacons)
+                 const QByteArray& beacons = kDiversityBeacons,
+                 const QByteArray& compass = kCompassBearing)
 {
+    if (!compass.isEmpty())
+        net.routes[QStringLiteral("/diversity/compass")] = {QNetworkReply::NoError,
+                                                             compass};
     net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kStatus};
     net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
     net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, diversity};
@@ -649,6 +670,60 @@ void testTalkersTableCarriesTheVoicePrint()
     closedToStart();
 }
 
+// The noise bearing line, on the NOISE PROFILE row with the other two facts
+// about the same noise. Three states, and only one of them is a direction: the
+// phase between two loops becomes a bearing only once the compass has fitted
+// the array's geometry against beacons, and until then the line says so in as
+// many words instead of printing a number nothing measured.
+void testNoiseBearingSaysWhichOfItsThreeStatesItIsIn()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityStatusWithSite);
+    DiversityWindow* w = openOnSite(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* line = w->findChild<QLabel*>(QStringLiteral("diversityWindowSiteNoiseBearing"));
+    CHECK(line != nullptr);
+    if (!line)
+        return;
+    siteTick(a);
+
+    // (1) A fit. Both the bearing and its reflection about the two loops'
+    // baseline, because two elements in a line cannot tell them apart and
+    // printing one would be a coin toss.
+    const QString clock =
+        QDateTime::fromSecsSinceEpoch(1756867200).toString(QStringLiteral("HH:mm"));
+    CHECK(line->text()
+          == QStringLiteral("hum from 212° (or 32°) · coh 0.41 · since ") + clock);
+    // It is one line and it stays one width: a page that re-laid itself out
+    // every time a number changed would be unreadable at a glance.
+    CHECK(!line->wordWrap());
+    const int width = line->minimumWidth();
+    CHECK(width > 0);
+
+    // (2) MUTATION: the same noise with no fit yet. The gate's sentence about
+    // WHY is on the hover and never on the line -- it is a paragraph.
+    net.routes[QStringLiteral("/diversity/compass")] = {QNetworkReply::NoError,
+                                                         kCompassPhaseOnly};
+    siteTick(a);
+    CHECK(line->text()
+          == QStringLiteral("hum: direction unknown — no compass fit yet"));
+    CHECK(line->toolTip().contains(QStringLiteral("4 needed over 2 bands")));
+    CHECK(!line->text().contains(QStringLiteral("needed over")));
+    CHECK(line->minimumWidth() == width);
+
+    // (3) MUTATION: a gate too old for the route at all. Not "no direction" --
+    // nothing said, which is what a dash means everywhere else in this window.
+    net.routes.remove(QStringLiteral("/diversity/compass"));
+    siteTick(a);
+    CHECK(line->text() == kDash);
+    CHECK(line->minimumWidth() == width);
+    closedToStart();
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -664,6 +739,7 @@ int main(int argc, char** argv)
     testNothingScrollsOnTheSitePageAtTheInitialSize();
     testHearRowOffersStereoAndWritesIt();
     testTalkersTableCarriesTheVoicePrint();
+    testNoiseBearingSaysWhichOfItsThreeStatesItIsIn();
 
     std::printf("\n%d diversity site test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

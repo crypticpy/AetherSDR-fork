@@ -145,8 +145,8 @@ because the row is already at the window's own 1120 px opening width, with
 the fuller explanation in the readout's tooltip instead.
 
 **The FLOW line — at the foot of the window, not the top.** Five steps in
-the order that gets the best signal, on one line above the gate status
-strip:
+the order that gets the best signal, plus a sixth that is not a step at
+all, on one line above the gate status strip:
 
 ```
 FLOW  ✓ align lag −63 · ✓ mode track · ● hear · A only → hear OUT · ○ noise · ○ filter
@@ -177,6 +177,24 @@ to do next. The next step is never hidden by any of this: when it lives on
 another page its link says which one (`● noise · 2 findings → SITE`), so the
 single thing to do next is readable, and reachable, from all four pages.
 See *A working session* below for what each step is for.
+
+**DIG — the sixth thing on the line, and the only one that is an offer.**
+The five steps are an order of operations; this is not in it. Press `1 MIN`,
+`3 MIN` or `5 MIN` and the gate spends that long moving one knob of the
+chain at a time against a live objective, keeps whatever measurably helped,
+and puts back whatever did not. While it runs the line reads
+`digging 1:12 of 3:00 · +2.1 dB so far · trying width` and the three
+durations become one `STOP`, which ends the run and puts your chain back
+exactly as you had it. When it lands you get one sentence naming only what
+it *moved* — `+4.1 dB: post v2, width 100-2400, nb 11 dB`, or
+`nothing beat your settings` — and three words to answer it with: `BETTER`
+keeps the changes and tells the gate they worked, `KEEP` keeps them without
+judging, and `WORSE` puts the chain back on your own settings and tells the
+gate the measurement was wrong. Your ears win that argument and the gate
+learns from it. The word you gave stays on the line until the next run. A
+gate that cannot dig has no sixth step and no buttons — nothing greyed out
+to wonder about. DIG is never the *next* step and never a tick: it is a
+button that is either worth pressing tonight or not.
 
 **STEREO** puts loop A in the left channel and loop B in the right, with
 one AGC gain for both so the loops keep their level difference. On two
@@ -346,6 +364,17 @@ the right is the last 120 seconds: bars are impulses per second, the line is
 hum in dB, so you can see an appliance switch on. A noise figure tells you
 none of this; these are sentences you can act on.
 
+The third line beside them is which way it is arriving:
+`hum from 212° (or 32°) · coh 0.42 · since 03:14`. Two elements in a line
+cannot tell a bearing from its reflection about the baseline, so you get
+both and break the tie by turning one loop off. Until the beacon compass has
+fitted your loops' geometry — which needs beacons of known bearing on two
+bands — the phase between the loops is a number and not a direction, and the
+line says `hum: direction unknown — no compass fit yet` rather than printing
+one; the gate's own sentence about what it is still short of is on the
+line's hover. `since` is when this direction first held, which is how you
+tell a neighbour's charger from something of your own.
+
 **Acting on the noise profile.** The table under those lines is the gate's
 own list of findings, one row per kind: `MAINS`, `IMPULSE`, `PERIODIC`,
 `TONE`, or a single `FLOOR` row when nothing else was found. Each row
@@ -398,6 +427,17 @@ alive. Without it both columns are dashes and the plot says `needs the
 station grid` rather than drawing a dial with nothing on it. `FORGET` drops
 it again and keeps every result. A locator that will not parse comes back
 as the gate's own refusal on the status line.
+
+**ANTENNA — your own note, beside the locator.** The locator is a fact the
+gate can check; this one it cannot. An active loop's control box has a band
+selector and a gain knob, and nothing on the wire can see either of them, so
+a beacon sweep taken with the boxes on SW and the gain at noon is a
+different measurement from the same sweep taken anywhere else. Type what
+they were on — `K-480WLA pair, SW both, gain 12 o'clock` — and press Enter
+or click away. Up to eighty characters; empty the box to clear it. The note
+is filed with every line the site log writes from then on, so last week's
+numbers can be read against the switch positions they were taken with, and
+a changed note is itself a new noise verdict.
 
 **Heard.** The **Heard** column is `3/7`: how many of that beacon's passes
 on this band you actually heard, out of how many the gate sampled. One in
@@ -701,6 +741,28 @@ The gate's HTTP control port (default 8731) serves:
   carries it as `antenna`, and a changed note is itself a new noise
   verdict. `antenna=off` clears it. The current note is in `/diversity`
   under `sitelog` with the log's `written`, `skipped` and `error`.
+- `GET /diversity/compass` — the beacon compass: the array geometry fitted
+  from beacons of known bearing, and under `noise` the direction the
+  profiled noise is arriving from — {available, kind:
+  "hum"|"lines"|"impulse"|"floor"|null, phase_deg, coherence, bearing_deg
+  (null until there is a fit), mirror_deg (the reflection about the
+  baseline), bins, since (epoch seconds, or null), reason} — where `reason`
+  is the gate's own sentence about what the fit is still short of, e.g.
+  `"hum on 147 bins at 0.42, phase only: 0 beacon(s) with a bearing and a
+  ratio, 4 needed over 2 bands"`.
+- `GET /diversity/dig` — status of the chain dig; `?seconds=60|180|300`
+  starts one, `?verdict=better|worse|keep` labels a finished one (`worse`
+  puts the chain back), `?cancel=1` stops a running one and restores. The
+  status object keeps the same field names in every phase: `available`,
+  `running`, `phase` ("idle"|"sampling"|"searching"|"done"), `verdict`,
+  `record`, `error`, `cancelled`, `gain_db`, `steps[]`, `best`, `changed`,
+  `started`, `ends`, `elapsed_s`, `seconds`, `remaining_s`,
+  `objective_before`, `objective_after`, `trials_planned`, `trials_done`,
+  `talker_id`, `kind`, `margin_db`, `snapshot`. Knob values in `best`,
+  `changed` and each step: `post` true|false|"v2"; `subband`, `mrc`, `nb`,
+  `contour`, `anf`, `apf`, `auto_eq` booleans; `nb_db` a float; `width` a
+  [low_hz, high_hz] pair; `agc` "fast"|"med"|"slow". `available: false` is
+  a gate that cannot dig, and the window hides the control entirely.
 - `python -m aether_gate.replay CAPTURE.npz` (in the gate) — the replay
   lab: a capture through the live combiner path as A / B / wideband /
   per-bin WAVs at one gain, plus `summary.json`.

@@ -89,6 +89,7 @@ class QJsonArray;
 class QJsonObject;
 class QJsonValue;
 class QLabel;
+class QLineEdit;
 class QListWidget;
 class QPushButton;
 class QSpinBox;
@@ -149,6 +150,18 @@ public:
     // sitePageVisible(). (The page's other half, the noise profile, rides on
     // the /diversity status object every page already gets.)
     void applyBeacons(const QJsonObject& beacons);
+
+    // The SITE page's second route: one /diversity/compass answer, fetched on
+    // the same tick as the beacons. Only its "noise" object is read here --
+    // which way the noise the gate has profiled is arriving from, when the
+    // compass has enough beacons to have fitted anything at all.
+    void applyCompass(const QJsonObject& compass);
+
+    // One /diversity/dig answer -- the gate's timed "dig this out" run, which
+    // moves the chain a knob at a time and keeps whatever helped. Read by the
+    // FLOW strip's sixth step and by nothing else; fed whenever one arrives,
+    // because a run goes on whatever page the operator walks to.
+    void applyDig(const QJsonObject& dig);
 
     // The FILTER page's own payload: one /filter answer, or the identical
     // status object a /filter/set or /filter/notch write replies with, or
@@ -229,6 +242,10 @@ signals:
     // quoted back out of a noise-profile action or built from the station
     // locator field. Answered through applySiteReply().
     void requestSite(QString path, QUrlQuery query);
+    // -> GET /diversity/dig?<query>: empty for the status read, seconds= to
+    // start, cancel= to stop and put the chain back, verdict= to label the
+    // run that just finished. Answered through applyDig().
+    void requestDig(QUrlQuery query);
     // The visible page changed, or the window opened or closed. Carries
     // whether the two BAND routes should be polled; the SITE page's own route
     // is read back off sitePageVisible() by the same handler, so one signal
@@ -288,6 +305,27 @@ private:
     // call from applyDiversity(); nothing else in this window touches either.
     void     applySite(const QJsonObject& d);
     void     clearSiteReadouts();
+    // The SITE page's two station notes, both defined beside buildSitePage():
+    // the free-text ANTENNA line that rides on the site log, and the one line
+    // that says which way the noise is coming from.
+    QWidget* buildAntennaRow(QWidget* parent);
+    // The read-back half of the ANTENNA field: /diversity's "sitelog" object,
+    // whose "antenna" key is the note the gate is holding. Never writes.
+    void     applyAntennaNote(const QJsonValue& sitelog);
+    // Starts, restarts or stops the /diversity/dig status poll. 1 s while a
+    // run is going or a verdict is still owed, 10 s otherwise, and nothing at
+    // all while the window is hidden or the gate is not answering -- the same
+    // "a page nobody is looking at costs no requests" rule the other routes
+    // follow, applied to a strip that is on every page. Defined in
+    // DiversityWindowFilter.cpp beside the rest of the dig seam.
+    void     updateDigPoll();
+    // The dig's three-faced control at the right-hand end of the FLOW row: the
+    // durations, the STOP that replaces them while a run is going, and the
+    // verdict row a finished run asks for. Built and switched here rather than
+    // inside DiversityFlowStrip because all three of them WRITE, and that
+    // strip owns no transport. Both defined in DiversityWindowFilter.cpp.
+    QWidget* buildDigControls();
+    void     updateDigControls();
     // Index into m_pages: 0 SLICE, 1 BAND, 2 SITE, 3 FILTER.
     void     showPage(int page);
     // A click on the waterfall or a FINDER row: emits requestTune() and, when
@@ -357,6 +395,16 @@ private:
     DiversityFilterControls* m_filter{nullptr};
 
     DiversityNoiseProfilePanel* m_noiseProfile{nullptr};
+    // The operator's own note about what is on the end of the coax -- which
+    // loops, and where their control boxes are set. The gate stores it on the
+    // site log and gives it back on /diversity, so a beacon sweep read a week
+    // later can be read against the switch positions it was taken with.
+    QLineEdit*                  m_antennaEdit{nullptr};
+    // The note as the gate last reported it (or as it was last sent). Both
+    // ends of the hold rule read it: a check-back that matches leaves the
+    // field alone, and a second editingFinished carrying the same words does
+    // not write the same note twice.
+    QString                     m_antennaSent;
     DiversityBeaconPanel*       m_beacons{nullptr};
     // The per-bin weights control lives on the SLICE page (ANTENNAS), because
     // it is a control over the weight the rest of that page is about; the SITE
@@ -395,6 +443,21 @@ private:
 
     // --- flow -------------------------------------------------------------
     DiversityFlowStrip* m_flow{nullptr};
+    // The dig status poll. The window owns the cadence rather than the poller
+    // because it is the thing that knows whether a run is still going; see
+    // updateDigPoll().
+    QTimer* m_digTimer{nullptr};
+    // Set once a /diversity/dig answer has actually landed. Until then the
+    // poll runs at the fast cadence whatever the state is, so a window that
+    // has just been opened learns whether the gate can dig at all within a
+    // second rather than within ten -- and, because it is a TIMER rather than
+    // an immediate request, showing the window still costs no gate traffic.
+    bool    m_digPrimed{false};
+    // Three pages: the durations on offer, the STOP a running dig wears, and
+    // the verdict row. A QStackedWidget rather than show/hide so the FLOW row
+    // is the same width and height in all three -- it is the last row above
+    // the status strip and nothing down there may move when a payload lands.
+    QStackedWidget* m_digStack{nullptr};
 
     // --- scope / timeline -------------------------------------------------
     DiversityScope*    m_scope{nullptr};

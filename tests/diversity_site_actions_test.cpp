@@ -711,6 +711,60 @@ void testNothingScrollsOnTheSitePageAtTheInitialSize()
     closedToStart();
 }
 
+// (j) The antenna note: free text the gate cannot check, filed with the site
+// log so a beacon sweep read a week later can be read against the switch
+// positions it was taken with. It writes on Enter, clears with "off", and a
+// poll's check-back must never turn into a write of its own.
+void testAntennaNoteWritesAndReadsBack()
+{
+    closedToStart();
+    FakeGate net;
+    QByteArray noted = kDiversityStatusWithKinds;
+    noted.replace("{\"available\": true",
+                  "{\"sitelog\": {\"path\": \"/tmp/site.jsonl\", \"written\": 12, "
+                  "\"skipped\": 0, \"error\": null, \"antenna\": \"K-480WLA pair, SW both\"}, "
+                  "\"available\": true");
+    CHECK(noted != kDiversityStatusWithKinds);
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, noted);
+    DiversityWindow* w = openOnSite(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* edit = child<QLineEdit>(w, "diversityWindowSiteAntennaEdit");
+    CHECK(edit != nullptr);
+    if (!edit)
+        return;
+    // The gate's own note is in the box, and eighty characters is the whole
+    // room there is -- the gate refuses more.
+    CHECK(edit->text() == QStringLiteral("K-480WLA pair, SW both"));
+    CHECK(edit->maxLength() == 80);
+
+    // A check-back that agrees with the box is not a write. This is the whole
+    // hold rule: the poll runs four times a second and every one of them would
+    // otherwise be a /diversity/set.
+    const int before = net.count(QStringLiteral("/diversity/set"));
+    tick(a);
+    siteTick(a);
+    CHECK(net.count(QStringLiteral("/diversity/set")) == before);
+
+    // Typed and entered: the gate is told, verbatim.
+    edit->setText(QStringLiteral("loop A only, gain noon"));
+    QMetaObject::invokeMethod(edit, "returnPressed", Qt::DirectConnection);
+    settle();
+    CHECK(lastRequest(net, QStringLiteral("/diversity/set"))
+          == QStringLiteral("/diversity/set?antenna=loop A only, gain noon"));
+
+    // MUTATION: emptied, which is the gate's "forget it" rather than a note
+    // that is the empty string.
+    edit->setText(QString());
+    QMetaObject::invokeMethod(edit, "returnPressed", Qt::DirectConnection);
+    settle();
+    CHECK(lastRequest(net, QStringLiteral("/diversity/set"))
+          == QStringLiteral("/diversity/set?antenna=off"));
+    closedToStart();
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -731,6 +785,7 @@ int main(int argc, char** argv)
     testPatternPlotPointsAndEmptyStates();
     testBeaconCheckTunesAwayAndComesBack();
     testBeaconCheckEndsOnTimeAndOnClose();
+    testAntennaNoteWritesAndReadsBack();
     testNothingScrollsOnTheSitePageAtTheInitialSize();
 
     std::printf("\n%d diversity site action test(s) failed\n", g_failed);

@@ -24,6 +24,7 @@
 #include "gui/AetherGateApplet.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/DiversityBandPoller.h"
+#include "gui/DiversityFlowStrip.h"
 #include "gui/DiversityWindow.h"
 
 #include <QApplication>
@@ -34,6 +35,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QStringList>
 #include <QTest>
 #include <QTimer>
@@ -45,6 +47,7 @@ using AetherSDR::AetherGateApplet;
 using AetherSDR::AetherGateDiversityPanel;
 using AetherSDR::AppSettings;
 using AetherSDR::DiversityBandPoller;
+using AetherSDR::DiversityFlowStrip;
 using AetherSDR::DiversityWindow;
 
 using namespace DiversityGateFixture;
@@ -175,6 +178,18 @@ QString stripText(DiversityWindow* w)
 {
     auto* label = child<QLabel>(w, "diversityWindowStatusLabel");
     return label ? label->text() : QString();
+}
+
+// The FLOW line at the foot of the window: one label of rich text, six steps.
+DiversityFlowStrip* flowStrip(DiversityWindow* w)
+{
+    return w->findChild<DiversityFlowStrip*>(QStringLiteral("diversityWindowFlowStrip"));
+}
+
+bool flowHas(DiversityWindow* w, const QString& needle)
+{
+    auto* line = child<QLabel>(w, "diversityWindowFlowLine");
+    return line && line->text().contains(needle);
 }
 
 // One more tick of the band poller, which is what reads /filter.
@@ -508,6 +523,182 @@ void testNothingScrollsOnAnyPageAtTheInitialSize()
     closedToStart();
 }
 
+// --------------------------------------------------------------------------
+// The FLOW strip's sixth step: DIG
+// --------------------------------------------------------------------------
+//
+// /diversity/dig is the one thing in this window that MOVES the operator's own
+// chain, so every assertion below is either the exact query the fake gate saw
+// or the exact sentence the strip drew from the gate's own status. The strip
+// composes no number of its own: a run whose gain the window had invented
+// would read plausibly and be a lie about what the radio is doing.
+
+// The route's status, one phase per fixture. Field names are the same across
+// all of them -- that is the route's contract, and it is why the strip can
+// read one object and know which of six states it is in.
+const QByteArray kDigIdle = R"({"available": true, "running": false,
+    "phase": "idle", "verdict": "", "error": "", "cancelled": false,
+    "gain_db": 0.0, "steps": [], "best": {}, "changed": {}})";
+
+const QByteArray kDigRunning = R"({"available": true, "running": true,
+    "phase": "searching", "verdict": "", "error": "", "cancelled": false,
+    "gain_db": 2.1, "elapsed_s": 72.0, "seconds": 180.0, "remaining_s": 108.0,
+    "trials_planned": 24, "trials_done": 9,
+    "steps": [{"knob": "post", "kept": true}, {"knob": "width", "kept": false}],
+    "best": {"post": "v2"}, "changed": {"post": "v2"}})";
+
+const QByteArray kDigDone = R"({"available": true, "running": false,
+    "phase": "done", "verdict": "", "error": "", "cancelled": false,
+    "gain_db": 4.1, "objective_before": -3.2, "objective_after": 0.9,
+    "steps": [{"knob": "nb", "kept": true}],
+    "best": {"post": "v2", "width": [100, 2400], "nb_db": 11.0},
+    "changed": {"post": "v2", "width": [100, 2400], "nb_db": 11.0}})";
+
+QByteArray digRoute(FakeGate& net, const QByteArray& body)
+{
+    net.routes[QStringLiteral("/diversity/dig")] = {QNetworkReply::NoError, body};
+    return body;
+}
+
+// One status poll of /diversity/dig, without waiting out the window's own
+// cadence. The window owns that cadence -- the strip keeps no transport -- so
+// this is the same door a real second would come through.
+void digTick(DiversityWindow* w)
+{
+    fire(child<QTimer>(w, "diversityWindowDigTimer"));
+    settle();
+}
+
+// (a) The offer. Three durations, each writing the gate's own key and value,
+// and a gate that cannot dig has no step and no buttons at all.
+void testDigOffersThreeDurationsAndWritesTheGatesOwnQuery()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net);
+    digRoute(net, kDigIdle);
+    DiversityWindow* w = openWindow(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    digTick(w);
+
+    auto* stack = child<QStackedWidget>(w, "diversityWindowFlowDigControls");
+    CHECK(stack != nullptr);
+    if (!stack)
+        return;
+    CHECK(stack->isVisibleTo(w));
+    CHECK(child<QWidget>(w, "diversityWindowFlowDigOffer") == stack->currentWidget());
+    // Drawn as the sixth step of the checklist and never as the next chore:
+    // nothing above it is a prerequisite the strip can check.
+    CHECK(flowStrip(w)->stepTone(DiversityFlowStrip::StepDig) != QStringLiteral("hidden"));
+    CHECK(flowStrip(w)->nextStep() != DiversityFlowStrip::StepDig);
+
+    child<QPushButton>(w, "diversityWindowFlowDig180")->click();
+    settle();
+    CHECK_EQ(lastRequest(net, QStringLiteral("/diversity/dig")),
+             QStringLiteral("/diversity/dig?seconds=180"));
+    child<QPushButton>(w, "diversityWindowFlowDig60")->click();
+    settle();
+    CHECK_EQ(lastRequest(net, QStringLiteral("/diversity/dig")),
+             QStringLiteral("/diversity/dig?seconds=60"));
+    child<QPushButton>(w, "diversityWindowFlowDig300")->click();
+    settle();
+    CHECK_EQ(lastRequest(net, QStringLiteral("/diversity/dig")),
+             QStringLiteral("/diversity/dig?seconds=300"));
+
+    // MUTATION: a gate that cannot dig. The step and its buttons go away
+    // rather than sitting there greyed -- there is nothing about them to
+    // explain to somebody whose gate will never do it.
+    digRoute(net, QByteArray(R"({"available": false})"));
+    digTick(w);
+    CHECK(!stack->isVisibleTo(w));
+    CHECK_EQ(flowStrip(w)->stepTone(DiversityFlowStrip::StepDig), QStringLiteral("hidden"));
+    w->close();
+    settle();
+    closedToStart();
+}
+
+// (b) A run: the progress readout while it goes, the one-line report when it
+// lands, the verdict row that only exists between a finished run and a word
+// about it -- and WORSE, which is the one verdict that puts the chain back.
+void testDigNarratesTheRunTheReportAndTheVerdict()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net);
+    digRoute(net, kDigRunning);
+    DiversityWindow* w = openWindow(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    child<QToolButton>(w, "diversityWindowPageFilter")->click();
+    settle();
+    digTick(w);
+
+    // Elapsed of asked-for, what it has bought so far, and the knob it is on
+    // -- which is the knob of the last step it appended, because there is no
+    // separate "trying" field and inventing one would be inventing a fact.
+    CHECK(flowHas(w, QStringLiteral("digging 1:12 of 3:00 · +2.1 dB so far · trying width")));
+    auto* stack = child<QStackedWidget>(w, "diversityWindowFlowDigControls");
+    CHECK(child<QWidget>(w, "diversityWindowFlowDigRunning") == stack->currentWidget());
+    child<QPushButton>(w, "diversityWindowFlowDigStop")->click();
+    settle();
+    CHECK_EQ(lastRequest(net, QStringLiteral("/diversity/dig")),
+             QStringLiteral("/diversity/dig?cancel=1"));
+
+    // MUTATION: the run lands. The report is built from "changed" alone --
+    // what it MOVED, not what the chain now is -- in the order the chain runs.
+    digRoute(net, kDigDone);
+    digTick(w);
+    CHECK(flowHas(w, QStringLiteral("+4.1 dB: post v2, width 100-2400, nb 11 dB")));
+    CHECK(child<QWidget>(w, "diversityWindowFlowDigVerdict") == stack->currentWidget());
+    child<QPushButton>(w, "diversityWindowFlowDigWorse")->click();
+    settle();
+    CHECK_EQ(lastRequest(net, QStringLiteral("/diversity/dig")),
+             QStringLiteral("/diversity/dig?verdict=worse"));
+
+    // MUTATION: the word is given. The report stays and wears it, and the
+    // verdict row is gone -- there is nothing left to decide.
+    QByteArray judged = kDigDone;
+    judged.replace("\"verdict\": \"\"", "\"verdict\": \"better\"");
+    CHECK(judged != kDigDone);
+    digRoute(net, judged);
+    digTick(w);
+    CHECK(flowHas(w, QStringLiteral("+4.1 dB: post v2, width 100-2400, nb 11 dB · BETTER")));
+    CHECK(child<QWidget>(w, "diversityWindowFlowDigVerdict") != stack->currentWidget());
+
+    // MUTATION: a run that found nothing, and a run put back. Neither is a
+    // report to be judged, so neither offers the three words.
+    QByteArray nothing = kDigDone;
+    nothing.replace("\"changed\": {\"post\": \"v2\", \"width\": [100, 2400], \"nb_db\": 11.0}",
+                    "\"changed\": {}");
+    nothing.replace("\"gain_db\": 4.1", "\"gain_db\": 0.0");
+    CHECK(nothing != kDigDone);
+    digRoute(net, nothing);
+    digTick(w);
+    CHECK(flowHas(w, QStringLiteral("nothing beat your settings")));
+
+    QByteArray cancelled = kDigDone;
+    cancelled.replace("\"cancelled\": false", "\"cancelled\": true");
+    digRoute(net, cancelled);
+    digTick(w);
+    CHECK(flowHas(w, QStringLiteral("found +4.1 dB (put back)")));
+    CHECK(child<QWidget>(w, "diversityWindowFlowDigVerdict") != stack->currentWidget());
+
+    // MUTATION: a gate that refused. Its own words, and nothing else.
+    QByteArray refused = kDigDone;
+    refused.replace("\"error\": \"\"", "\"error\": \"no talker to measure against\"");
+    digRoute(net, refused);
+    digTick(w);
+    CHECK(flowHas(w, QStringLiteral("no talker to measure against")));
+    w->close();
+    settle();
+    closedToStart();
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -519,6 +710,8 @@ int main(int argc, char** argv)
     testRealignThatIsNeverAnsweredGivesTheButtonBack();
     testSpectrumLineFollowsPanAndAlignment();
     testCaptureCountsDownAndNamesTheFileEverywhere();
+    testDigOffersThreeDurationsAndWritesTheGatesOwnQuery();
+    testDigNarratesTheRunTheReportAndTheVerdict();
     testNothingScrollsOnAnyPageAtTheInitialSize();
 
     std::printf("\n%d diversity flow test(s) failed\n", g_failed);

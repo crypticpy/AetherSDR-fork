@@ -86,6 +86,18 @@ public:
     // wantsSitePoll() holds.
     void applyBeacons(const QJsonObject& beacons);
 
+    // The SITE page's other read-only route, fetched beside the beacons on the
+    // same tick: /diversity/compass, whose "noise" object is where the noise
+    // profile's bearing comes from.
+    void applyCompass(const QJsonObject& compass);
+
+    // One /diversity/dig status, or the identical object one of that route's
+    // three writes replies with. Forwarded to the window, whose FLOW strip
+    // owns both the readout and the cadence it is asked for at -- a dig runs
+    // whatever page is on screen, so unlike every other route here it is not
+    // gated on one.
+    void applyDig(const QJsonObject& dig);
+
     // The FILTER page's payload: one /filter answer, or the identical status
     // object a /filter/set or /filter/notch write replies with, or
     // {"error": "..."} when the gate refused a value. Forwarded to the window
@@ -190,6 +202,10 @@ signals:
     // applySiteReply() rather than through the status path. Served by
     // DiversityBandPoller::sendSite().
     void requestSite(QString path, QUrlQuery query);
+    // -> GET /diversity/dig?<query>. Empty is the status read; seconds=,
+    // cancel= and verdict= are the writes. Served by
+    // DiversityBandPoller::sendDig(), answered through applyDig().
+    void requestDig(QUrlQuery query);
     // wantsBandPoll() may have changed: the window opened or closed, or its
     // page switched. Polling it once a second off the status timer would leave
     // the BAND page blank for up to a second after it is opened, which is the

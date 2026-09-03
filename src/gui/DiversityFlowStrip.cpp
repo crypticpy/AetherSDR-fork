@@ -18,6 +18,7 @@
 #include "core/ThemeManager.h"
 #include "gui/DiversityWindowPanels.h"
 
+#include <QCoreApplication>
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -56,6 +57,84 @@ QString dash()
 QString arrow()
 {
     return QStringLiteral(" → ");
+}
+
+// "+4.1" / "−0.6" -- a real minus sign, because this is a number in a sentence
+// rather than a cell in a column.
+QString signedDb(double v)
+{
+    if (v < 0.0)
+        return QStringLiteral("\u2212%1").arg(-v, 0, 'f', 1);
+    return QStringLiteral("+%1").arg(v, 0, 'f', 1);
+}
+
+// "1:12" from 72 seconds. Minutes and seconds because the three durations on
+// offer are one, three and five minutes and the readout has to be comparable
+// with the button that started it.
+QString clockText(double seconds)
+{
+    const qint64 total = qint64(std::llround(std::max(0.0, seconds)));
+    return QStringLiteral("%1:%2")
+        .arg(total / 60)
+        .arg(total % 60, 2, 10, QLatin1Char('0'));
+}
+
+// The order the report names the knobs in. Not alphabetical and not the gate's
+// map order (which is unordered by construction): it is the order the chain
+// itself runs in, so a report reads the same way twice running whatever the
+// gate happened to try first. Anything not on this list is appended after it,
+// in the order QJsonObject gives, rather than dropped -- a gate that grows a
+// knob must still be able to say it changed it.
+const char* const kKnobOrder[] = {"post",  "subband", "mrc",   "width", "nb",
+                                  "nb_db", "agc",     "contour", "anf", "apf",
+                                  "auto_eq"};
+
+// One "changed" entry as the operator would say it. The values are the gate's
+// own wire values and none of them is re-derived here.
+QString knobText(const QString& knob, const QJsonValue& value)
+{
+    if (knob == QLatin1String("width") && value.isArray()) {
+        const QJsonArray edges = value.toArray();
+        if (edges.size() == 2) {
+            return QCoreApplication::translate("DiversityFlowStrip", "width %1-%2")
+                .arg(QString::number(qint64(std::llround(edges.at(0).toDouble()))),
+                     QString::number(qint64(std::llround(edges.at(1).toDouble()))));
+        }
+    }
+    if (knob == QLatin1String("nb_db") && value.isDouble()) {
+        return QCoreApplication::translate("DiversityFlowStrip", "nb %1 dB")
+            .arg(value.toDouble(), 0, 'f', 0);
+    }
+    if (value.isBool()) {
+        return value.toBool()
+                   ? QCoreApplication::translate("DiversityFlowStrip", "%1 on").arg(knob)
+                   : QCoreApplication::translate("DiversityFlowStrip", "%1 off").arg(knob);
+    }
+    if (value.isString())
+        return QStringLiteral("%1 %2").arg(knob, value.toString());
+    if (value.isDouble())
+        return QStringLiteral("%1 %2").arg(knob, QString::number(value.toDouble()));
+    return knob;
+}
+
+// "post v2, width 100-2400, nb 11 dB" from one "changed" object.
+QString changedText(const QJsonObject& changed)
+{
+    QStringList parts;
+    QStringList seen;
+    for (const char* knob : kKnobOrder) {
+        const QString key = QString::fromLatin1(knob);
+        if (!changed.contains(key))
+            continue;
+        seen << key;
+        parts << knobText(key, changed.value(key));
+    }
+    for (auto it = changed.begin(); it != changed.end(); ++it) {
+        if (seen.contains(it.key()))
+            continue;
+        parts << knobText(it.key(), it.value());
+    }
+    return parts.join(QStringLiteral(", "));
 }
 
 } // namespace
@@ -118,7 +197,15 @@ DiversityFlowStrip::DiversityFlowStrip(QWidget* parent)
                     "shape, and whether the gate is fitting the edges itself. "
                     "This step is never unfinished -- there is always a filter "
                     "-- it is the last stop rather than a chore. Click for the "
-                    "FILTER page.")}};
+                    "FILTER page.")},
+        {QT_TR_NOOP("dig"), QT_TR_NOOP("Flow step 6, dig"),
+         QT_TR_NOOP("Let the gate spend a minute, three or five trying one "
+                    "knob of the chain at a time on whoever is talking, "
+                    "keeping only what measurably helped. It is not a step you "
+                    "have to do and it is never \"next\" -- it is the offer at "
+                    "the end of the list. It says what it changed and what "
+                    "that bought, and WORSE puts every one of those changes "
+                    "back.")}};
 
     // The five sentences used to be five tooltips on five buttons. There is one
     // widget to hover now, so they are one tooltip on it -- the same words, in
@@ -168,6 +255,15 @@ DiversityFlowStrip::DiversityFlowStrip(QWidget* parent)
 
     m_tones = QVector<QString>(StepCount);
     rebuild();
+}
+
+// A finished run that has not been judged. Cancelled and errored runs are NOT
+// that: there is nothing to be a verdict about when the chain is already back
+// on the operator's own settings.
+bool DiversityFlowStrip::digAwaitingVerdict() const
+{
+    return m_digAvailable && !m_digRunning && m_digPhase == QLatin1String("done")
+           && m_digVerdict.isEmpty() && !m_digCancelled && m_digError.isEmpty();
 }
 
 // --------------------------------------------------------------------------
@@ -264,6 +360,31 @@ void DiversityFlowStrip::applyFilter(const QJsonObject& f)
     rebuild();
 }
 
+// The field names are the same in every phase, so this reads them once and
+// lets the empty ones be empty: "phase" is what decides which of them mean
+// anything, and digState() is where that decision is made.
+void DiversityFlowStrip::applyDig(const QJsonObject& dig)
+{
+    m_digAvailable = dig.value(QStringLiteral("available")).toBool();
+    m_digRunning = m_digAvailable && dig.value(QStringLiteral("running")).toBool();
+    m_digPhase = dig.value(QStringLiteral("phase")).toString();
+    m_digVerdict = dig.value(QStringLiteral("verdict")).toString();
+    m_digError = dig.value(QStringLiteral("error")).toString();
+    m_digCancelled = dig.value(QStringLiteral("cancelled")).toBool();
+    m_digGainDb = dig.value(QStringLiteral("gain_db")).toDouble();
+    m_digElapsedS = dig.value(QStringLiteral("elapsed_s")).toDouble();
+    m_digSeconds = dig.value(QStringLiteral("seconds")).toDouble();
+    // The knob the gate is on right now is the knob of the step it last
+    // appended -- there is no separate "trying" field, and inventing one would
+    // be inventing a fact.
+    const QJsonArray steps = dig.value(QStringLiteral("steps")).toArray();
+    m_digLastKnob = steps.isEmpty()
+                        ? QString()
+                        : steps.last().toObject().value(QStringLiteral("knob")).toString();
+    m_digChanged = changedText(dig.value(QStringLiteral("changed")).toObject());
+    rebuild();
+}
+
 void DiversityFlowStrip::setTalkerNames(const QJsonArray& memory)
 {
     m_talkerNames.clear();
@@ -300,6 +421,19 @@ void DiversityFlowStrip::clear()
     m_talkerNames.clear();
     m_autoContour = false;
     m_haveContour = false;
+    // The dig goes away with the gate: a run whose status nothing is answering
+    // for is not a run this strip can say anything true about.
+    m_digAvailable = false;
+    m_digRunning = false;
+    m_digPhase.clear();
+    m_digVerdict.clear();
+    m_digError.clear();
+    m_digCancelled = false;
+    m_digGainDb = 0.0;
+    m_digElapsedS = 0.0;
+    m_digSeconds = 0.0;
+    m_digLastKnob.clear();
+    m_digChanged.clear();
     rebuild();
 }
 
@@ -403,6 +537,42 @@ DiversityFlowStrip::State DiversityFlowStrip::filterState() const
     return {text, true};
 }
 
+// DIG is never "not done" for the same reason FILTER is not: it is an offer,
+// not a chore, and a checklist that never stops asking you to press a button
+// is a checklist nobody reads. The bool below is always true.
+DiversityFlowStrip::State DiversityFlowStrip::digState() const
+{
+    if (!m_digAvailable)
+        return {QString(), true};
+    if (m_digRunning) {
+        QString text = tr("digging %1 of %2 · %3 dB so far")
+                           .arg(clockText(m_digElapsedS), clockText(m_digSeconds),
+                                signedDb(m_digGainDb));
+        if (m_digPhase == QLatin1String("sampling"))
+            text += tr(" · sampling the baseline");
+        else if (!m_digLastKnob.isEmpty())
+            text += tr(" · trying %1").arg(m_digLastKnob);
+        return {text, true};
+    }
+    // A refusal, and a run put back: both are about a chain that is on the
+    // operator's own settings, and neither is a report to be judged.
+    if (!m_digError.isEmpty())
+        return {m_digError, true};
+    if (m_digCancelled)
+        return {tr("found %1 dB (put back)").arg(signedDb(m_digGainDb)), true};
+    if (m_digPhase != QLatin1String("done"))
+        return {QString(), true};
+    QString text = m_digChanged.isEmpty()
+                       ? tr("nothing beat your settings")
+                       : tr("%1 dB: %2").arg(signedDb(m_digGainDb), m_digChanged);
+    // The word the operator gave it, kept on the line until the next run --
+    // "what did I decide about that?" is a question the strip should answer
+    // without another click.
+    if (!m_digVerdict.isEmpty())
+        text += QStringLiteral(" · ") + m_digVerdict.toUpper();
+    return {text, true};
+}
+
 // --------------------------------------------------------------------------
 // Which page a step is about
 // --------------------------------------------------------------------------
@@ -417,6 +587,9 @@ int DiversityFlowStrip::stepPage(int step)
     case StepNoise:
         return PageSite;
     case StepFilter:
+    // The knobs a dig moves are the chain's, which is the FILTER page's
+    // subject -- so on that page its state is quoted in full like the others'.
+    case StepDig:
         return PageFilter;
     default:
         break;
@@ -478,7 +651,7 @@ void DiversityFlowStrip::rebuild()
         return;
 
     const State states[StepCount] = {alignState(), modeState(), hearState(),
-                                     noiseState(), filterState()};
+                                     noiseState(), filterState(), digState()};
 
     // The one rule the whole widget is: next is the first step that is not
     // done. FILTER is done by construction, so this always lands somewhere.
@@ -511,12 +684,23 @@ void DiversityFlowStrip::rebuild()
     QStringList html;
     QStringList plain;
     for (int i = 0; i < StepCount; ++i) {
+        // A gate that cannot dig has no dig step. Not greyed and not dashed:
+        // there is nothing about it to explain to somebody whose gate will
+        // never offer it.
+        if (i == StepDig && !m_digAvailable) {
+            m_tones[i] = QStringLiteral("hidden");
+            continue;
+        }
         const bool onPage = stepPage(i) == m_page;
         const bool isNext = i == m_next;
         const bool lit = isNext && (onPage || !pageOwnsAStep);
         // A dash is not a state, it is the absence of one, and "✓ filter —"
         // says less than "✓ filter".
-        const bool quoteState = (isNext || i < m_next || onPage)
+        // DIG is the one step whose state is quoted from every page: a run is
+        // happening NOW, and a countdown only the FILTER page could see would
+        // be a countdown nobody watches.
+        const bool quoteState = (i == StepDig || isNext || i < m_next || onPage)
+                                && !states[i].text.isEmpty()
                                 && !states[i].text.startsWith(dash());
 
         QString text;
@@ -532,17 +716,22 @@ void DiversityFlowStrip::rebuild()
             if (!onPage && !page.isEmpty() && !text.endsWith(arrow() + page))
                 text += arrow() + page;
         } else {
-            const char* glyph = i < m_next ? kGlyphDone : kGlyphLater;
+            // ● for a dig in progress: it is not the next step and never will
+            // be, but it IS the thing happening, and the glyph says so.
+            const char* glyph = (i == StepDig && m_digRunning)
+                                    ? kGlyphNext
+                                    : (i < m_next ? kGlyphDone : kGlyphLater);
             text = quoteState
                        ? tr("%1 %2 %3").arg(QString::fromUtf8(glyph), m_labels.at(i),
                                             states[i].text)
                        : tr("%1 %2").arg(QString::fromUtf8(glyph), m_labels.at(i));
         }
 
-        m_tones[i] = lit ? QStringLiteral("lit")
-                         : onPage ? QStringLiteral("normal")
-                                  : QStringLiteral("dim");
-        const QString colour = lit ? accent : (onPage ? normal : dim);
+        const bool accented = lit || (i == StepDig && m_digRunning);
+        m_tones[i] = accented ? QStringLiteral("lit")
+                              : onPage ? QStringLiteral("normal")
+                                       : QStringLiteral("dim");
+        const QString colour = accented ? accent : (onPage ? normal : dim);
         // Escaped: talker names and mode words are the gate's, and a station
         // called "<b" must not be able to write markup into this line.
         const QString escaped = text.toHtmlEscaped();

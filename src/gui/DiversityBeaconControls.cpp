@@ -163,6 +163,7 @@ QWidget* DiversityBeaconPanel::buildGridRow()
     auto* layout = new QHBoxLayout(row);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(6);
+    m_gridRowLayout = layout;
 
     QLabel* caption = DiversityWidgets::makeFieldLabel(tr("Station grid"), row);
     caption->setObjectName(QStringLiteral("diversityWindowBeaconGridCaption"));
@@ -231,6 +232,16 @@ QWidget* DiversityBeaconPanel::buildGridRow()
     layout->addWidget(m_gridHint);
     layout->addStretch(1);
     return row;
+}
+
+void DiversityBeaconPanel::setGridRowExtra(QWidget* extra)
+{
+    if (!m_gridRowLayout || !extra)
+        return;
+    extra->setParent(m_gridRowLayout->parentWidget());
+    // Where the trailing stretch was: the note is the one thing on this row
+    // that wants the leftover width, so it takes it instead.
+    m_gridRowLayout->insertWidget(m_gridRowLayout->count() - 1, extra, 1);
 }
 
 // --------------------------------------------------------------------------

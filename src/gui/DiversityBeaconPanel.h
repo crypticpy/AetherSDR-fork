@@ -66,6 +66,7 @@
 
 class QJsonArray;
 class QJsonValue;
+class QHBoxLayout;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -114,6 +115,15 @@ public:
     // they belong to a gate session, and a reconnect may be to a different
     // radio at the same address.
     void clear();
+
+    // The window's own station note rides on the locator's row. The locator
+    // and the note are the two things the operator TELLS the gate about this
+    // station -- one it can check, one it cannot -- and they are only useful
+    // read together. It arrives as a finished widget rather than as a line of
+    // this panel because the note's write and its check-back are the window's
+    // (it comes back on /diversity, which this panel never sees), and because
+    // the SITE page has no spare height for a second row.
+    void setGridRowExtra(QWidget* extra);
 
     QTableWidget* table() const { return m_table; }
     DiversityBeaconPattern* pattern() const { return m_pattern; }
@@ -172,6 +182,7 @@ private:
     QPushButton*  m_gridSetButton{nullptr};
     QPushButton*  m_gridForgetButton{nullptr};
     QLabel*       m_gridHint{nullptr};
+    QHBoxLayout*  m_gridRowLayout{nullptr};
     QLabel*       m_propagation{nullptr};
     QLabel*       m_checkLine{nullptr};
     QPushButton*  m_checkCancelButton{nullptr};

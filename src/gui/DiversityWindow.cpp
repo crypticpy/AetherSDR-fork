@@ -241,9 +241,30 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     // click or a SITE row's button reaches it the same way a tab does.
     connect(m_pages, &QStackedWidget::currentChanged,
             m_flow, &DiversityFlowStrip::setCurrentPage);
-    footer->addWidget(m_flow);
+    // The dig's three buttons sit at the right-hand end of the FLOW row rather
+    // than on a row of their own: a second row of lit boxes under the tabs is
+    // exactly what this strip exists to have stopped being. They belong to the
+    // window because they write -- see DiversityWindowFilter.cpp.
+    auto* flowRow = new QHBoxLayout;
+    flowRow->setContentsMargins(0, 0, 0, 0);
+    flowRow->setSpacing(6);
+    flowRow->addWidget(m_flow, 1);
+    flowRow->addWidget(buildDigControls());
+    footer->addLayout(flowRow);
     footer->addWidget(m_statusStrip);
     root->addLayout(footer);
+
+    // The dig status poll. Its cadence is the window's business rather than
+    // the poller's, because the window is the only thing that knows whether a
+    // run is still going -- see updateDigPoll(). bandPageChanged() is emitted
+    // on every show, hide and page switch, which is exactly the set of moments
+    // the answer can change.
+    m_digTimer = new QTimer(this);
+    m_digTimer->setObjectName(QStringLiteral("diversityWindowDigTimer"));
+    connect(m_digTimer, &QTimer::timeout, this,
+            [this] { emit requestDig(QUrlQuery()); });
+    connect(this, &DiversityWindow::bandPageChanged, this,
+            [this] { updateDigPoll(); });
 }
 
 DiversityWindow* DiversityWindow::createFor(AetherGateDiversityPanel* panel)
@@ -269,6 +290,8 @@ DiversityWindow* DiversityWindow::createFor(AetherGateDiversityPanel* panel)
             panel, &AetherGateDiversityPanel::requestFilter);
     connect(window, &DiversityWindow::requestSite,
             panel, &AetherGateDiversityPanel::requestSite);
+    connect(window, &DiversityWindow::requestDig,
+            panel, &AetherGateDiversityPanel::requestDig);
     return window;
 }
 
@@ -617,6 +640,9 @@ void DiversityWindow::applyMap(const QJsonObject& map)
 void DiversityWindow::setPresent(bool present)
 {
     m_present = present;
+    // A dig cannot be asked about across a dead gate, and must not be left
+    // being asked about either.
+    updateDigPoll();
     if (present)
         return;
     m_phaseDebounce->stop();

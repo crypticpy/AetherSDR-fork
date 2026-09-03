@@ -391,6 +391,18 @@ void AetherGateDiversityPanel::applyBeacons(const QJsonObject& beacons)
         m_window->applyBeacons(beacons);
 }
 
+void AetherGateDiversityPanel::applyCompass(const QJsonObject& compass)
+{
+    if (m_window)
+        m_window->applyCompass(compass);
+}
+
+void AetherGateDiversityPanel::applyDig(const QJsonObject& dig)
+{
+    if (m_window)
+        m_window->applyDig(dig);
+}
+
 void AetherGateDiversityPanel::applyFilter(const QJsonObject& filter)
 {
     if (m_window)

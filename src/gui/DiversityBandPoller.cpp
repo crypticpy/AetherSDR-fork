@@ -97,6 +97,15 @@ void DiversityBandPoller::attachFilter(AetherGateDiversityPanel* panel)
             &AetherGateDiversityPanel::applySiteReply);
     connect(panel, &AetherGateDiversityPanel::requestSite, this,
             &DiversityBandPoller::sendSite);
+    // The SITE page's second read-only route and the FLOW strip's own route,
+    // wired here for the same reason: the applet's constructor keeps its one
+    // attachFilter() line whatever this poller grows.
+    connect(this, &DiversityBandPoller::compassReceived, panel,
+            &AetherGateDiversityPanel::applyCompass);
+    connect(this, &DiversityBandPoller::digReceived, panel,
+            &AetherGateDiversityPanel::applyDig);
+    connect(panel, &AetherGateDiversityPanel::requestDig, this,
+            &DiversityBandPoller::sendDig);
 }
 
 void DiversityBandPoller::restart()
@@ -130,8 +139,10 @@ void DiversityBandPoller::poll()
         if (slowTick)
             fetchFinder();
     }
-    if (m_siteEnabled && slowTick)
+    if (m_siteEnabled && slowTick) {
         fetchBeacons();
+        fetchCompass();
+    }
     if (m_filterEnabled)
         fetchFilter();
 }
@@ -196,6 +207,29 @@ void DiversityBandPoller::fetchBeacons()
     });
 }
 
+// The beacons' other half. Same cadence, same in-flight guard: the fit is
+// recomputed from the same results the table is drawn from, so asking faster
+// than the table is redrawn could not show anything new.
+void DiversityBandPoller::fetchCompass()
+{
+    if (m_compassInFlight)
+        return;
+    m_compassInFlight = true;
+    QNetworkRequest req{QUrl(m_base + QStringLiteral("/diversity/compass"))};
+    req.setTransferTimeout(kTransferTimeoutMs);
+    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                     QNetworkRequest::AlwaysNetwork);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        m_compassInFlight = false;
+        QJsonObject obj;
+        if (reply->error() == QNetworkReply::NoError)
+            parseObject(reply->readAll(), &obj);
+        emit compassReceived(obj);
+    });
+}
+
 void DiversityBandPoller::fetchFilter()
 {
     if (m_filterInFlight)
@@ -228,6 +262,30 @@ void DiversityBandPoller::sendFilter(const QString& path, const QUrlQuery& query
 void DiversityBandPoller::sendSite(const QString& path, const QUrlQuery& query)
 {
     sendWrite(path, query, true);
+}
+
+// No in-flight guard, and no page gate: every call is either a write the
+// operator just made or the one status read the window asked for at its own
+// cadence, and both are already rate-limited by the thing that called them.
+void DiversityBandPoller::sendDig(const QUrlQuery& query)
+{
+    if (m_base.isEmpty() || !m_net)
+        return;
+    QUrl url(m_base + QStringLiteral("/diversity/dig"));
+    if (!query.isEmpty())
+        url.setQuery(query);
+    QNetworkRequest req{url};
+    req.setTransferTimeout(kTransferTimeoutMs);
+    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                     QNetworkRequest::AlwaysNetwork);
+    QNetworkReply* reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        QJsonObject obj;
+        if (reply->error() == QNetworkReply::NoError)
+            parseObject(reply->readAll(), &obj);
+        emit digReceived(obj);
+    });
 }
 
 void DiversityBandPoller::sendWrite(const QString& path, const QUrlQuery& query,
