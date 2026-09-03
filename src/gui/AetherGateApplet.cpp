@@ -1,38 +1,31 @@
 #include "AetherGateApplet.h"
 
 #include "core/ThemeManager.h"
+#include "gui/AetherGateAppletShared.h"
 #include "gui/AetherGateChainWindow.h"
 #include "gui/AetherGateDeviceStrip.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/DiversityBandPoller.h"
-#include "models/PanadapterModel.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
 
-#include <QCheckBox>
 #include <QComboBox>
-#include <QDoubleSpinBox>
 #include <QFormLayout>
-#include <QDialog>
 #include <QHideEvent>
 #include <QJsonArray>
-#include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
-#include <QLineEdit>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPushButton>
 #include <QShowEvent>
 #include <QSignalBlocker>
-#include <QSpinBox>
 #include <QTimer>
 #include <QUrlQuery>
 #include <QVariant>
 #include <QVBoxLayout>
 
-#include <algorithm>
 #include <cmath>
 
 namespace AetherSDR {
@@ -59,29 +52,6 @@ static constexpr int kReprobeMs = 15000;
 // control set replaces the old one while the gate itself stays present.
 static constexpr int kDeviceRefreshPolls = 10;
 
-// /diversity/map is heavier than the rest of the section (up to 256 floats
-// twice over) and changes slowly compared to phase/ratio, so it is read on
-// its own, coarser cadence rather than every /diversity poll.
-static constexpr int kDiversityMapRefreshPolls = 2;
-
-// Numeric bounds used only when the gate reports none for a setting. Wide on
-// purpose: a guessed range clamps in BOTH directions — a write outside it is
-// capped before it reaches the device, and a read-back outside it displays as
-// the clamp instead of the value the device holds.
-static constexpr int kUnboundedInt = 1000000;
-static constexpr double kUnboundedDouble = 1.0e9;
-
-// Row labels resolve their colour from a theme token instead of a literal, so a
-// user theme can restyle them and a live theme switch repaints them —
-// applyStyleSheet() re-resolves every widget it tracks, which a bare
-// setStyleSheet() never did (docs/style/theme-style-guide.md). It also keeps
-// this file off the hardcoded-colour ratchet in static-checks.yml.
-//
-// color.text.secondary (#8ea8c0) rather than color.text.label (#506070): the
-// literal these labels used, #8090a0, is a light mid-grey, so the label token
-// would have visibly darkened them against every sibling applet. TunerApplet
-// and ProfileSwitcherApplet still carry their own copy of the old literal;
-// converging all three on this token is a follow-up, not this PR's business.
 // The CHAIN door. Character for character the Diversity panel's own
 // kOpenWindowStyle (AetherGateDiversityPanel.cpp:45-50): the operator's first
 // note on this window was that the two doors did not look like the same kind
@@ -95,15 +65,7 @@ static const char* kOpenChainStyle =
     "QPushButton:hover { background: {{color.background.1}}; }"
     "QPushButton:pressed { background: {{color.background.3}}; }";
 
-static const char* kRowLabelStyle =
-    "QLabel { color: {{color.text.secondary}}; font-size: 10px; font-weight: bold; }";
-
 namespace {
-
-void styleRowLabel(QLabel* label)
-{
-    ThemeManager::instance().applyStyleSheet(label, QString::fromLatin1(kRowLabelStyle));
-}
 
 QString formatHz(double hz)
 {
@@ -117,19 +79,6 @@ QString formatBinWidth(double hz)
     if (hz >= 1000.0)
         return QStringLiteral("%1 kHz / bin").arg(hz / 1000.0, 0, 'f', 2);
     return QStringLiteral("%1 Hz / bin").arg(hz, 0, 'f', 1);
-}
-
-// True when a body is a JSON object — the only shape any gate route answers
-// with. An old gate falls through to its web panel (HTML, HTTP 200) on a route
-// it does not know, and a stray web server on the port answers the same way,
-// so "the request succeeded" on its own says nothing about what answered.
-bool parseObject(const QByteArray& body, QJsonObject* out)
-{
-    const QJsonDocument doc = QJsonDocument::fromJson(body);
-    if (!doc.isObject())
-        return false;
-    *out = doc.object();
-    return true;
 }
 
 // Repopulate without the refill looking like an operator choice: every control
@@ -170,26 +119,6 @@ int indexOfRate(const QComboBox* combo, double rate)
     return -1;
 }
 
-// Reads the gate's {"min","max","step"} for a setting. False when the gate
-// reported none (an older gate, or a driver that gave Soapy's 0..0 default).
-bool readRange(const QJsonObject& setting, double* lo, double* hi, double* step)
-{
-    const QJsonObject r = setting.value(QStringLiteral("range")).toObject();
-    if (r.isEmpty())
-        return false;
-    *lo = r.value(QStringLiteral("min")).toDouble();
-    *hi = r.value(QStringLiteral("max")).toDouble();
-    *step = r.value(QStringLiteral("step")).toDouble();
-    return *hi > *lo;
-}
-
-int decimalsForStep(double step)
-{
-    if (step <= 0.0)
-        return 3;
-    return std::clamp(int(std::ceil(-std::log10(step))), 0, 6);
-}
-
 } // namespace
 
 AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
@@ -203,7 +132,7 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
 
     m_status = new QLabel(tr("looking for a gate…"), this);
     m_status->setObjectName(QStringLiteral("gateStatusLabel"));
-    styleRowLabel(m_status);
+    GateApplet::styleRowLabel(m_status);
     root->addWidget(m_status);
 
     // --- what is plugged in, and the way out of diversity (B13) ----------
@@ -239,8 +168,8 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
 
     auto* spanLabel = new QLabel(tr("Span"), m_resBox);
     auto* binsLabel = new QLabel(tr("Bins"), m_resBox);
-    styleRowLabel(spanLabel);
-    styleRowLabel(binsLabel);
+    GateApplet::styleRowLabel(spanLabel);
+    GateApplet::styleRowLabel(binsLabel);
     resForm->addRow(spanLabel, m_span);
     resForm->addRow(binsLabel, m_bins);
     resForm->addRow(QString(), m_binWidth);
@@ -259,7 +188,7 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
     m_deviceHint = new QLabel(tr("device controls need a newer Aether-gate"), this);
     m_deviceHint->setObjectName(QStringLiteral("gateDeviceHint"));
     m_deviceHint->setWordWrap(true);
-    styleRowLabel(m_deviceHint);
+    GateApplet::styleRowLabel(m_deviceHint);
     m_deviceHint->setVisible(false);
     root->addWidget(m_deviceHint);
 
@@ -283,6 +212,13 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
             &AetherGateApplet::onDiversityRequestMemoryClear);
     connect(m_diversityPanel, &AetherGateDiversityPanel::requestMemoryName, this,
             &AetherGateApplet::onDiversityRequestMemoryName);
+    // The Diversity window's FILTER page has its own OPEN CHAIN button, so the
+    // chain is reachable from where its neighbouring stages are drawn as well
+    // as from the sidebar door below. Same slot either way: the window is built
+    // once and then kept, so whichever door is used second raises the one that
+    // already exists rather than making a second.
+    connect(m_diversityPanel, &AetherGateDiversityPanel::requestOpenChain, this,
+            &AetherGateApplet::toggleChainWindow);
     root->addWidget(m_diversityPanel);
 
     // --- the other door --------------------------------------------------
@@ -441,7 +377,7 @@ void AetherGateApplet::get(const QString& path,
         // neither confirms nor denies one: the handler decides what a non-gate
         // body means for its own route.
         QJsonObject obj;
-        const bool json = parseObject(reply->readAll(), &obj);
+        const bool json = GateApplet::parseObject(reply->readAll(), &obj);
         if (json)
             setPresent(true);
         (this->*handler)(obj, json);
@@ -607,515 +543,6 @@ void AetherGateApplet::sendResolution()
     }
     // 8 s, not the usual 4: a rate change restarts the stream.
     sendFireAndForget(QStringLiteral("/resolution"), q, 8000);
-}
-
-// One path for every write. A radio drop mid-edit leaves the widgets alive
-// under the operator's cursor for a moment; without the guard their next
-// change would build a request from an empty base and send it nowhere useful.
-void AetherGateApplet::sendDeviceSet(const QUrlQuery& query)
-{
-    const QString base = baseUrl();
-    if (base.isEmpty() || !m_present)
-        return;
-    QUrl url(base + QStringLiteral("/device/set"));
-    url.setQuery(query);
-    QNetworkRequest req{url};
-    req.setTransferTimeout(4000);          // the gate settles 0.35 s before reading back
-    QNetworkReply* reply = m_net->get(req);
-    // The read-back arrives with the reply, so the control always ends up
-    // showing what the DEVICE took rather than what we asked for.
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError)
-            return;
-        QJsonObject obj;
-        const bool json = parseObject(reply->readAll(), &obj);
-        applyDeviceControls(obj, json);
-    });
-}
-
-void AetherGateApplet::applyDeviceControls(const QJsonObject& dev, bool isJson)
-{
-    m_deviceFetched = true;
-    m_pollsSinceDevice = 0;
-    if (!isJson) {
-        // An older gate has no /device route and falls through to its web
-        // panel: HTTP 200, HTML.  That is a gate without device controls, not
-        // a device without settings — say which, rather than showing nothing.
-        m_deviceBox->setVisible(false);
-        m_deviceHint->setVisible(true);
-        m_controlsFingerprint.clear();
-        return;
-    }
-    m_deviceHint->setVisible(false);
-    buildDeviceControls(dev);
-}
-
-void AetherGateApplet::buildDeviceControls(const QJsonObject& dev)
-{
-    // Fingerprint the SHAPE (which controls exist, and what kind each is), not
-    // the values — rebuilding widgets under the operator's cursor every time a
-    // value changed would make the panel unusable.
-    QStringList shape;
-    const QJsonObject ant = dev.value(QStringLiteral("antenna")).toObject();
-    if (!ant.isEmpty())
-        shape << QStringLiteral("antenna");
-    const QJsonArray settings = dev.value(QStringLiteral("settings")).toArray();
-    for (const QJsonValue& v : settings) {
-        const QJsonObject so = v.toObject();
-        shape << QStringLiteral("%1:%2:%3:%4")
-                     .arg(so.value(QStringLiteral("key")).toString(),
-                          so.value(QStringLiteral("type")).toString())
-                     .arg(so.value(QStringLiteral("options")).toArray().size())
-                     .arg(QString::fromUtf8(QJsonDocument(
-                              so.value(QStringLiteral("range")).toObject())
-                              .toJson(QJsonDocument::Compact)));
-    }
-    const QString fingerprint = shape.join(QLatin1Char('|'));
-
-    if (fingerprint != m_controlsFingerprint) {
-        m_controlsFingerprint = fingerprint;
-        m_settingWidgets.clear();
-        m_antenna = nullptr;
-        while (m_deviceForm->count() > 0) {
-            QLayoutItem* item = m_deviceForm->takeAt(0);
-            if (QWidget* w = item->widget())
-                w->deleteLater();
-            delete item;
-        }
-
-        if (!ant.isEmpty()) {
-            m_antenna = new QComboBox(m_deviceBox);
-            m_antenna->setObjectName(QStringLiteral("gateAntennaCombo"));
-            for (const QJsonValue& o : ant.value(QStringLiteral("options")).toArray())
-                m_antenna->addItem(o.toString());
-            connect(m_antenna, &QComboBox::currentTextChanged, this,
-                    [this](const QString& text) {
-                        QUrlQuery q;
-                        q.addQueryItem(QStringLiteral("antenna"), text);
-                        sendDeviceSet(q);
-                    });
-            auto* label = new QLabel(tr("Antenna"), m_deviceBox);
-            styleRowLabel(label);
-            m_deviceForm->addRow(label, m_antenna);
-        }
-
-        for (const QJsonValue& v : settings) {
-            const QJsonObject so = v.toObject();
-            const QString key = so.value(QStringLiteral("key")).toString();
-            const QString name = so.value(QStringLiteral("name")).toString(key);
-            const QString type = so.value(QStringLiteral("type")).toString();
-            const QJsonArray options = so.value(QStringLiteral("options")).toArray();
-
-            auto push = [this, key](const QString& value) {
-                QUrlQuery q;
-                q.addQueryItem(QStringLiteral("key"), key);
-                q.addQueryItem(QStringLiteral("value"), value);
-                sendDeviceSet(q);
-            };
-
-            // The widget follows the Soapy ArgInfo type the gate relays:
-            // "0" BOOL, "1" INT, "2" FLOAT, anything else a string. A setting
-            // with an option list is a choice whatever its type says.
-            double lo = 0.0, hi = 0.0, step = 0.0;
-            const bool bounded = readRange(so, &lo, &hi, &step);
-            QWidget* w = nullptr;
-            if (!options.isEmpty()) {
-                auto* combo = new QComboBox(m_deviceBox);
-                for (const QJsonValue& o : options)
-                    combo->addItem(o.toString());
-                connect(combo, &QComboBox::currentTextChanged, this, push);
-                w = combo;
-            } else if (type == QLatin1String("0")) {
-                auto* check = new QCheckBox(m_deviceBox);
-                connect(check, &QCheckBox::toggled, this, [push](bool on) {
-                    push(on ? QStringLiteral("true") : QStringLiteral("false"));
-                });
-                w = check;
-            } else if (type == QLatin1String("1")) {
-                auto* spin = new QSpinBox(m_deviceBox);
-                if (bounded) {
-                    spin->setRange(int(std::lround(lo)), int(std::lround(hi)));
-                    if (step >= 1.0)
-                        spin->setSingleStep(int(std::lround(step)));
-                } else {
-                    spin->setRange(-kUnboundedInt, kUnboundedInt);
-                }
-                spin->setKeyboardTracking(false);   // one write per committed edit
-                connect(spin, &QSpinBox::valueChanged, this, [push](int v) {
-                    push(QString::number(v));
-                });
-                w = spin;
-            } else if (type == QLatin1String("2")) {
-                auto* spin = new QDoubleSpinBox(m_deviceBox);
-                spin->setDecimals(decimalsForStep(bounded ? step : 0.0));
-                if (bounded) {
-                    spin->setRange(lo, hi);
-                    if (step > 0.0)
-                        spin->setSingleStep(step);
-                } else {
-                    spin->setRange(-kUnboundedDouble, kUnboundedDouble);
-                }
-                spin->setKeyboardTracking(false);
-                connect(spin, &QDoubleSpinBox::valueChanged, this, [push](double v) {
-                    push(QString::number(v, 'g', 10));
-                });
-                w = spin;
-            } else {
-                auto* edit = new QLineEdit(m_deviceBox);
-                connect(edit, &QLineEdit::editingFinished, this, [push, edit] {
-                    push(edit->text());
-                });
-                w = edit;
-            }
-            w->setObjectName(QStringLiteral("gateSetting:") + key);
-            m_settingWidgets.insert(key, w);
-            auto* label = new QLabel(name, m_deviceBox);
-            styleRowLabel(label);
-            m_deviceForm->addRow(label, w);
-        }
-        m_deviceBox->setVisible(!shape.isEmpty());
-    }
-
-    // Values, every time — blocked so a refresh never re-sends what it reads,
-    // and skipped on a control the operator is in the middle of editing.
-    if (m_antenna && !ant.isEmpty()) {
-        const QSignalBlocker block(m_antenna);
-        const int idx = m_antenna->findText(ant.value(QStringLiteral("value")).toString());
-        if (idx >= 0)
-            m_antenna->setCurrentIndex(idx);
-    }
-    for (const QJsonValue& v : settings) {
-        const QJsonObject so = v.toObject();
-        QWidget* w = m_settingWidgets.value(so.value(QStringLiteral("key")).toString());
-        if (!w || w->hasFocus())
-            continue;
-        const QString value = so.value(QStringLiteral("value")).toString();
-        const QSignalBlocker block(w);
-        if (auto* combo = qobject_cast<QComboBox*>(w)) {
-            const int idx = combo->findText(value);
-            if (idx >= 0)
-                combo->setCurrentIndex(idx);
-        } else if (auto* check = qobject_cast<QCheckBox*>(w)) {
-            check->setChecked(value == QLatin1String("true"));
-        } else if (auto* spin = qobject_cast<QSpinBox*>(w)) {
-            spin->setValue(value.toInt());
-        } else if (auto* dspin = qobject_cast<QDoubleSpinBox*>(w)) {
-            dspin->setValue(value.toDouble());
-        } else if (auto* edit = qobject_cast<QLineEdit*>(w)) {
-            edit->setText(value);
-        }
-    }
-}
-
-// Not routed through get(): an older gate with no /diversity route 404s here,
-// and that says nothing about whether the GATE answered — /status alone
-// decides presence — so a failure just hides the section instead of counting
-// toward m_failures/setPresent(false) (see the header comment on this method).
-void AetherGateApplet::pollDiversity()
-{
-    const QString base = baseUrl();
-    if (base.isEmpty())
-        return;
-    QNetworkRequest req{QUrl(base + QStringLiteral("/diversity"))};
-    req.setTransferTimeout(2000);
-    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
-                     QNetworkRequest::AlwaysNetwork);
-    QNetworkReply* reply = m_net->get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError) {
-            m_diversityPanel->applyDiversity({}, false);
-            return;
-        }
-        QJsonObject obj;
-        const bool json = parseObject(reply->readAll(), &obj);
-        m_diversityPanel->applyDiversity(obj, json);
-
-        // /diversity/map is heavier than the rest of this section, so it is
-        // fetched on its own coarser cadence (kDiversityMapRefreshPolls)
-        // rather than on every /diversity poll — same shape as /device's
-        // refresh throttle. Counted ONLY here, off the timer-driven poll:
-        // m_diversityPanel->applyDiversity() is also the read-back handler
-        // for onDiversityRequestSet()/onDiversityRequestAlign(), and an
-        // operator edit must not itself advance (or reset) this cadence.
-        //
-        // wantsMapPoll() is true only while the pop-out Diversity window is
-        // on screen: since the sidebar was slimmed to a status line and a
-        // door (docs/DIVERSITY-ROADMAP.md §3) the window's noise panel is
-        // the only thing that draws the map, so a closed window costs no map
-        // polling at all. Reset to zero whenever it goes false so the next
-        // time it goes true the map is fetched immediately rather than
-        // waiting out a stale count — see m_mapFetched's own header comment.
-        if (m_diversityPanel->wantsMapPoll()) {
-            if (!m_mapFetched || ++m_pollsSinceMap >= kDiversityMapRefreshPolls) {
-                m_mapFetched = true;
-                m_pollsSinceMap = 0;
-                pollDiversityMap();
-            }
-        } else {
-            m_mapFetched = false;
-            m_pollsSinceMap = 0;
-        }
-    });
-}
-
-// The BAND page's poller runs only while that page is on screen and the gate
-// is answering: a closed window, an open one on SLICE, or a gate that has gone
-// away all cost zero requests. Called from setPresent()/setRadioAddress() and
-// from the panel's bandPollChanged(), so a page switch starts it at once
-// rather than up to a second later.
-void AetherGateApplet::updateBandPoll()
-{
-    m_bandPoller->setBaseUrl(baseUrl());
-    // /filter has two customers now: the Diversity window's FILTER page and
-    // the CHAIN window. Either one being on screen is a reason to poll it, and
-    // neither being on screen is a reason to stop.
-    const bool wantFilter = m_diversityPanel->wantsFilterPoll()
-                            || (m_chainWindow && m_chainWindow->isVisible());
-    m_bandPoller->setPages(m_present && m_diversityPanel->wantsBandPoll(),
-                           m_present && m_diversityPanel->wantsSitePoll(),
-                           m_present && wantFilter);
-}
-
-AetherGateChainWindow* AetherGateApplet::chainWindow() const
-{
-    return m_chainWindow.data();
-}
-
-// Built once and then kept, exactly as AetherGateDiversityPanel::toggleWindow()
-// keeps the Diversity window: rebuilding it would throw away the selected
-// stage, and the strip would flash empty every time the operator glanced at it.
-void AetherGateApplet::toggleChainWindow()
-{
-    if (!m_chainWindow) {
-        m_chainWindow = new AetherGateChainWindow(this);
-        m_chainWindow->setPresent(m_present);
-        connect(m_chainWindow, &AetherGateChainWindow::requestWrite, this,
-                &AetherGateApplet::onChainRequestWrite);
-        // The window redraws from /filter and from nothing else -- the same
-        // object the FILTER page is fed, off the same poller, so the two views
-        // can never disagree about what the receiver is doing.
-        connect(m_bandPoller, &DiversityBandPoller::filterReceived, m_chainWindow,
-                &AetherGateChainWindow::applyFilter);
-        // Closing it with the title bar's own button has to stop the poll as
-        // surely as pressing the door again does.
-        connect(m_chainWindow, &QDialog::finished, this,
-                &AetherGateApplet::updateBandPoll);
-    }
-    const bool wantVisible = !m_chainWindow->isVisible();
-    if (!wantVisible) {
-        m_chainWindow->hide();
-        updateBandPoll();
-        return;
-    }
-    m_chainWindow->show();
-    m_chainWindow->raise();
-    m_chainWindow->activateWindow();
-    updateBandPoll();
-}
-
-// The gate's own route and the gate's own query, sent verbatim on the applet's
-// one transport. sendFilter()'s reply is the status object the window redraws
-// from, so the write and the read-back after it are one request rather than
-// two -- and the window changes only when that reply says it should.
-void AetherGateApplet::onChainRequestWrite(QString route, QUrlQuery query)
-{
-    if (route.isEmpty())
-        return;
-    m_bandPoller->sendFilter(route, query);
-}
-
-// The one request in this section that never reaches the gate. The gate has no
-// tune verb (docs/DIVERSITY.md, "Limits and known gaps"), so a click on the
-// BAND page tunes AetherSDR's own active slice -- the same slice a click on the
-// panadapter would move, through the same slice frequency write, so the radio
-// cannot end up disagreeing with the app about where it is.
-//
-// "Active" is defined exactly as MainWindow::activeSlice() defines it, minus
-// its cache: the first slice flagged active, falling back to the first slice
-// there is. With no model wired (the applet can be driven address-first) there
-// is nothing to tune and the click is dropped rather than guessed at.
-SliceModel* AetherGateApplet::activeSlice() const
-{
-    if (!m_model)
-        return nullptr;
-    const QList<SliceModel*> slices = m_model->slices();
-    for (SliceModel* slice : slices) {
-        if (slice && slice->isActive())
-            return slice;
-    }
-    return slices.isEmpty() ? nullptr : slices.first();
-}
-
-void AetherGateApplet::onDiversityRequestTune(double hz)
-{
-    SliceModel* target = (hz > 0.0) ? activeSlice() : nullptr;
-    if (!target)
-        return;
-    const double mhz = hz / 1.0e6;
-    // Asked BEFORE the tune: the pan has moved by the time it returns.
-    const PanadapterModel* pan = m_model->panadapter(target->panId());
-    const bool outOfSpan = !pan || !pan->spanContainsMhz(mhz);
-    // A refusal (locked slice, implausible target) must not move the display.
-    if (!m_model->tuneSliceForCat(target, mhz))
-        return;
-    // Then move the pan OURSELVES. tuneSliceForCat's out-of-span arm sends
-    // `slice tune <id> <mhz>` without autopan=0, asking the RADIO to recentre
-    // -- and Aether-gate has no autopan: it took the tune, the slice read 14.1,
-    // and the pan model kept the 80 m centre and span labels with new FFT rows
-    // painted under the old scale (B22, 2026-09-03). The GUI's cross-band tune
-    // does not rely on autopan either -- applyTuneRequest ->
-    // revealFrequencyIfNeeded -> applyTuneCenteringWrite ends in this same call,
-    // which is what puts `display pan set <pan> center=` on the wire and
-    // re-labels the waterfall rows. Centre only: the span is not ours to move.
-    if (outOfSpan)
-        m_model->requestPanCenter(target->panId(), mhz);
-}
-
-// Same non-critical-to-presence contract as pollDiversity() above: an
-// {"error"} reply (no map yet) or a route an older gate never had both mean
-// "nothing to draw", not a failed gate.
-void AetherGateApplet::pollDiversityMap()
-{
-    const QString base = baseUrl();
-    if (base.isEmpty())
-        return;
-    QNetworkRequest req{QUrl(base + QStringLiteral("/diversity/map"))};
-    req.setTransferTimeout(2000);
-    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
-                     QNetworkRequest::AlwaysNetwork);
-    QNetworkReply* reply = m_net->get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        QJsonObject obj;
-        if (reply->error() == QNetworkReply::NoError)
-            parseObject(reply->readAll(), &obj);
-        m_diversityPanel->applyMap(obj);
-    });
-}
-
-// One path for every diversity write, same shape as sendDeviceSet(): the
-// read-back arrives with the reply, so a control always ends up showing what
-// the gate took rather than what we asked for. An empty query is a route that
-// takes none (/diversity/align), not a write with nothing in it.
-void AetherGateApplet::sendDiversityWrite(const QString& path,
-                                          const QUrlQuery& query,
-                                          bool requirePresent)
-{
-    const QString base = baseUrl();
-    if (base.isEmpty() || (requirePresent && !m_present))
-        return;
-    QUrl url(base + path);
-    if (!query.isEmpty())
-        url.setQuery(query);
-    QNetworkRequest req{url};
-    req.setTransferTimeout(4000);
-    QNetworkReply* reply = m_net->get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError)
-            return;
-        QJsonObject obj;
-        const bool json = parseObject(reply->readAll(), &obj);
-        m_diversityPanel->applyDiversity(obj, json);
-    });
-}
-
-void AetherGateApplet::onDiversityRequestSet(QUrlQuery query)
-{
-    sendDiversityWrite(QStringLiteral("/diversity/set"), query, true);
-}
-
-void AetherGateApplet::onDiversityRequestAlign()
-{
-    sendDiversityWrite(QStringLiteral("/diversity/align"), {}, true);
-}
-
-// The "Hear A only" hold's forced resume — see
-// AetherGateDiversityPanel::restoreCompareHold()'s own comment for why this
-// is the one diversity write that is NOT gated on m_present: setPresent(false)
-// itself needs this to still go out (the gate must not be left stuck in
-// "off" just because THIS poll is what noticed it was gone), so this builds
-// its own request, gated only on baseUrl() being non-empty.
-void AetherGateApplet::onDiversityRequestCompareRestore(QUrlQuery query)
-{
-    sendDiversityWrite(QStringLiteral("/diversity/set"), query, false);
-}
-
-// Unlike every other diversity write, the gate does not answer until the
-// capture itself finishes — the response IS the result, not a read-back of
-// state — so this bounds the timeout by the requested duration rather than
-// reusing the fixed 4s every other /diversity/set write gets.
-//
-// The button-disable/"recording…" label swap that used to happen here
-// happens on the panel's side now, before it ever emits requestCapture() —
-// this slot is network-only, and reports back through
-// AetherGateDiversityPanel::applyCaptureResult() (see its own header
-// comment for the ok/pathOrError split, unchanged from this function's old
-// three failure branches).
-void AetherGateApplet::onDiversityRequestCapture(int seconds)
-{
-    const QString base = baseUrl();
-    if (base.isEmpty() || !m_present)
-        return;
-    QUrlQuery q;
-    q.addQueryItem(QStringLiteral("seconds"), QString::number(seconds));
-    QUrl url(base + QStringLiteral("/diversity/capture"));
-    url.setQuery(q);
-    QNetworkRequest req{url};
-    req.setTransferTimeout((seconds + 5) * 1000);
-    QNetworkReply* reply = m_net->get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError) {
-            m_diversityPanel->applyCaptureResult(false, tr("capture failed"));
-            return;
-        }
-        QJsonObject obj;
-        const bool json = parseObject(reply->readAll(), &obj);
-        if (!json) {
-            m_diversityPanel->applyCaptureResult(false, tr("capture failed"));
-            return;
-        }
-        if (obj.contains(QStringLiteral("error"))) {
-            // An error this request itself reported must survive the very
-            // next poll: capture.active is already back to false by then, and
-            // its "path" is still whatever the LAST successful capture wrote
-            // — without the flag, that poll (arriving within one tick of this
-            // reply) silently replaces the error with that stale path. See
-            // applyCaptureResult()'s own comment for how it protects that.
-            m_diversityPanel->applyCaptureResult(
-                false, obj.value(QStringLiteral("error")).toString());
-        } else {
-            m_diversityPanel->applyCaptureResult(
-                true, obj.value(QStringLiteral("path")).toString());
-        }
-    });
-}
-
-// No read-back to apply: the next periodic /diversity poll shows the memory
-// list emptied out, the same way sendResolution() lets /status carry the
-// result instead of parsing this reply.
-void AetherGateApplet::onDiversityRequestMemoryClear()
-{
-    sendFireAndForget(QStringLiteral("/diversity/memory/clear"), {}, 4000);
-}
-
-// The operator's own label for a remembered talker. Same no-read-back shape
-// as onDiversityRequestMemoryClear() above: the gate echoes the stored name
-// in the next periodic /diversity poll's memory[] entry, which is also what
-// makes a rejected write visibly revert rather than silently stick in the
-// table. `name` arrives as raw operator text -- percent-encoded here so a
-// callsign with a space, an ampersand or an equals sign in it cannot inject a
-// second query parameter.
-void AetherGateApplet::onDiversityRequestMemoryName(int id, QString name)
-{
-    QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), QString::number(id));
-    q.addQueryItem(QStringLiteral("name"),
-                   QString::fromLatin1(QUrl::toPercentEncoding(name)));
-    sendFireAndForget(QStringLiteral("/diversity/memory/name"), q, 4000);
 }
 
 } // namespace AetherSDR

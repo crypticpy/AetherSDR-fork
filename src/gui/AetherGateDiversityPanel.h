@@ -206,6 +206,10 @@ signals:
     // cancel= and verdict= are the writes. Served by
     // DiversityBandPoller::sendDig(), answered through applyDig().
     void requestDig(QUrlQuery query);
+    // The FILTER page's OPEN CHAIN button: the generic stages live in the
+    // applet's CHAIN window, and only the applet owns that window. Served by
+    // AetherGateApplet::toggleChainWindow().
+    void requestOpenChain();
     // wantsBandPoll() may have changed: the window opened or closed, or its
     // page switched. Polling it once a second off the status timer would leave
     // the BAND page blank for up to a second after it is opened, which is the

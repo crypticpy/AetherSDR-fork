@@ -978,6 +978,8 @@ set(GUI_SOURCES
     src/gui/AppletPanel.cpp
     src/gui/KiwiSdrApplet.cpp
     src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateAppletControls.cpp
+    src/gui/AetherGateAppletDiversity.cpp
     src/gui/AetherGateChainModes.cpp
     src/gui/AetherGateChainStage.cpp
     src/gui/AetherGateChainStrip.cpp

@@ -255,6 +255,8 @@ void AetherGateDiversityPanel::toggleWindow()
         // by the object that owns it, and this is that object.
         connect(m_window, &DiversityWindow::bandPageChanged, this,
                 [this] { emit bandPollChanged(); });
+        connect(m_window, &DiversityWindow::requestOpenChain, this,
+                &AetherGateDiversityPanel::requestOpenChain);
         // The window is built lazily, so the slice frequency the applet has
         // been pushing since it connected has to be handed over once here --
         // otherwise the first BEACON CHECK of a session would have nowhere to

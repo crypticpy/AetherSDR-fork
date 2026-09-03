@@ -73,6 +73,21 @@ class AetherGateChainWindow;
 // sniffing the radio serial: the serial is operator-settable (--serial), so a
 // renamed gate would vanish from the UI. A gate is whatever answers /status
 // with a JSON object; a port that answers anything else is not one.
+//
+// The class is defined across three translation units, the way DiversityWindow
+// is across DiversityWindowBand.cpp and its siblings -- AetherGateApplet.cpp
+// had outgrown the file-size budget AGENTS.md asks for:
+//
+//   * AetherGateApplet.cpp          -- construction, the presence state
+//                                      machine, /status and /resolution.
+//   * AetherGateAppletControls.cpp  -- /device: the ArgInfo-typed control rows
+//                                      and the /device/set write behind them.
+//   * AetherGateAppletDiversity.cpp -- /diversity and its routes, the CHAIN
+//                                      window, and the one request that never
+//                                      reaches the gate (the BAND page's tune).
+//
+// AetherGateAppletShared.h carries the two file-local helpers more than one of
+// the three needs.
 class AetherGateApplet : public QWidget {
     Q_OBJECT
 public:
