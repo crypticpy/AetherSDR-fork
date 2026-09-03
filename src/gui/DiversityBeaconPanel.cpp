@@ -391,6 +391,7 @@ void DiversityBeaconPanel::applyBeacons(const QJsonObject& beacons)
     renderPropagation(beacons.value(QStringLiteral("propagation")));
     m_pattern->applyPattern(beacons.value(QStringLiteral("pattern")).toArray(),
                             !m_stationGrid.isEmpty());
+    renderFeeds(beacons);
 
     const auto remember = [this](const QJsonValue& value) {
         if (!value.isObject())
@@ -406,6 +407,7 @@ void DiversityBeaconPanel::applyBeacons(const QJsonObject& beacons)
     for (const QJsonValue& v : results)
         remember(v);
     remember(beacons.value(QStringLiteral("last")));
+    renderReport();
 
     const QJsonValue nowValue = beacons.value(QStringLiteral("now"));
     const QJsonObject now = nowValue.toObject();

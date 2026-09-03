@@ -382,11 +382,30 @@ else** — not the mode, not the combiner, not the filter — because a check
 that changed the receiver would not be measuring the receiver you use.
 Closing the window ends a running check and tunes back; switching pages
 does not. With no slice for it to remember it refuses to start rather than
-tuning away with no way home.
+tuning away with no way home. The tune goes through the same recentre
+policy a CAT tune does, so the panadapter follows the check to 20 m and
+back rather than the slice going off the edge of an 80 m display.
 
-The whole page is polled only while it is on screen, and a gate too old to
-serve the beacon route says `beacon watch: not available from this gate`.
-Missing numbers render as `—` rather than as zeros.
+`SWEEP ALL` is the five checks nose to tail — 20 m through 10 m, about
+sixteen minutes — with one trip home at the end; the countdown reads
+`SWEEP 2/5 · 17 m · 3:10 left` and `CANCEL` comes straight home from
+wherever it is. **The report** is what the countdown line turns into
+once the run is home: `home at 01:26 · 20 m: 2 of 18 heard — 4U1UN 10 W,
+KH6RS 100 W` for a single check, band counts for a sweep, and every
+band's calls on the line's hover. It is built from the results the gate
+scored *since the run left* (an older day's results are not this run's),
+and it follows the poll for a few seconds after the trip home because the
+last beacon's slot is scored at the slot boundary, up to ten seconds after
+the countdown ends. **The feeds line** under the propagation lines answers
+the other question a check leaves behind — what is done with the numbers:
+today they feed the loop pattern dial (one point per beacon heard on both
+loops, which needs your grid for a bearing) and the propagation lines;
+nothing else reads them yet.
+
+The page is polled while it is on screen and while a check is out — a
+sweep started from SITE keeps reporting from BAND or SLICE — and a gate
+too old to serve the beacon route says `beacon watch: not available from
+this gate`. Missing numbers render as `—` rather than as zeros.
 
 ## The FILTER page
 

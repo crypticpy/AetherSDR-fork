@@ -64,6 +64,10 @@ QString integerField(const QJsonObject& obj, const char* key)
 // the middle of a slot still sees every beacon's whole turn -- the point of the
 // button is that you get the complete rota without having to time it yourself.
 constexpr int kCheckSeconds = 190;
+// After a run comes home the poll stays wanted this long: the last slot is
+// scored at its boundary, up to ten seconds after the countdown ends, and the
+// report must not miss it.
+constexpr int kSettleMs = 12000;
 
 // The five frequencies the project shares, in band order. This is a fact about
 // the world rather than something the gate reports, exactly like the schedule
@@ -262,6 +266,21 @@ QWidget* DiversityBeaconPanel::buildPatternColumn()
         QStringList(kPropagationLines, QStringLiteral("00 m")).join(QChar('\n')));
     m_propagation->setFixedHeight(m_propagation->sizeHint().height());
     layout->addWidget(m_propagation);
+
+    // What the results are used for, because the operator asked on the air
+    // (2026-09-03): "we don't see what we're doing with that information".
+    // It sits in the room under the propagation block rather than on a row
+    // of its own: the page has to fit the window it opens at.
+    m_feedsLine = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("diversityWindowBeaconFeedsLine"),
+        tr("feeds → pattern dial (18 points) · propagation lines"),
+        tr("Where these results go. The pattern dial plots loop B against loop A "
+           "by bearing, one point per beacon heard on both loops (bearings need "
+           "your grid). The propagation lines summarise each band. Nothing else "
+           "reads them yet: the talker bearings and the FINDER are on their own."),
+        column);
+    m_feedsLine->setAccessibleName(tr("What the beacon results feed"));
+    layout->addWidget(m_feedsLine);
     layout->addStretch(1);
     return column;
 }
@@ -374,6 +393,19 @@ QWidget* DiversityBeaconPanel::buildCheckRow()
         connect(button, &QPushButton::clicked, this, [this, i] { startCheck(i); });
         layout->addWidget(button);
     }
+    m_sweepButton = new QPushButton(tr("SWEEP ALL"), row);
+    m_sweepButton->setObjectName(QStringLiteral("diversityWindowBeaconSweep"));
+    m_sweepButton->setAccessibleName(tr("Sweep all five beacon frequencies"));
+    m_sweepButton->setToolTip(
+        tr("The five checks in a row, 20 m through 10 m: about %1 minutes away "
+           "from where you are, then home, with one report for all five bands. "
+           "CANCEL at any point comes straight home and reports the bands done.")
+            .arg((kCheckSeconds * kBandCount + 30) / 60));
+    m_sweepButton->setAccessibleDescription(m_sweepButton->toolTip());
+    m_sweepButton->setFixedHeight(kSmallButtonHeight);
+    applyToggleButtonStyle(m_sweepButton);
+    connect(m_sweepButton, &QPushButton::clicked, this, &DiversityBeaconPanel::startSweep);
+    layout->addWidget(m_sweepButton);
 
     m_checkLine = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowBeaconCheckLine"),
@@ -381,9 +413,10 @@ QWidget* DiversityBeaconPanel::buildCheckRow()
         tr("How long the running check has left before the radio goes back to "
            "where it was. One cycle of the rota is three minutes; the extra ten "
            "seconds are so a check started mid-slot still hears every beacon's "
-           "whole turn."),
+           "whole turn. Once it is home this line is the report: what the run "
+           "heard, band by band, and hovering it gives every band's calls."),
         row);
-    m_checkLine->setAccessibleName(tr("Beacon check countdown"));
+    m_checkLine->setAccessibleName(tr("Beacon check countdown and report"));
     layout->addWidget(m_checkLine);
 
     m_checkCancelButton = new QPushButton(tr("CANCEL"), row);
@@ -399,6 +432,10 @@ QWidget* DiversityBeaconPanel::buildCheckRow()
             &DiversityBeaconPanel::cancelCheck);
     layout->addWidget(m_checkCancelButton);
     layout->addStretch(1);
+    m_settleTimer = new QTimer(this);
+    m_settleTimer->setSingleShot(true);
+    connect(m_settleTimer, &QTimer::timeout, this, [this] { emit checkStateChanged(); });
+    renderReport();
     return row;
 }
 
@@ -413,25 +450,48 @@ void DiversityBeaconPanel::setActiveSliceHz(double hz)
 
 void DiversityBeaconPanel::startCheck(int bandIndex)
 {
+    m_sweepQueue.clear();
+    m_swept.clear();
+    beginCheck(bandIndex);
+}
+
+void DiversityBeaconPanel::startSweep()
+{
+    m_sweepQueue.clear();
+    m_swept.clear();
+    for (int i = 1; i < kBandCount; ++i)
+        m_sweepQueue << i;
+    beginCheck(0);
+    if (m_checkBand < 0)                    // refused: nowhere to come back to
+        m_sweepQueue.clear();
+}
+
+void DiversityBeaconPanel::beginCheck(int bandIndex)
+{
     if (bandIndex < 0 || bandIndex >= kBandCount)
         return;
-    // A check with nowhere to come back to is not a check. Without a slice
-    // frequency (no radio model wired yet) it would tune away and leave the
-    // operator to find their own way home.
-    if (m_activeSliceHz <= 0.0) {
-        showTransient(tr("no slice to tune — nowhere to come back to"));
-        return;
+    if (m_checkBand < 0) {
+        // A check with nowhere to come back to is not a check. Without a slice
+        // frequency (no radio model wired yet) it would tune away and leave
+        // the operator to find their own way home.
+        if (m_activeSliceHz <= 0.0) {
+            showTransient(tr("no slice to tune — nowhere to come back to"));
+            return;
+        }
+        m_checkReturnHz = m_activeSliceHz;
+        m_runStartedAt = double(QDateTime::currentSecsSinceEpoch());
+        m_settleUntilMs = 0;
     }
-    if (m_checkBand >= 0)
-        cancelCheck();
-
-    m_checkReturnHz = m_activeSliceHz;
+    // A band pressed while another is out keeps the same home: the radio is
+    // where it is BECAUSE of this panel, so there is no new "where you were".
     m_checkBand = bandIndex;
     m_checkLeftS = kCheckSeconds;
     m_checkCancelButton->setEnabled(true);
     updateCheckLabel();
+    renderReport();
     m_checkTimer->start();
     emit tuneRequested(kBands[bandIndex].hz);
+    emit checkStateChanged();
 }
 
 void DiversityBeaconPanel::checkTick()
@@ -443,13 +503,29 @@ void DiversityBeaconPanel::checkTick()
         updateCheckLabel();
         return;
     }
-    cancelCheck();
+    finishCheck();
+}
+
+void DiversityBeaconPanel::finishCheck()
+{
+    m_swept << m_checkBand;
+    if (!m_sweepQueue.isEmpty()) {
+        beginCheck(m_sweepQueue.takeFirst());   // straight on, not via home
+        return;
+    }
+    endRun();
 }
 
 void DiversityBeaconPanel::cancelCheck()
 {
+    m_sweepQueue.clear();                       // a cancelled sweep does not resume
     if (m_checkBand < 0)
         return;
+    endRun();
+}
+
+void DiversityBeaconPanel::endRun()
+{
     const double home = m_checkReturnHz;
     m_checkBand = -1;
     m_checkLeftS = 0;
@@ -459,20 +535,112 @@ void DiversityBeaconPanel::cancelCheck()
     updateCheckLabel();
     if (home > 0.0)
         emit tuneRequested(home);
+    m_settleUntilMs = QDateTime::currentMSecsSinceEpoch() + kSettleMs;
+    m_settleTimer->start(kSettleMs);
+    renderReport();
+    emit checkStateChanged();
+}
+
+bool DiversityBeaconPanel::pollWanted() const
+{
+    return m_checkBand >= 0 || QDateTime::currentMSecsSinceEpoch() < m_settleUntilMs;
 }
 
 void DiversityBeaconPanel::updateCheckLabel()
 {
     if (m_checkBand < 0) {
+        renderReport();
+        return;
+    }
+    const QString left = tr("%1:%2 left")
+                             .arg(QString::number(m_checkLeftS / 60),
+                                  QStringLiteral("%1").arg(m_checkLeftS % 60, 2, 10,
+                                                           QChar('0')));
+    const QString band = QString::fromLatin1(kBands[m_checkBand].name);
+    const int total = m_swept.size() + 1 + m_sweepQueue.size();
+    if (total > 1) {
+        m_checkLine->setText(tr("SWEEP %1/%2 · %3 · %4")
+                                 .arg(QString::number(m_swept.size() + 1),
+                                      QString::number(total), band, left));
+        return;
+    }
+    m_checkLine->setText(tr("CHECK %1 · %2").arg(band, left));
+}
+
+void DiversityBeaconPanel::renderReport()
+{
+    // The report a run comes home with lives on the countdown line, which has
+    // nothing to say while the radio is home. The operator asked for it on
+    // the air (2026-09-03): "it didn't tune to a beacon, so I don't know if
+    // it's doing something in the background".
+    if (m_checkBand >= 0)
+        return;
+    if (m_swept.isEmpty()) {
         m_checkLine->setText(tr("idle — a check tunes away for %1 s and comes back")
                                  .arg(kCheckSeconds));
         return;
     }
-    m_checkLine->setText(tr("CHECK %1 · %2:%3 left")
-                             .arg(QString::fromLatin1(kBands[m_checkBand].name),
-                                  QString::number(m_checkLeftS / 60),
-                                  QStringLiteral("%1").arg(m_checkLeftS % 60, 2, 10,
-                                                           QChar('0'))));
+    QStringList lines;      // one per band, with the calls: the hover text
+    QStringList brief;      // one per band, counts only: the line itself
+    for (int b : m_swept) {
+        int sampled = 0;
+        QList<QPair<double, QString>> heard;    // (weakest step heard, "CALL n W")
+        for (auto it = m_results.cbegin(); it != m_results.cend(); ++it) {
+            const QJsonObject& r = it.value();
+            if (std::abs(r.value(QStringLiteral("band_hz")).toDouble() - kBands[b].hz) >= 1000.0)
+                continue;
+            // Results older than this run are another run's; a minute of
+            // slack for the gate's clock against ours.
+            if (r.value(QStringLiteral("at")).toDouble() < m_runStartedAt - 60.0)
+                continue;
+            ++sampled;
+            if (!r.value(QStringLiteral("heard")).toBool())
+                continue;
+            const QJsonValue w = r.value(QStringLiteral("lowest_w"));
+            const QString call = r.value(QStringLiteral("call")).toString();
+            heard << qMakePair(w.isDouble() ? w.toDouble() : 1e9,
+                               w.isDouble() ? tr("%1 %2 W").arg(call, wattsText(w.toDouble()))
+                                            : call);
+        }
+        // Strongest path first (heard at the weakest step), then by call: a
+        // QHash walk is in no order at all, and a report must read the same
+        // twice.
+        std::sort(heard.begin(), heard.end());
+        QStringList names;
+        for (const auto& h : heard)
+            names << h.second;
+        const QString name = QString::fromLatin1(kBands[b].name);
+        if (sampled == 0) {
+            lines << tr("%1: nothing scored — the results land with the next poll").arg(name);
+            brief << tr("%1: unscored").arg(name);
+            continue;
+        }
+        brief << tr("%1: %2 of %3 heard").arg(name).arg(names.size()).arg(sampled);
+        lines << (names.isEmpty()
+                      ? tr("%1: 0 of %2 heard — closed").arg(name).arg(sampled)
+                      : tr("%1: %2 of %3 heard — %4")
+                            .arg(name).arg(names.size()).arg(sampled)
+                            .arg(names.join(QStringLiteral(", "))));
+    }
+    const QString when = tr("home at %1").arg(
+        QDateTime::fromSecsSinceEpoch(qint64(m_runStartedAt)).toString(QStringLiteral("HH:mm")));
+    // A single band has room for its calls on the line; a sweep gives counts
+    // and keeps the calls for the hover. Never wrapped: a wrapping label is
+    // height-for-width and would put a scrollbar on a page that fits.
+    m_checkLine->setText(when + QStringLiteral(" · ")
+                         + (m_swept.size() == 1 ? lines : brief).join(QStringLiteral(" · ")));
+    lines.prepend(when);
+    m_checkLine->setToolTip(lines.join(QChar('\n')));
+}
+
+void DiversityBeaconPanel::renderFeeds(const QJsonObject& beacons)
+{
+    const int points = beacons.value(QStringLiteral("pattern")).toArray().size();
+    m_feedsLine->setText(
+        tr("feeds → pattern dial (%1 point%2%3) · propagation lines · nothing else")
+            .arg(points)
+            .arg(points == 1 ? QString() : QStringLiteral("s"),
+                 m_stationGrid.isEmpty() ? tr(", no grid") : QString()));
 }
 
 void DiversityBeaconPanel::showTransient(const QString& text)

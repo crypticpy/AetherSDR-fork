@@ -840,7 +840,12 @@ void AetherGateApplet::onDiversityRequestTune(double hz)
     SliceModel* target = (hz > 0.0) ? activeSlice() : nullptr;
     if (!target)
         return;
-    target->setFrequency(hz / 1.0e6);
+    // Through the recentre policy, not a bare setFrequency(): a BEACON CHECK
+    // tunes from 80 m to 14.100, and with the slice moved but the pan left
+    // where it was the operator saw 3.8 MHz all through the check
+    // (2026-09-03). An out-of-span target re-centres the display; an in-span
+    // one keeps autopan=0 as before.
+    m_model->tuneSliceForCat(target, hz / 1.0e6);
 }
 
 // Same non-critical-to-presence contract as pollDiversity() above: an

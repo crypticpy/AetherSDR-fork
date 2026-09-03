@@ -164,6 +164,10 @@ QWidget* DiversityWindow::buildSitePage()
     // AetherGateApplet and becomes a real slice tune there.
     connect(m_beacons, &DiversityBeaconPanel::tuneRequested, this,
             &DiversityWindow::requestTune);
+    // A check starting or coming home changes what the site poll wants; the
+    // same signal a page switch sends, since the handler re-reads every page.
+    connect(m_beacons, &DiversityBeaconPanel::checkStateChanged, this,
+            [this] { emit bandPageChanged(bandPageVisible() && isVisible()); });
     beaconBody->addWidget(m_beacons);
     // Neither panel stretches: the beacon table is a fixed eighteen rows and
     // the noise profile is a fixed set of lines, so surplus height collects at
@@ -183,6 +187,11 @@ QWidget* DiversityWindow::buildSitePage()
 bool DiversityWindow::sitePageVisible() const
 {
     return m_pages && m_pageSiteButton && m_pageSiteButton->isChecked();
+}
+
+bool DiversityWindow::beaconPollWanted() const
+{
+    return m_beacons && m_beacons->pollWanted();
 }
 
 void DiversityWindow::applyBeacons(const QJsonObject& beacons)

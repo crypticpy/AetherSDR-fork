@@ -59,6 +59,7 @@
 
 #include <QHash>
 #include <QJsonObject>
+#include <QList>
 #include <QString>
 #include <QUrlQuery>
 #include <QWidget>
@@ -103,6 +104,11 @@ public:
     // window closing: a countdown nobody can see must not still be holding the
     // radio on a beacon frequency ten minutes later.
     void cancelCheck();
+    // True while a check or sweep is out, and for a few seconds after it
+    // comes home: the last slot is scored at the slot boundary, so the poll
+    // that carries it lands after the countdown ends. AetherGateDiversityPanel
+    // keeps the /diversity/beacons poll running on this whatever page is up.
+    bool pollWanted() const;
 
     // Gate gone, or diversity no longer available. Forgets the results too:
     // they belong to a gate session, and a reconnect may be to a different
@@ -125,6 +131,9 @@ signals:
     // -> the ACTIVE SLICE, in absolute hertz. Both legs of a BEACON CHECK leave
     // by here: the trip out to the beacon frequency and the trip home.
     void tuneRequested(double hz);
+    // A check or sweep started, moved to its next band, or came home:
+    // re-evaluate the site poll (pollWanted()).
+    void checkStateChanged();
 
 private:
     QWidget* buildGridRow();
@@ -138,8 +147,20 @@ private:
     void renderRows();
     // One line per band the gate has sampled, from the "propagation" array.
     void renderPropagation(const QJsonValue& propagation);
+    // CHECK <band>: one band, then home. SWEEP ALL: the five in a row, then
+    // home, with one report for the lot. beginCheck() is the leg out that
+    // both share; finishCheck() is the countdown reaching zero (next band or
+    // home); endRun() is the leg home, which CANCEL takes too.
     void startCheck(int bandIndex);
+    void startSweep();
+    void beginCheck(int bandIndex);
+    void finishCheck();
+    void endRun();
     void updateCheckLabel();
+    // The run's result, one line per band swept, from the results the gate
+    // reported since the run started; and what those results feed.
+    void renderReport();
+    void renderFeeds(const QJsonObject& beacons);
     void showTransient(const QString& text);
 
     QLabel*       m_header{nullptr};
@@ -154,6 +175,8 @@ private:
     QLabel*       m_propagation{nullptr};
     QLabel*       m_checkLine{nullptr};
     QPushButton*  m_checkCancelButton{nullptr};
+    QPushButton*  m_sweepButton{nullptr};
+    QLabel*       m_feedsLine{nullptr};
     DiversityBeaconPattern* m_pattern{nullptr};
 
     // Keyed "<band_hz>|<call>" -- the gate reports per (band, call) and a
@@ -173,6 +196,14 @@ private:
     int     m_checkBand{-1};
     int     m_checkLeftS{0};
     double  m_activeSliceHz{0.0};
+    // The bands still to do in a sweep, the ones done in this run (the
+    // report's rows), when the run left (results older than that are another
+    // run's), and how long after coming home the poll stays wanted.
+    QList<int> m_sweepQueue;
+    QList<int> m_swept;
+    double  m_runStartedAt{0.0};
+    qint64  m_settleUntilMs{0};
+    QTimer* m_settleTimer{nullptr};
 };
 
 } // namespace AetherSDR

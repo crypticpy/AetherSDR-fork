@@ -3255,6 +3255,51 @@ add_test(NAME diversity_site_actions_test COMMAND diversity_site_actions_test)
 set_tests_properties(diversity_site_actions_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# BEACON CHECK's SWEEP ALL, the report a run comes home with, the feeds line
+# and the poll that follows a check off the SITE page (2026-09-03). Its own
+# binary because diversity_site_actions_test.cpp is at the 800-line budget.
+add_executable(diversity_beacon_sweep_test
+    tests/diversity_beacon_sweep_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_beacon_sweep_test PRIVATE src tests)
+target_link_libraries(diversity_beacon_sweep_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_beacon_sweep_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_beacon_sweep_test COMMAND diversity_beacon_sweep_test)
+set_tests_properties(diversity_beacon_sweep_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # Per-talker filters, the automatic contour, the voice split and the snapped
 # finder -- the round the gate opened at 15aca8f/f1d79b6/a72bcf1. Its own
 # binary for the reason the seven before it are separate: each is at the

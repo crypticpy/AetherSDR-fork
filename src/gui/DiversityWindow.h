@@ -169,6 +169,10 @@ public:
     // comes home to, and without one the check refuses to start rather than
     // tuning away with no way back.
     void setActiveSliceHz(double hz);
+    // True while the SITE page's BEACON CHECK is out (or just home): the
+    // /diversity/beacons poll must run then whatever page is showing, or the
+    // check's report would be written from stale results.
+    bool beaconPollWanted() const;
 
     // Ends a running BEACON CHECK and tunes the slice back at once. Called
     // from closeEvent(): a countdown nobody can see must not be left holding

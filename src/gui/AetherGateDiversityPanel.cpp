@@ -286,7 +286,8 @@ bool AetherGateDiversityPanel::wantsBandPoll() const
 
 bool AetherGateDiversityPanel::wantsSitePoll() const
 {
-    return m_window && m_window->isVisible() && m_window->sitePageVisible();
+    return m_window && m_window->isVisible()
+           && (m_window->sitePageVisible() || m_window->beaconPollWanted());
 }
 
 bool AetherGateDiversityPanel::wantsFilterPoll() const
