@@ -266,18 +266,36 @@ bottom of it.
 Two stations arriving from different places cannot share a colour. One
 local noise source paints a single flat colour across everything it
 touches, which is how you recognise it. The receiver's passband is
-bracketed. Click a column to tune there; hover for the numbers.
+bracketed. Click a column to tune there. The key under the picture says
+what each of the three things a pixel can be means, in words — *colour =
+arrival phase* on the hue scale, *bright = stronger*, *grey = noise, no
+direction* — and the frequency axis is labelled on round kilohertz with a
+faint grid up from each label, so a streak can be read to a kilohertz
+without counting pixels. Moving the pointer over the picture shows a
+crosshair and one line for the bin under it (`3 840.50 kHz · phase 112° ·
+coherence 0.81 · level −97.3 dB`), from whichever row the pointer is on,
+not only the newest.
 
 **FINDER.** The activity strip is the share of the last ten minutes each
 column carried voice; the table below it is the conversations the gate
 found there, best first (at most twelve, ranked by the gate): frequency,
-score, SNR, syllabic rate, how long it has been active, how long ago it was
+**kind** — the gate's verdict on what the signal is (voice, CW, data,
+carrier or noise) with how sure it is, `voice 0.91`, and the row's hover
+says what the verdict was made of — score, SNR, syllabic rate, how long it
+has been active, how long ago it was
 last heard, arrival phase, coherence, and `gain` — the diversity gain the
 pair can actually earn on that signal, which on plain sky noise is often
 near zero and says so. The frequency is snapped to the 500 Hz grid you
 actually tune on; hover a row to see the estimate it was rounded from
 (`estimate 3860.37 kHz`), which is also how sure the gate is of it.
-**Tune** (or a double-click on the row) goes there.
+**Tune** (or a double-click on the row) goes there. The strip colours each
+found signal's stretch by its kind, in the same colours the table uses.
+
+When the gate has nothing to find it says why in the legend's place:
+*nothing to find yet: the loops are not aligned* while the pair is still
+being lined up (which is where a span change lands you for a few seconds),
+or *no frames yet after the tune* — the finder starts over on every tune
+and needs a few polls before it has anything to rank.
 
 A gate that is too old to serve these two routes, or that has not built a
 map yet, leaves the waterfall empty with *waiting for the gate*; missing

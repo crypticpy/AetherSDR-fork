@@ -27,7 +27,9 @@
 
 #include <QApplication>
 #include <QColor>
+#include <QImage>
 #include <QJsonObject>
+#include <QLabel>
 #include <QMouseEvent>
 #include <QNetworkReply>
 #include <QPushButton>
@@ -134,6 +136,34 @@ QString cell(QTableWidget* t, int row, int col)
     QTableWidgetItem* item = t ? t->item(row, col) : nullptr;
     return item ? item->text() : QString();
 }
+
+QString cellTip(QTableWidget* t, int row, int col)
+{
+    QTableWidgetItem* item = t ? t->item(row, col) : nullptr;
+    return item ? item->toolTip() : QString();
+}
+
+// A gate that says what it found, kept local to this file because the shared
+// kDiversityFinder is deliberately an OLDER one: both have to render, and the
+// older one may never be quietly upgraded to keep a test passing.
+//
+// Three candidates: a conversation, a keyed tone the finder's voice score was
+// fooled by (which is the whole point of the column), and a bare carrier from
+// a gate that sent the verdict but no confidence and no width.
+const QByteArray kDiversityFinderKinds = R"({"available": true,
+    "span_hz": [14100000.0, 14102000.0], "history_s": 600,
+    "activity": [0.0, 0.2, 0.9, 0.4, 0.0, 0.1, 0.6, 0.0],
+    "candidates": [
+      {"hz": 14100600.0, "width_hz": 2700.0, "mode": "USB", "score": 0.82,
+       "kind": "voice", "kind_conf": 0.91, "snr_db": 6.1, "syllabic": 0.61,
+       "active_s": 184.0, "last_s": 0.0, "phase_deg": 141.0, "coherence": 0.70,
+       "ratio_db": -2.1, "gain_db": 1.4},
+      {"hz": 14101450.0, "width_hz": 300.0, "mode": "USB", "score": 0.55,
+       "kind": "cw", "kind_conf": 0.64, "snr_db": -1.2, "syllabic": 0.44,
+       "active_s": 42.0, "last_s": 12.0, "phase_deg": -30.0, "coherence": 0.21,
+       "ratio_db": 0.4, "gain_db": -0.3},
+      {"hz": 14101900.0, "score": 0.31, "kind": "carrier"}
+    ]})";
 
 // (a) The two BAND routes are polled only while the page is on screen: not on
 // SLICE, not with the window closed, and never before it has been opened at
@@ -313,6 +343,126 @@ void testCoherenceGatesTheColourRatherThanScalingIt()
     closedToStart();
 }
 
+// A second spatial poll, deliberately unlike the fixture's in every leg: it is
+// what makes "the readout quotes the ROW under the pointer" a claim a test can
+// tell apart from "the readout quotes the newest row".
+const QByteArray kDiversitySpatialSecondPoll = R"({"available": true,
+    "start_hz": 14100000.0, "step_hz": 250.0, "points": 8,
+    "phase_deg": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
+    "coherence": [0.95, 0.95, 0.95, 0.95, 0.95, 0.95, 0.95, 0.95],
+    "level_db": [-30.0, -31.0, -32.0, -33.0, -34.0, -35.0, -36.0, -37.0]})";
+
+// (b3) A colour is only worth painting if it can be turned back into numbers,
+// and the numbers have to be the ones behind THAT pixel. The readout quotes
+// the row under the pointer, not the newest row: hovering a streak from a
+// minute ago and being told what is on the air right now is the picture lying
+// about what it is showing.
+void testTheHoverReadoutQuotesTheRowUnderThePointer()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityFull);
+    DiversityWindow* w = openOnBand(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* waterfall = w->findChild<DiversitySpatialWaterfall*>();
+    CHECK(waterfall != nullptr);
+    if (!waterfall)
+        return;
+
+    net.routes[QStringLiteral("/diversity/spatial")] = {QNetworkReply::NoError,
+                                                        kDiversitySpatialSecondPoll};
+    bandTick(a);
+    CHECK(waterfall->rowCount() == 2);
+
+    waterfall->resize(800, 300);
+    const int column = 2;
+    const int x = int((double(column) + 0.5) / 8.0 * 800.0);
+
+    // Row 0 is the poll that just landed; row 1 is the one under it, and it
+    // still carries its own three numbers.
+    const QString newest = waterfall->readoutAt(x, 0);
+    CHECK(newest.contains(QStringLiteral("kHz")));
+    CHECK(newest.contains(QStringLiteral("phase 30\u00B0")));
+    CHECK(newest.contains(QStringLiteral("coherence 0.95")));
+    CHECK(newest.contains(QStringLiteral("level -32.0 dB")));
+    const QString older = waterfall->readoutAt(x, 1);
+    CHECK(older.contains(QStringLiteral("phase -90\u00B0")));
+    CHECK(older.contains(QStringLiteral("coherence 0.70")));
+    CHECK(older.contains(QStringLiteral("level -55.0 dB")));
+
+    // Below the rows that have actually been lived through there is no
+    // measurement, so there is no readout to invent.
+    CHECK(waterfall->readoutAt(x, 200).isEmpty());
+
+    // Moving over the picture arms the crosshair on that bin and that row;
+    // leaving disarms it, so a stale cross never sits on a live picture.
+    QMouseEvent move(QEvent::MouseMove, QPointF(x, 0), QPointF(x, 0), QPointF(x, 0),
+                     Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(waterfall, &move);
+    CHECK(waterfall->hoverColumn() == column);
+    CHECK(waterfall->hoverRow() == 0);
+    QEvent leave(QEvent::Leave);
+    QApplication::sendEvent(waterfall, &leave);
+    CHECK(waterfall->hoverColumn() == -1);
+    CHECK(waterfall->hoverRow() == -1);
+
+    w->close();
+    settle();
+    closedToStart();
+}
+
+// (b4) The key keeps its scale and its grey however narrow the window gets --
+// those two are what make a pixel readable -- and the row it lives in never
+// grows, because the BAND page has no vertical room to give it.
+void testTheLegendKeepsItsScaleAndItsGreyAtAnyWidth()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityFull);
+    DiversityWindow* w = openOnBand(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* legend = w->findChild<AetherSDR::DiversitySpatialLegend*>();
+    CHECK(legend != nullptr);
+    if (!legend)
+        return;
+    const int rowHeight = 21;
+    CHECK(legend->sizeHint().height() == rowHeight);
+    CHECK(legend->height() == rowHeight);
+
+    for (int wide : {900, 260}) {
+        legend->resize(wide, legend->height());
+        const QImage shot = legend->grab().toImage();
+        CHECK(shot.height() == rowHeight);
+        int hued = 0;
+        int greys = 0;
+        for (int y = 0; y < shot.height(); ++y) {
+            for (int px = 0; px < shot.width(); ++px) {
+                const QColor c = shot.pixelColor(px, y);
+                if (c.saturation() > 200)
+                    ++hued;
+                // The "no direction" swatch: no hue at all, and mid-bright, so
+                // it reads as grey rather than as dark.
+                if (c.saturation() == 0 && c.value() > 120 && c.value() < 170)
+                    ++greys;
+            }
+        }
+        CHECK(hued > 100);
+        CHECK(greys >= 100);
+    }
+
+    w->close();
+    settle();
+    closedToStart();
+}
+
 // (c) The candidate table is the gate's ranking, rendered verbatim and in the
 // order it arrived -- the score column and the row order must agree.
 void testFinderPayloadFillsTheTableInTheGatesOrder()
@@ -335,17 +485,21 @@ void testFinderPayloadFillsTheTableInTheGatesOrder()
     CHECK(cell(table, 1, 0) == QStringLiteral("14101.45"));
     CHECK(cell(table, 2, 0) == QStringLiteral("14101.90"));
     // Ranked best first, as sent: 0.82, 0.55, 0.31.
-    CHECK(cell(table, 0, 1) == QStringLiteral("0.82"));
-    CHECK(cell(table, 1, 1) == QStringLiteral("0.55"));
-    CHECK(cell(table, 2, 1) == QStringLiteral("0.31"));
+    CHECK(cell(table, 0, 2) == QStringLiteral("0.82"));
+    CHECK(cell(table, 1, 2) == QStringLiteral("0.55"));
+    CHECK(cell(table, 2, 2) == QStringLiteral("0.31"));
     // Signed dB, both directions: the second candidate's pair is COSTING it.
-    CHECK(cell(table, 0, 8) == QStringLiteral("+1.4"));
-    CHECK(cell(table, 1, 8) == QStringLiteral("-0.3"));
+    CHECK(cell(table, 0, 9) == QStringLiteral("+1.4"));
+    CHECK(cell(table, 1, 9) == QStringLiteral("-0.3"));
     // 184 s of activity is three minutes four, not "184".
-    CHECK(cell(table, 0, 4) == QStringLiteral("3:04"));
+    CHECK(cell(table, 0, 5) == QStringLiteral("3:04"));
     // Somebody talking as we look is "now", not "0 s".
-    CHECK(cell(table, 0, 5) == QStringLiteral("now"));
-    CHECK(cell(table, 1, 5) == QStringLiteral("12 s"));
+    CHECK(cell(table, 0, 6) == QStringLiteral("now"));
+    CHECK(cell(table, 1, 6) == QStringLiteral("12 s"));
+    // This gate names nothing: the kind column is a dash on every row, and
+    // the strip has no bands to colour.
+    CHECK(cell(table, 0, 1) == QStringLiteral("—"));
+    CHECK(cell(table, 2, 1) == QStringLiteral("—"));
 
     // The activity strip took the gate's array.
     auto* strip = w->findChild<AetherSDR::DiversityActivityStrip*>();
@@ -456,8 +610,8 @@ void testOldGatePayloadsRenderWithoutInventingAnything()
     CHECK(table->rowCount() == 3);
     const QString dash = QStringLiteral("—");
     CHECK(cell(table, 2, 0) == QStringLiteral("14101.90"));
-    CHECK(cell(table, 2, 1) == QStringLiteral("0.31"));
-    for (int col : {2, 3, 4, 5, 6, 7, 8})
+    CHECK(cell(table, 2, 2) == QStringLiteral("0.31"));
+    for (int col : {1, 3, 4, 5, 6, 7, 8, 9})
         CHECK(cell(table, 2, col) == dash);
 
     // A finder that has nothing to report empties the table rather than
@@ -479,7 +633,77 @@ void testOldGatePayloadsRenderWithoutInventingAnything()
     closedToStart();
 }
 
-// (f) The same promise the SLICE page makes: at the size the window opens at,
+// (f) A gate that classifies what it found says so in the row, in the hover
+// and in the colour of the strip -- and a verdict with no confidence behind
+// it still gets its word rather than an invented number.
+void testTheKindColumnNamesWhatTheGateFound()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityFull, kDiversitySpatial, kDiversityFinderKinds);
+    DiversityWindow* w = openOnBand(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    QTableWidget* table = finderTable(w);
+    CHECK(table != nullptr);
+    if (!table)
+        return;
+    CHECK(table->rowCount() == 3);
+    // The word, then how sure -- and "cw" on the wire is CW on the air.
+    CHECK(cell(table, 0, 1) == QStringLiteral("voice 0.91"));
+    CHECK(cell(table, 1, 1) == QStringLiteral("CW 0.64"));
+    // A verdict with no confidence is the word alone, not "carrier 0.00".
+    CHECK(cell(table, 2, 1) == QStringLiteral("carrier"));
+    // The rank is still the gate's: naming a row does not reorder it.
+    CHECK(cell(table, 0, 2) == QStringLiteral("0.82"));
+
+    // The hover says what the verdict was made of and how sure the gate is.
+    const QString tip = cellTip(table, 1, 1);
+    CHECK(tip.contains(QStringLiteral("keyed hard on and off")));
+    CHECK(tip.contains(QStringLiteral("0.64")));
+    // Every other cell keeps the frequency hover it always had.
+    CHECK(cellTip(table, 1, 2).isEmpty());
+
+    // Two of the three carry a width, so two stretches of the strip are
+    // coloured; the carrier that sent none paints nothing rather than a band
+    // of a width we made up.
+    auto* strip = w->findChild<AetherSDR::DiversityActivityStrip*>();
+    CHECK(strip != nullptr);
+    if (strip)
+        CHECK(strip->bandCount() == 2);
+
+    // An empty finder takes the bands away with the rows...
+    net.routes[QStringLiteral("/diversity/finder")] = {
+        QNetworkReply::NoError,
+        QByteArrayLiteral(R"({"available": false, "reason": "not aligned"})")};
+    for (int i = 0; i < 4; ++i)
+        bandTick(a);
+    CHECK(table->rowCount() == 0);
+    if (strip)
+        CHECK(strip->bandCount() == 0);
+    // ...and the legend gives its lines to the gate's reason, in words.
+    auto* caption = w->findChild<QLabel*>(QStringLiteral("diversityWindowFinderCaption"));
+    CHECK(caption != nullptr);
+    if (caption) {
+        CHECK(caption->text().startsWith(QStringLiteral("nothing to find yet: ")));
+        CHECK(caption->text().contains(QStringLiteral("not aligned")));
+        CHECK(caption->text().count(QLatin1Char('\n')) == 1);
+    }
+    // Rows back, legend back.
+    net.routes[QStringLiteral("/diversity/finder")] = {QNetworkReply::NoError,
+                                                       kDiversityFinderKinds};
+    for (int i = 0; i < 4; ++i)
+        bandTick(a);
+    CHECK(table->rowCount() == 3);
+    if (caption)
+        CHECK(caption->text().startsWith(QStringLiteral("voice / CW / data")));
+    closedToStart();
+}
+
+// (g) The same promise the SLICE page makes: at the size the window opens at,
 // nothing on the BAND page is behind a scrollbar.
 void testNothingScrollsOnTheBandPageAtTheInitialSize()
 {
@@ -519,9 +743,12 @@ int main(int argc, char** argv)
     testBandPageStartsAndStopsTheTwoPolls();
     testSpatialPayloadPaintsARowAndPhaseDrivesHue();
     testCoherenceGatesTheColourRatherThanScalingIt();
+    testTheHoverReadoutQuotesTheRowUnderThePointer();
+    testTheLegendKeepsItsScaleAndItsGreyAtAnyWidth();
     testFinderPayloadFillsTheTableInTheGatesOrder();
     testTuneButtonTunesTheRowAndAsksForTrack();
     testOldGatePayloadsRenderWithoutInventingAnything();
+    testTheKindColumnNamesWhatTheGateFound();
     testNothingScrollsOnTheBandPageAtTheInitialSize();
 
     std::printf("\n%d diversity band test(s) failed\n", g_failed);

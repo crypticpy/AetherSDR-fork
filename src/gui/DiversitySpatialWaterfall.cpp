@@ -68,15 +68,34 @@ constexpr int kAxisHeight = 15;
 // so short that a streak cannot be told from a dot.
 constexpr int kMinHeight = 260;
 
-// Number of labelled ticks on the frequency axis, ends included.
-constexpr int kAxisTicks = 5;
+// The frequency scale. Labels land on ROUND frequencies and no closer together
+// than this, so the numbers read as a scale (…3830, 3840…) rather than as
+// wherever an even division of the span happened to fall (…3828.3, 3859.6…);
+// between them, unlabelled marks divide each step into kMinorPerMajor, which
+// is how a bin gets read to a kilohertz without a number every 40 pixels.
+constexpr double kMinLabelSpacingPx = 68.0;
+constexpr int    kMinorPerMajor = 5;
+constexpr double kMajorTickHeight = 3.0;
+constexpr double kMinorTickHeight = 2.0;
+
+// Never walk more ticks than could conceivably be on screen, whatever span a
+// gate claims.
+constexpr int kMaxTicks = 512;
+
+// The grid over the picture is a hint for the eye to carry a frequency up from
+// the axis, not furniture: any heavier and it is a cage over the measurement.
+constexpr double kGridAlpha = 0.16;
 
 // The passband bracket is a MARKER over live data, not a surface of its own.
 constexpr double kPassbandFillAlpha = 0.14;
 
+// The hover crosshair has to be findable without hiding the pixel it is
+// pointing at.
+constexpr double kCrosshairAlpha = 0.55;
+
 // A row whose level leg the gate did not send still carries phase and
 // coherence, and blacking it out would hide the two numbers we DO have. It is
-// drawn at full value with the level tooltip saying "—" -- the honest split
+// drawn at full value with the level readout saying "—" -- the honest split
 // between "not measured" (the readout) and "not drawable" (the pixel).
 constexpr double kValueWithoutLevel = 0.9;
 
@@ -110,6 +129,23 @@ bool readFloats(const QJsonObject& obj, const char* key, QVector<float>* out)
     return true;
 }
 
+// The smallest 1/2/5-times-a-power-of-ten step at or above `raw`. Round steps
+// are the whole point: they are what put a label on 3840.0 instead of 3838.7.
+double niceStep(double raw)
+{
+    if (!(raw > 0.0) || !std::isfinite(raw))
+        return 1.0;
+    const double mag = std::pow(10.0, std::floor(std::log10(raw)));
+    const double norm = raw / mag;
+    if (norm <= 1.0)
+        return mag;
+    if (norm <= 2.0)
+        return 2.0 * mag;
+    if (norm <= 5.0)
+        return 5.0 * mag;
+    return 10.0 * mag;
+}
+
 QString emDash()
 {
     return QStringLiteral("—");
@@ -122,12 +158,19 @@ DiversitySpatialWaterfall::DiversitySpatialWaterfall(QWidget* parent) : QWidget(
     setObjectName(QStringLiteral("diversityWindowSpatialWaterfall"));
     setMinimumHeight(kMinHeight);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    // Readout on the MOVE, not after the pointer has been held still long
+    // enough for a tooltip: the operator sweeping the span is reading numbers
+    // off it, and a number that only arrives if you stop is a number nobody
+    // sees.
+    setMouseTracking(true);
     setAccessibleName(tr("Spatial waterfall"));
     setAccessibleDescription(
         tr("The gate's whole span over time. Colour is the direction a signal "
            "arrives from (the phase between the two loops), how saturated it "
            "is says how coherent the two loops are there, and how bright it is "
-           "says how strong it is. Click a column to tune to it."));
+           "says how strong it is. Move the pointer over it for the frequency, "
+           "phase, coherence and level of one bin; click a column to tune to "
+           "it."));
     setToolTip(tr("Every bin of the gate's span, one row per poll. Two "
                   "stations from different directions are different colours; "
                   "one local noise source is a single flat colour across "
@@ -152,16 +195,33 @@ int DiversitySpatialWaterfall::waterfallHeight() const
     return std::max(1, height() - kAxisHeight);
 }
 
+int DiversitySpatialWaterfall::drawnHeight() const
+{
+    if (m_rows <= 0)
+        return 0;
+    return std::max(1, int(std::lround(double(waterfallHeight()) * double(m_rows)
+                                       / double(kHistoryRows))));
+}
+
 void DiversitySpatialWaterfall::resetHistory(int points)
 {
     m_points = std::clamp(points, 0, kMaxPoints);
     m_rows = 0;
+    m_head = 0;
+    m_hoverColumn = -1;
+    m_hoverRow = -1;
     if (m_points <= 0) {
         m_history = QImage();
+        m_histPhaseDeg.clear();
+        m_histCoherence.clear();
+        m_histLevelDb.clear();
         return;
     }
     m_history = QImage(m_points, kHistoryRows, QImage::Format_RGB32);
     m_history.fill(Qt::black);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    for (QVector<float>* ring : {&m_histPhaseDeg, &m_histCoherence, &m_histLevelDb})
+        ring->fill(nan, kHistoryRows * m_points);
 }
 
 void DiversitySpatialWaterfall::clear()
@@ -172,10 +232,6 @@ void DiversitySpatialWaterfall::clear()
     m_havePassband = false;
     m_passbandLoHz = 0.0;
     m_passbandHiHz = 0.0;
-    m_phaseDeg.clear();
-    m_coherence.clear();
-    m_levelDb.clear();
-    m_haveLevel.clear();
     resetHistory(0);
     update();
 }
@@ -263,25 +319,23 @@ void DiversitySpatialWaterfall::setSpatial(const QJsonObject& spatial)
     std::memmove(base + bpl, base, size_t(bpl * (kHistoryRows - 1)));
     auto* row = reinterpret_cast<QRgb*>(m_history.scanLine(0));
 
+    // The numbers do not move at all: the newest row is wherever m_head now
+    // points, and row r of the picture is r slots along from it.
+    m_head = (m_head + kHistoryRows - 1) % kHistoryRows;
+    const int slot = m_head * m_points;
+    float* phaseRing = m_histPhaseDeg.data() + slot;
+    float* cohRing = m_histCoherence.data() + slot;
+    float* levelRing = m_histLevelDb.data() + slot;
     const float nan = std::numeric_limits<float>::quiet_NaN();
-    m_phaseDeg.fill(nan, n);
-    m_coherence.fill(nan, n);
-    m_levelDb.fill(nan, n);
-    m_haveLevel.fill(false, n);
 
     for (int i = 0; i < n; ++i) {
         const bool okPhase = havePhase && i < phase.size() && !std::isnan(phase[i]);
         const bool okCoh = haveCoherence && i < coherence.size() && !std::isnan(coherence[i]);
         const bool okLevel = haveLevel && i < level.size() && !std::isnan(level[i]);
 
-        if (okPhase)
-            m_phaseDeg[i] = phase[i];
-        if (okCoh)
-            m_coherence[i] = coherence[i];
-        if (okLevel) {
-            m_levelDb[i] = level[i];
-            m_haveLevel[i] = true;
-        }
+        phaseRing[i] = okPhase ? phase[i] : nan;
+        cohRing[i] = okCoh ? coherence[i] : nan;
+        levelRing[i] = okLevel ? level[i] : nan;
 
         // A bin with no phase has no direction to colour: hue 0 at zero
         // saturation is grey, which is the same thing the incoherent case
@@ -332,12 +386,54 @@ double DiversitySpatialWaterfall::columnHz(int column) const
     return m_startHz + (double(column) + 0.5) * m_stepHz;
 }
 
+float DiversitySpatialWaterfall::sampleAt(const QVector<float>& ring, int row, int column) const
+{
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    if (row < 0 || row >= m_rows || column < 0 || column >= m_points)
+        return nan;
+    const qsizetype idx = qsizetype((m_head + row) % kHistoryRows) * m_points + column;
+    return (idx >= 0 && idx < ring.size()) ? ring[idx] : nan;
+}
+
 int DiversitySpatialWaterfall::columnAt(int x) const
 {
     if (m_points <= 0 || width() <= 0)
         return -1;
     const int col = int(double(x) * double(m_points) / double(width()));
     return std::clamp(col, 0, m_points - 1);
+}
+
+int DiversitySpatialWaterfall::rowAt(int y) const
+{
+    const int drawn = drawnHeight();
+    if (drawn <= 0 || y < 0 || y >= drawn)
+        return -1;
+    return std::clamp(int(double(y) * double(m_rows) / double(drawn)), 0, m_rows - 1);
+}
+
+QString DiversitySpatialWaterfall::readoutAt(int x, int y) const
+{
+    const int col = columnAt(x);
+    const int row = rowAt(y);
+    const double hz = columnHz(col);
+    if (col < 0 || row < 0 || hz <= 0.0)
+        return {};
+
+    const float phase = sampleAt(m_histPhaseDeg, row, col);
+    const float coh = sampleAt(m_histCoherence, row, col);
+    const float level = sampleAt(m_histLevelDb, row, col);
+    // A leg the gate did not send is a dash on its own, not a dash wearing a
+    // unit: "phase —" is missing, "phase —°" is a measurement of nothing.
+    const QString phaseText =
+        std::isnan(phase) ? emDash()
+                          : tr("%1°").arg(QString::number(double(phase), 'f', 0));
+    const QString cohText =
+        std::isnan(coh) ? emDash() : QString::number(double(coh), 'f', 2);
+    const QString levelText =
+        std::isnan(level) ? emDash()
+                          : tr("%1 dB").arg(QString::number(double(level), 'f', 1));
+    return tr("%1 kHz · phase %2 · coherence %3 · level %4")
+        .arg(QString::number(hz / 1e3, 'f', 2), phaseText, cohText, levelText);
 }
 
 void DiversitySpatialWaterfall::mousePressEvent(QMouseEvent* ev)
@@ -356,28 +452,51 @@ void DiversitySpatialWaterfall::mousePressEvent(QMouseEvent* ev)
     emit tuneRequested(hz);
 }
 
+void DiversitySpatialWaterfall::mouseMoveEvent(QMouseEvent* ev)
+{
+    const int x = int(ev->position().x());
+    const int y = int(ev->position().y());
+    const QString text = readoutAt(x, y);
+    const int col = text.isEmpty() ? -1 : columnAt(x);
+    const int row = text.isEmpty() ? -1 : rowAt(y);
+    if (col != m_hoverColumn || row != m_hoverRow) {
+        m_hoverColumn = col;
+        m_hoverRow = row;
+        update();
+    }
+    // A tooltip rather than a line painted in the corner of the picture: the
+    // corner of the picture is measurement too, and this one follows the
+    // pointer instead of covering a bin the operator is trying to look at.
+    if (text.isEmpty())
+        QToolTip::hideText();
+    else
+        QToolTip::showText(ev->globalPosition().toPoint(), text, this);
+    QWidget::mouseMoveEvent(ev);
+}
+
+void DiversitySpatialWaterfall::leaveEvent(QEvent* ev)
+{
+    if (m_hoverColumn >= 0 || m_hoverRow >= 0) {
+        m_hoverColumn = -1;
+        m_hoverRow = -1;
+        update();
+    }
+    QToolTip::hideText();
+    QWidget::leaveEvent(ev);
+}
+
 bool DiversitySpatialWaterfall::event(QEvent* ev)
 {
-    if (ev->type() != QEvent::ToolTip || m_rows <= 0)
+    // The pointer resting still still gets the same sentence the move gives --
+    // and where there is no measurement under it, the widget's own tooltip
+    // saying what the picture IS is the better answer.
+    if (ev->type() != QEvent::ToolTip)
         return QWidget::event(ev);
-
     auto* help = static_cast<QHelpEvent*>(ev);
-    const int col = columnAt(help->pos().x());
-    const double hz = columnHz(col);
-    if (col < 0 || hz <= 0.0)
+    const QString text = readoutAt(help->pos().x(), help->pos().y());
+    if (text.isEmpty())
         return QWidget::event(ev);
-
-    const auto number = [](const QVector<float>& v, int i, int decimals) {
-        if (i < 0 || i >= v.size() || std::isnan(v[i]))
-            return emDash();
-        return QString::number(double(v[i]), 'f', decimals);
-    };
-    QToolTip::showText(
-        help->globalPos(),
-        tr("%1 kHz\nphase %2°\ncoherence %3\nlevel %4 dB")
-            .arg(QString::number(hz / 1e3, 'f', 2), number(m_phaseDeg, col, 0),
-                 number(m_coherence, col, 2), number(m_levelDb, col, 1)),
-        this);
+    QToolTip::showText(help->globalPos(), text, this);
     return true;
 }
 
@@ -400,8 +519,7 @@ void DiversitySpatialWaterfall::paintEvent(QPaintEvent*)
     // Only the rows that have actually been filled: the rest of the image is
     // history nobody has lived through yet, and drawing it would be a picture
     // of nothing presented as measurement.
-    const int drawnH = std::max(1, int(std::lround(double(wfH) * double(m_rows)
-                                                   / double(kHistoryRows))));
+    const int drawnH = drawnHeight();
     p.setRenderHint(QPainter::SmoothPixmapTransform, false);
     p.drawImage(QRect(0, 0, width(), drawnH), m_history, QRect(0, 0, m_points, m_rows));
 
@@ -427,6 +545,20 @@ void DiversitySpatialWaterfall::paintEvent(QPaintEvent*)
         p.drawLine(QPointF(xLo, double(wfH) - 1.0), QPointF(xHi, double(wfH) - 1.0));
     }
 
+    if (m_hoverColumn >= 0 && m_hoverColumn < m_points) {
+        QColor cross = secondary;
+        cross.setAlphaF(kCrosshairAlpha);
+        p.setPen(QPen(cross, 1));
+        const double x = (double(m_hoverColumn) + 0.5) * double(width()) / double(m_points);
+        p.drawLine(QPointF(x, 0.0), QPointF(x, double(wfH)));
+        if (m_hoverRow >= 0 && m_rows > 0) {
+            // Which ROW the numbers came from, because a readout that could
+            // have come from any of three hundred is not a readout.
+            const double y = (double(m_hoverRow) + 0.5) * double(drawnH) / double(m_rows);
+            p.drawLine(QPointF(0.0, y), QPointF(double(width()), y));
+        }
+    }
+
     if (m_stepHz <= 0.0)
         return;
 
@@ -434,20 +566,43 @@ void DiversitySpatialWaterfall::paintEvent(QPaintEvent*)
     axisFont.setPointSizeF(std::max(7.0, font().pointSizeF() - 1.0));
     p.setFont(axisFont);
     const QFontMetricsF fm(axisFont);
-    p.setPen(secondary);
-    const double y = double(height()) - 3.0;
+
+    // Round steps, chosen from the width rather than fixed in number: a wide
+    // window gets more numbers and a narrow one fewer, and neither gets two
+    // labels on top of each other.
     const double span = m_stepHz * double(m_points);
-    for (int i = 0; i < kAxisTicks; ++i) {
-        const double t = double(i) / double(kAxisTicks - 1);
-        const QString text = QString::number((m_startHz + span * t) / 1e3, 'f', 1);
-        double x = t * double(width());
-        if (i == 0)
-            x = 0.0;
-        else if (i == kAxisTicks - 1)
-            x = double(width()) - fm.horizontalAdvance(text);
-        else
-            x -= fm.horizontalAdvance(text) / 2.0;
-        p.drawText(QPointF(x, y), text);
+    const double major = niceStep(span * kMinLabelSpacingPx / std::max(1.0, double(width())));
+    const double minor = major / double(kMinorPerMajor);
+    const int decimals = major >= 1000.0 ? 0 : (major >= 100.0 ? 1 : (major >= 10.0 ? 2 : 3));
+
+    QColor grid = secondary;
+    grid.setAlphaF(kGridAlpha);
+    const double baseline = double(height()) - 2.0;
+
+    const long long first = (long long)std::ceil(m_startHz / minor);
+    const long long last = (long long)std::floor((m_startHz + span) / minor);
+    for (long long k = first; k <= last && k - first < kMaxTicks; ++k) {
+        const double hz = double(k) * minor;
+        const double x = (hz - m_startHz) / span * double(width());
+        // minor is major/kMinorPerMajor and both are anchored at 0 Hz, so
+        // every kMinorPerMajor-th tick IS a labelled one.
+        const bool isMajor = (k % kMinorPerMajor) == 0;
+        if (isMajor) {
+            p.setPen(grid);
+            p.drawLine(QPointF(x, 0.0), QPointF(x, double(wfH)));
+        }
+        p.setPen(secondary);
+        p.drawLine(QPointF(x, double(wfH)),
+                   QPointF(x, double(wfH) + (isMajor ? kMajorTickHeight : kMinorTickHeight)));
+        if (!isMajor)
+            continue;
+        const QString text = QString::number(hz / 1e3, 'f', decimals);
+        const double left = x - fm.horizontalAdvance(text) / 2.0;
+        // A number that would hang off either end is not drawn at all: the
+        // tick is still there, and half a frequency is worse than none.
+        if (left < 0.0 || left + fm.horizontalAdvance(text) > double(width()))
+            continue;
+        p.drawText(QPointF(left, baseline), text);
     }
 }
 
