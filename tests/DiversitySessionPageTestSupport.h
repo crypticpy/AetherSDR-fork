@@ -46,7 +46,7 @@ const char* const kPageKey = "DiversityWindowPage";
 const char* const kCollapsedKey = "DiversityNextStripCollapsed";
 const char* const kPageButtons[] = {
     "diversityWindowPageStart", "diversityWindowPageSlice", "diversityWindowPageBand",
-    "diversityWindowPageSite", "diversityWindowPageFilter"};
+    "diversityWindowPageSite"};
 
 void closedToStart()
 {

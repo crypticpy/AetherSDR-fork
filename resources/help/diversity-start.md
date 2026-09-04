@@ -30,14 +30,15 @@ gate that has never sent `pan` reads `pan: —`. Kept to a few words
 because the row is already at the window's own 1120 px opening width, with
 the fuller explanation in the readout's tooltip instead.
 
-**Row 2 — the pages.** SLICE / BAND / SITE / FILTER, and nothing else;
+**Row 2 — the pages.** START / SLICE / BAND / SITE, and nothing else;
 `pages` is written at the right end of the row to say so. SLICE, described
 below, is about the frequency you are tuned to. BAND is about the whole span
 the gate can see, and is where you go to decide where to be tuned. SITE is
 about neither: it is about your station — what kind of noise this address
 makes, and what the world's beacon network measures your antennas to be
-worth. FILTER is about what happens to the audio *after* the combiner: the
-slice filter, drawn and driven.
+worth. There was a fifth page, FILTER, for what happens to the audio *after*
+the combiner. Every stage switch it carried is in the CHAIN window now, which
+`OPEN CHAIN` at the end of the pair row opens from wherever you are.
 
 **The START page — five cards, in the order that gets the best signal.**
 START is the window's first tab. It draws one fixed-height card per step —
@@ -71,7 +72,8 @@ whatever measurably helped and putting back whatever did not. The OFFERS
 row's own line reports `no run yet` until one has, then the run's progress
 or its verdict; the durations become the STOP button on the NEXT strip while
 a run is live. When it lands you answer with `BETTER`, `KEEP` or `WORSE` on
-the FILTER page's own DIG controls. A gate that cannot dig shows none of this.
+the NEXT strip's own DIG controls, which are on screen whatever page you are
+on. A gate that cannot dig shows none of this.
 
 ## A working session
 

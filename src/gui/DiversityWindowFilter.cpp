@@ -1,39 +1,31 @@
-// The Diversity window's FILTER page: what the PAIR itself does to the audio
-// before the receiver's own filter chain ever sees it -- and, at the bottom of
-// the file, the FLOW row's dig controls and the cadence their status is polled
-// at, which are here because they are about the same chain.
+// The Diversity window's /filter seam and the dig's own buttons: two things
+// that are about the same chain and nothing else in this window is.
 //
-// Every other stage a slice filter offers -- roofing, the blanker, shape,
-// notch, the automatic notcher, contour, the audio peaking filter, auto EQ,
-// per-talker recall, AGC -- exists for a single antenna and has nothing to do
-// with having two. Those all moved to the gate's own CHAIN window (see
-// AetherGateChainWindow), a page of its own opened from the applet, so they
-// are drawn once rather than once per place a receiver's filter chain shows
-// up. This page is the button that opens it, and the two stages that only
-// exist because there is a SECOND loop to combine: the coherence post-filter
-// and the sub-band MRC weighting, both /diversity/set keys read back off the
-// same status object MODE/HEAR/PAN already use (DiversityWindowChain.cpp).
+// There used to be a FILTER page above them here. It is retired. Every stage
+// switch it carried -- the coherence post-filter and the sub-band MRC
+// weighting, the two the PAIR itself owns -- is a chain row like any other
+// now, drawn by the gate's own CHAIN window (AetherGateChainWindow) along
+// with roofing, the blanker, shape, notch, the automatic notcher, contour,
+// the audio peaking filter, auto EQ, per-talker recall and AGC. One window
+// draws the chain once rather than once per place a receiver's filter chain
+// shows up, and OPEN CHAIN moved to the pair row (DiversityWindowChain.cpp)
+// so it is one press from every page rather than a page of its own.
 //
-// What lives HERE is only the seam: how the page is wired into the window's
-// page stack, and how /diversity's "post" and "mrc" objects reach it.
-// DiversityFilterControls.h/.cpp own the widgets and the wire values; see
-// that file for why POST-FILTER and MRC write immediately rather than
-// through a hold, the way this page's controls used to for /filter/set.
+// What is left in this file is the seam: the one method that takes a /filter
+// answer for the START page's STATION step, and the dig -- its duration
+// buttons, its STOP/verdict controls, and the cadence its status is polled
+// at.
 
 #include "gui/DiversityWindow.h"
 
-#include "gui/DiversityFilterControls.h"
 #include "gui/DiversityNextStrip.h"
 #include "gui/Theme.h"
 
-#include <QFrame>
 #include <QHBoxLayout>
 #include <QJsonObject>
 #include <QPushButton>
-#include <QScrollArea>
 #include <QStackedWidget>
 #include <QTimer>
-#include <QToolButton>
 #include <QUrlQuery>
 
 namespace AetherSDR {
@@ -54,41 +46,15 @@ constexpr int kDigIdleMs = 10000;
 } // namespace
 
 // --------------------------------------------------------------------------
-// The window's half: one more page in the stack
+// One /filter answer, for the one card that is about a filter
 // --------------------------------------------------------------------------
-
-QWidget* DiversityWindow::buildFilterPage()
-{
-    m_filter = new DiversityFilterControls;
-    // Signal-to-signal, exactly like every other write this window makes: the
-    // page does not know there is a gate, only that it has asked for
-    // something.
-    connect(m_filter, &DiversityFilterControls::requestSet, this,
-            &DiversityWindow::requestSet);
-    connect(m_filter, &DiversityFilterControls::requestOpenChain, this,
-            &DiversityWindow::requestOpenChain);
-
-    auto* scroll = new QScrollArea;
-    scroll->setObjectName(QStringLiteral("diversityWindowFilterScroll"));
-    scroll->setWidget(m_filter);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    return scroll;
-}
-
-bool DiversityWindow::filterPageVisible() const
-{
-    return m_pages && m_pageFilterButton && m_pageFilterButton->isChecked();
-}
 
 void DiversityWindow::applyFilter(const QJsonObject& filter)
 {
     // The STATION step is about whose filter is in force, so the session model
     // is fed wherever a /filter answer arrives -- including the reply to a
-    // write made from a different page -- rather than only while FILTER is up.
-    // Nothing else on this page reads /filter any more: POST-FILTER and MRC
-    // are /diversity fields, applied from applyDiversity() instead (see
-    // DiversityWindow.cpp).
+    // write made from the CHAIN window -- rather than only while some page is
+    // up. Nothing in this window DRAWS a filter.
     //
     // An empty answer or an error is not a filter: it leaves the last one
     // standing, the same guard the strip this replaced kept, because "the
@@ -316,12 +282,6 @@ void DiversityWindow::updateDigPoll()
     if (m_digTimer->isActive() && m_digTimer->interval() == want)
         return;
     m_digTimer->start(want);
-}
-
-void DiversityWindow::clearFilterReadouts()
-{
-    if (m_filter)
-        m_filter->clear();
 }
 
 } // namespace AetherSDR

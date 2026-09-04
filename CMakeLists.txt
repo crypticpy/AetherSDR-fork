@@ -1008,7 +1008,6 @@ set(GUI_SOURCES
     src/gui/DiversityBeaconPanel.cpp
     src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityEventLog.cpp
-    src/gui/DiversityFilterControls.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFilterPanelPaint.cpp
     src/gui/DiversityFilterPanelSqueeze.cpp

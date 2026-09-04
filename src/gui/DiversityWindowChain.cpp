@@ -1,9 +1,9 @@
 // The Diversity window's two top rows, and the two buttons on the second one
 // that DO something rather than set something.
 //
-// WHY TWO ROWS. v2 put the four page tabs and the six pair controls in one
-// strip, and the operator read it left to right as one sentence: "slice band
-// site filter, then mode, then hear, then realign, then capture -- I can't tell
+// WHY TWO ROWS. v2 put the page tabs and the six pair controls in one strip,
+// and the operator read it left to right as one sentence: "slice band site,
+// then mode, then hear, then realign, then capture -- I can't tell
 // if the controls across the top change based on what tab I'm on." They never
 // did. So the tabs are now a row of their own (WHERE YOU ARE) and the pair
 // controls a row of their own under it (WHAT THE PAIR IS DOING, on every page),
@@ -15,8 +15,8 @@
 // its request and the button came straight back up, so "it doesn't seem to do
 // anything" was a fair reading of a thing that had in fact worked. CAPTURE was
 // worse: it recorded a real file and said so in a small readout at the bottom
-// of the SLICE page's EVENTS box, invisible from the other three pages -- so
-// from BAND, SITE or FILTER the button did nothing at all, twice, and then the
+// of the SLICE page's EVENTS box, invisible from the other pages -- so from
+// BAND or SITE the button did nothing at all, twice, and then the
 // operator stopped trusting it. Neither needed a new route; both needed the
 // answer put where the hand that pressed the button already is. So each button
 // now narrates on its own face (ALIGNING… -> LAG -63; REC 10 s -> SAVED), and
@@ -60,6 +60,9 @@ namespace AetherSDR {
 
 namespace {
 
+// The height of every control on these two rows -- the same 26 px the page
+// tabs use (kPageButtonHeight in DiversityWindowBand.cpp), so nothing on
+// either row is a different size from anything on the other.
 constexpr int kControlHeight = 26;
 
 // How long a finished REALIGN or CAPTURE holds its answer on the button and on
@@ -129,23 +132,56 @@ QWidget* DiversityWindow::buildTabRow()
     buildPageSwitch(row);
     layout->addStretch(1);
 
+    // OPEN CHAIN, on the header block rather than on a page, because the CHAIN
+    // window is reachable from wherever the operator is: it used to be at the
+    // top of the FILTER tab, one page switch away, and that tab is retired.
+    //
+    // WHY THIS ROW AND NOT THE PAIR ROW ABOVE. The pair row is full. Its
+    // minimum is 1098 px inside a window whose minimum is 1116 px and which
+    // opens at 1120 -- 4 px of slack, and no label short enough to fit in it.
+    // This row's minimum is 265 px. The two rows are one header block, both on
+    // screen on every page, so the button is exactly as reachable here and
+    // nothing on the pair row had to be shrunk to make space for it.
+    //
+    // After the stretch rather than beside the tabs: a lit box touching four
+    // tabs reads as a fifth tab, and this is a door to another window, not a
+    // place you can be.
+    m_openChainButton = new QPushButton(tr("OPEN CHAIN"), row);
+    m_openChainButton->setObjectName(QStringLiteral("diversityWindowOpenChain"));
+    m_openChainButton->setAccessibleName(tr("Open the filter chain window"));
+    m_openChainButton->setToolTip(
+        tr("Every filter stage, antenna to ears, in signal order - the switch for "
+           "each one."));
+    m_openChainButton->setAccessibleDescription(
+        tr("Every stage the receive chain has -- roofing, the noise blanker, "
+           "the combiner's own post-filter and sub-band MRC, the passband and "
+           "its shape, notches, the automatic notcher, contour, the audio "
+           "peaking filter, auto EQ, per-talker recall and AGC -- drawn as a "
+           "block diagram in its own window. It is the same window whichever "
+           "gate control opens it, so a change made from there is the change "
+           "in force here too."));
+    m_openChainButton->setFixedHeight(kControlHeight);
+    connect(m_openChainButton, &QPushButton::clicked, this,
+            &DiversityWindow::requestOpenChain);
+    layout->addWidget(m_openChainButton);
+
     // The right-hand hint is what turns four bare words into a control: a tab
     // strip that nobody recognises as a tab strip is four buttons whose effect
     // has to be discovered by pressing them.
     QLabel* hint = DiversityWidgets::makeFieldLabel(tr("pages"), row);
     hint->setObjectName(QStringLiteral("diversityWindowPagesHint"));
     hint->setAccessibleName(tr("Pages"));
-    // Five pages now (START, SLICE, BAND, SITE, FILTER): the tooltip stays
-    // under the 90-char budget with just the first sentence, and the full
-    // two-sentence explanation moves to the accessible description.
-    hint->setToolTip(tr("These five buttons choose which page is shown."));
+    // Four pages (START, SLICE, BAND, SITE): the tooltip stays under the
+    // 90-char budget with just the first sentence, and the full two-sentence
+    // explanation moves to the accessible description.
+    hint->setToolTip(tr("These four buttons choose which page is shown."));
     hint->setAccessibleDescription(
-        tr("These five buttons choose which page is shown. The row under "
+        tr("These four buttons choose which page is shown. The row above "
            "them is the pair itself and applies on every page."));
     layout->addWidget(hint);
 
     // ONE help button, at the right-hand end, retargeted to whichever page is
-    // showing. Five would have been five more lit boxes on the row this
+    // showing. Four would have been four more lit boxes on the row this
     // window keeps deliberately quiet -- and the question an operator has is
     // always about the page in front of them.
     m_pageHelpButton = DiversityHelp::button(this, DiversityHelp::Topic::Start);
@@ -173,9 +209,6 @@ void DiversityWindow::retargetPageHelp(int page)
         break;
     case DiversitySessionModel::PageSite:
         topic = DiversityHelp::Topic::Site;
-        break;
-    case DiversitySessionModel::PageFilter:
-        topic = DiversityHelp::Topic::Filter;
         break;
     default:
         break;

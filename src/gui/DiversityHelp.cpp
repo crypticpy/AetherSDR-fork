@@ -9,7 +9,7 @@ namespace AetherSDR {
 
 namespace {
 
-// Which of the six topics a Topic value is, spelled out once so button(),
+// Which of the five topics a Topic value is, spelled out once so button(),
 // open(), resourcePath() and title() cannot disagree on the mapping.
 struct TopicInfo {
     const char* objectSuffix; // "Start", "Slice", ...
@@ -23,7 +23,6 @@ const TopicInfo& infoFor(DiversityHelp::Topic topic)
     static const TopicInfo kSlice{"Slice", "Slice", "diversity-slice.md"};
     static const TopicInfo kBand{"Band", "Band", "diversity-band.md"};
     static const TopicInfo kSite{"Site", "Site", "diversity-site.md"};
-    static const TopicInfo kFilter{"Filter", "Filter", "diversity-filter.md"};
     static const TopicInfo kChain{"Chain", "Chain", "diversity-chain.md"};
 
     switch (topic) {
@@ -35,8 +34,6 @@ const TopicInfo& infoFor(DiversityHelp::Topic topic)
         return kBand;
     case DiversityHelp::Topic::Site:
         return kSite;
-    case DiversityHelp::Topic::Filter:
-        return kFilter;
     case DiversityHelp::Topic::Chain:
         return kChain;
     }

@@ -104,8 +104,8 @@ public:
     // object a /filter/set or /filter/notch write replies with, or
     // {"error": "..."} when the gate refused a value. Forwarded to the window
     // like every other page's; fed by the same DiversityBandPoller, which
-    // polls /filter only while wantsFilterPoll() holds but answers a write at
-    // any time.
+    // polls /filter only while the CHAIN window is open but answers a write
+    // at any time.
     void applyFilter(const QJsonObject& filter);
 
     // The reply to one of the SITE page's own writes. Deliberately NOT fed
@@ -152,11 +152,6 @@ public:
     // the two BAND routes are -- and announced by the same bandPollChanged()
     // signal, which is about the visible PAGE rather than about one route.
     bool wantsSitePoll() const;
-
-    // True only while the pop-out window is on screen AND showing its FILTER
-    // page. /filter carries a 128-point response curve on every answer and is
-    // gated exactly the way the three routes above are.
-    bool wantsFilterPoll() const;
 
     // Test/introspection accessor for the pop-out window -- null until the
     // "Open Diversity window" button has been pressed once (or the persisted

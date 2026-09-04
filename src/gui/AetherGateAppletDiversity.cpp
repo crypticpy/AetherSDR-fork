@@ -124,11 +124,10 @@ void AetherGateApplet::pollDiversity()
 void AetherGateApplet::updateBandPoll()
 {
     m_bandPoller->setBaseUrl(baseUrl());
-    // /filter has two customers now: the Diversity window's FILTER page and
-    // the CHAIN window. Either one being on screen is a reason to poll it, and
-    // neither being on screen is a reason to stop.
-    const bool wantFilter = m_diversityPanel->wantsFilterPoll()
-                            || (m_chainWindow && m_chainWindow->isVisible());
+    // /filter has one customer, the CHAIN window (the Diversity window's
+    // FILTER tab, its other one, is retired): on screen is the reason to poll
+    // it, and off screen the reason to stop.
+    const bool wantFilter = m_chainWindow && m_chainWindow->isVisible();
     m_bandPoller->setPages(m_present && m_diversityPanel->wantsBandPoll(),
                            m_present && m_diversityPanel->wantsSitePoll(),
                            m_present && wantFilter);

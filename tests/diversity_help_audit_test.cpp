@@ -19,7 +19,6 @@
 #include "gui/AetherGateChainWindow.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/DiversityBeaconPanel.h"
-#include "gui/DiversityFilterControls.h"
 #include "gui/DiversityFinderPanel.h"
 #include "gui/DiversityNoiseProfilePanel.h"
 #include "gui/DiversityScope.h"
@@ -52,7 +51,6 @@ using AetherSDR::AetherGateApplet;
 using AetherSDR::AetherGateChainWindow;
 using AetherSDR::AetherGateDiversityPanel;
 using AetherSDR::DiversityBeaconPanel;
-using AetherSDR::DiversityFilterControls;
 using AetherSDR::DiversityFinderPanel;
 using AetherSDR::DiversityNoiseProfilePanel;
 using AetherSDR::DiversityScope;
@@ -454,9 +452,6 @@ void everyPanelTooltipIsAtMostNinetyChars()
 
     DiversitySpatialWaterfall waterfall;
     over += overLongTooltips(&waterfall);
-
-    DiversityFilterControls filterControls;
-    over += overLongTooltips(&filterControls);
 
     DiversityTalkerControls talkerControls;
     over += overLongTooltips(&talkerControls);

@@ -71,10 +71,10 @@ const char* kPageButtonStyle =
 
 constexpr int kPageButtonHeight = 26;
 
-// A floor, not the label's own width. Five tabs at their natural width would
+// A floor, not the label's own width. Four tabs at their natural width would
 // set the window's minimum width on their own, and the window has to stay
 // narrow enough to open at 1120 with nothing on any page behind a scrollbar --
-// which is what tests/diversity_site_test.cpp and tests/diversity_filter_test
+// which is what tests/diversity_site_test.cpp and tests/diversity_flow_test
 // .cpp both assert. Below this the labels elide; above it, which is every size
 // the window is ever actually at, they are their full selves.
 constexpr int kPageButtonMinWidth = 48;
@@ -95,9 +95,9 @@ void DiversityWindow::buildPageSwitch(QWidget* row)
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
 
-    // The five tabs sit against each other rather than at the row's 6 px
+    // The four tabs sit against each other rather than at the row's 6 px
     // spacing: they are one control -- a place you are -- and a gap between
-    // them would read as five separate commands.
+    // them would read as four separate commands.
     auto* tabs = new QHBoxLayout;
     tabs->setContentsMargins(0, 0, 0, 0);
     tabs->setSpacing(0);
@@ -105,7 +105,7 @@ void DiversityWindow::buildPageSwitch(QWidget* row)
 
     // Two strings per tab, not one. The tooltip is one line, because a
     // tooltip that is a paragraph is a tooltip nobody finishes reading and
-    // this row has five of them; the paragraph itself is still there for a
+    // this row has four of them; the paragraph itself is still there for a
     // screen reader, and for the HELP button beside them to have been worth
     // building.
     const auto makeButton = [&](const QString& text, const QString& objectName,
@@ -158,22 +158,12 @@ void DiversityWindow::buildPageSwitch(QWidget* row)
         tr("Your station rather than the band: what kind of noise this address "
            "makes -- mains hum, impulses, single lines -- and what the world's "
            "beacon network measures your antennas to be worth."));
-    m_pageFilterButton = makeButton(
-        tr("FILTER"), QStringLiteral("diversityWindowPageFilter"),
-        tr("Show the filter page"),
-        tr("The slice filter drawn, with every notch, contour and AGC setting."),
-        tr("The slice filter itself, drawn: the response curve with your "
-           "passband over it and the edges draggable on it, plus every notch, "
-           "contour, AGC and blanker setting the gate has. This is the page "
-           "for \"why does this sound like that\", which is almost never the "
-           "combiner."));
     m_pageStartButton->setChecked(true);
 
     connect(m_pageStartButton, &QToolButton::clicked, this, [this] { showPage(0); });
     connect(m_pageSliceButton, &QToolButton::clicked, this, [this] { showPage(1); });
     connect(m_pageBandButton, &QToolButton::clicked, this, [this] { showPage(2); });
     connect(m_pageSiteButton, &QToolButton::clicked, this, [this] { showPage(3); });
-    connect(m_pageFilterButton, &QToolButton::clicked, this, [this] { showPage(4); });
     layout->addSpacing(10);
 }
 
@@ -259,8 +249,12 @@ void DiversityWindow::showEvent(QShowEvent* event)
                              .value(QLatin1String(kPageKey), QString())
                              .toString()
                              .toInt(&ok);
-        // No stored value, or one this build has no page for: START. It is
-        // where a session starts and it is never wrong to be sent there.
+        // No stored value, or one this build has no page for -- the 4 a
+        // station that last used the retired FILTER tab still has stored, or
+        // anything else out of range: START. It is where a session starts and
+        // it is never wrong to be sent there. showPage() itself does the
+        // range check, so this only has to catch a value that is not a number
+        // at all.
         showPage(ok ? page : 0);
     }
     emit bandPageChanged(bandPageVisible());
@@ -288,12 +282,10 @@ void DiversityWindow::showPage(int page)
         const QSignalBlocker blockSlice(m_pageSliceButton);
         const QSignalBlocker blockBand(m_pageBandButton);
         const QSignalBlocker blockSite(m_pageSiteButton);
-        const QSignalBlocker blockFilter(m_pageFilterButton);
         m_pageStartButton->setChecked(page == 0);
         m_pageSliceButton->setChecked(page == 1);
         m_pageBandButton->setChecked(page == 2);
         m_pageSiteButton->setChecked(page == 3);
-        m_pageFilterButton->setChecked(page == 4);
     }
     m_pages->setCurrentIndex(page);
     retargetPageHelp(page);
@@ -302,10 +294,10 @@ void DiversityWindow::showPage(int page)
     // the right page behind.
     AppSettings::instance().setValue(QLatin1String(kPageKey), QString::number(page));
     // The applet polls /diversity/spatial and /diversity/finder only while
-    // BAND is on screen, /diversity/beacons only while SITE is, and /filter
-    // only while FILTER is -- a page nobody is looking at costs no requests.
-    // One signal for every page switch: the handler reads bandPageVisible(),
-    // sitePageVisible() and filterPageVisible() back off the window.
+    // BAND is on screen and /diversity/beacons only while SITE is -- a page
+    // nobody is looking at costs no requests. One signal for every page
+    // switch: the handler reads bandPageVisible() and sitePageVisible() back
+    // off the window.
     emit bandPageChanged(bandPageVisible() && isVisible());
 }
 

@@ -41,8 +41,8 @@
 // in the sidebar and vice versa: both are views of the same polled state,
 // neither echoes locally.
 //
-// It has five pages, switched by the START/SLICE/BAND/SITE/FILTER tabs on
-// the top row. START is the session itself: the four things that have to be
+// It has four pages, switched by the START/SLICE/BAND/SITE tabs under the
+// pair row. START is the session itself: the four things that have to be
 // true before listening means anything, each with what it buys you and when
 // it has to be redone, derived by DiversitySessionModel and drawn by
 // DiversitySessionPage. SLICE is the window described above -- everything about the
@@ -57,7 +57,10 @@
 // Three strips sit above every page and belong to none of them, which is the
 // whole point of them being three rows rather than one (see
 // DiversityWindowChain.cpp):
-//   * tab row    -- START / SLICE / BAND / SITE / FILTER: where you are.
+//   * tab row    -- START / SLICE / BAND / SITE: where you are, plus OPEN
+//                   CHAIN at the right-hand end. There was a fifth tab,
+//                   FILTER; every stage switch it carried is in the CHAIN
+//                   window now, and that button is the door to it.
 //   * pair row   -- MODE (off/manual/null/track), HEAR (combined/A/B/stereo),
 //                   the hold-to-compare "Hear A only", REALIGN, and CAPTURE
 //                   with its duration. What the two tuners are doing, on
@@ -116,7 +119,6 @@ namespace AetherSDR {
 class AetherGateDiversityPanel;
 class ClientCompKnob;
 class DiversityBeaconPanel;
-class DiversityFilterControls;
 class DiversityNextStrip;
 class DiversityFinderPanel;
 class DiversityNoiseProfilePanel;
@@ -174,12 +176,12 @@ public:
     // because a run goes on whatever page the operator walks to.
     void applyDig(const QJsonObject& dig);
 
-    // The FILTER page's own payload: one /filter answer, or the identical
-    // status object a /filter/set or /filter/notch write replies with, or
-    // {"error": "..."} when the gate refused a value. Fed whenever one arrives
-    // rather than only while the page is up -- a write is answered wherever
-    // the operator made it -- and see filterPageVisible() for when it is
-    // POLLED.
+    // One /filter answer, or the identical status object a /filter/set or
+    // /filter/notch write replies with, or {"error": "..."} when the gate
+    // refused a value. Nothing in this window DRAWS a filter any more -- the
+    // CHAIN window does -- but the START page's STATION step is about whose
+    // filter is in force, so the answer is still fed here whenever one
+    // arrives.
     void applyFilter(const QJsonObject& filter);
 
     // The reply to one of the SITE page's own writes -- a noise-profile action
@@ -215,11 +217,6 @@ public:
     // AetherGateApplet polls /diversity/beacons only when both hold.
     bool sitePageVisible() const;
 
-    // True while the window is showing FILTER. AetherGateDiversityPanel::
-    // wantsFilterPoll() combines it with the window's own visibility, and the
-    // band poller reads /filter at 2 Hz only when both hold.
-    bool filterPageVisible() const;
-
     // Mirrors AetherGateApplet's own presence flag: false clears every
     // readout and greys the status strip, but leaves the window open -- the
     // operator opened it, and a dropped poll is not a reason to take it away.
@@ -249,7 +246,7 @@ signals:
     // "/filter" for a plain re-read. A signal of its own rather than a wider
     // requestSet(), which means "/diversity/set" and nothing else.
     void requestFilter(QString path, QUrlQuery query);
-    // The FILTER page's OPEN CHAIN button. Left unconnected here on purpose:
+    // The pair row's OPEN CHAIN button. Left unconnected here on purpose:
     // AetherGateApplet.cpp is what wires this to
     // AetherGateApplet::toggleChainWindow, the same slot its own CHAIN button
     // already calls, so opening the chain from either place toggles the one
@@ -317,10 +314,6 @@ private:
     // The SITE page and the two members that feed it, defined in
     // DiversityWindowSite.cpp.
     QWidget* buildSitePage();
-    // The FILTER page, defined in DiversityWindowFilter.cpp beside the one
-    // method that reads a /filter status object.
-    QWidget* buildFilterPage();
-    void     clearFilterReadouts();
     // The per-bin weights control, built into the SLICE page's ANTENNAS panel
     // and defined beside the rest of the subband story rather than beside the
     // panel it is added to.
@@ -360,9 +353,11 @@ private:
     // lambda, so this disconnects and re-connects rather than setting a
     // property.
     void     retargetPageHelp(int page);
-    // Index into m_pages: 0 START, 1 SLICE, 2 BAND, 3 SITE, 4 FILTER -- the
-    // same order as DiversitySessionModel::Page, so a step's own page number
-    // is this argument without a translation table.
+    // Index into m_pages: 0 START, 1 SLICE, 2 BAND, 3 SITE -- the same order
+    // as DiversitySessionModel::Page, so a step's own page number is this
+    // argument without a translation table. Anything outside that range,
+    // including the 4 a station that last used the retired FILTER tab still
+    // has in AppSettings, lands on START rather than on a blank stack.
     void     showPage(int page);
     // A click on the waterfall or a FINDER row: emits requestTune() and, when
     // the combiner is not already tracking, asks for mode=track.
@@ -425,9 +420,14 @@ private:
     QToolButton*    m_pageSliceButton{nullptr};
     QToolButton*    m_pageBandButton{nullptr};
     QToolButton*    m_pageSiteButton{nullptr};
-    QToolButton*    m_pageFilterButton{nullptr};
+    // The door to the gate's CHAIN window, at the right-hand end of the tab
+    // row rather than on a page: it used to sit at the top of the FILTER tab,
+    // one page switch away from wherever the operator actually was. The pair
+    // row above would have been the other candidate and has no room -- see
+    // buildTabRow() in DiversityWindowChain.cpp for the measurement.
+    QPushButton*    m_openChainButton{nullptr};
     // One HELP button at the right-hand end of the tab row, retargeted to
-    // whichever page is showing -- five buttons would have been five more lit
+    // whichever page is showing -- four buttons would have been four more lit
     // boxes on the row this window keeps deliberately quiet.
     QPushButton*    m_pageHelpButton{nullptr};
     // The remembered page is restored once, on the first show -- see
@@ -437,14 +437,6 @@ private:
     DiversityFinderPanel*      m_finder{nullptr};
 
     // --- site ------------------------------------------------------------
-    // --- filter ------------------------------------------------------------
-    // The whole FILTER page: the OPEN CHAIN button and the PAIR's own two
-    // /diversity/set stages, POST-FILTER and MRC. It keeps its own state and
-    // this window keeps none of it -- see DiversityFilterControls.h. The
-    // receiver-generic stages that used to live here (roofing, blanker,
-    // shape, notch, APF, AGC, ...) are the gate's own CHAIN window now.
-    DiversityFilterControls* m_filter{nullptr};
-
     DiversityNoiseProfilePanel* m_noiseProfile{nullptr};
     // The operator's own note about what is on the end of the coax -- which
     // loops, and where their control boxes are set. The gate stores it on the

@@ -4,7 +4,6 @@
 #include "core/ThemeManager.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/ClientCompKnob.h"
-#include "gui/DiversityFilterControls.h"
 #include "gui/DiversityNextStrip.h"
 #include "gui/DiversityMapStrip.h"
 #include "gui/DiversityScope.h"
@@ -203,7 +202,7 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     // but the window can be dragged down to 980x720, and a control that has
     // been squeezed off the right-hand edge with no way to scroll to it is
     // worse than a scrollbar.
-    // Five pages, two shared rows. Every one of them is built here rather
+    // Four pages, two shared rows. Every one of them is built here rather
     // than lazily so its widgets exist for the very first poll -- a page that
     // built itself on first show would miss the payload that arrived while
     // it did. START is index 0 because it is where a session starts: the
@@ -215,7 +214,6 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     m_pages->addWidget(scroll);
     m_pages->addWidget(buildBandPage());
     m_pages->addWidget(buildSitePage());
-    m_pages->addWidget(buildFilterPage());
     root->addWidget(m_pages, 1);
 
     m_statusStrip = new QLabel(tr("gate not answering"), this);
@@ -506,15 +504,6 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
     }
     applyFocus(d.value(QStringLiteral("focus")), haveTalker, talkerId, talkerName);
 
-    // --- FILTER page: the pair's own two stages ----------------------------
-    // Fed whether or not FILTER is the page on screen, the same reasoning the
-    // talker names above are: it costs a hash and it means the page already
-    // has the right answer the moment its tab is clicked.
-    if (m_filter) {
-        m_filter->applyPost(d.value(QStringLiteral("post")).toObject());
-        m_filter->applyMrc(d.value(QStringLiteral("mrc")).toObject());
-    }
-
     // --- noise ------------------------------------------------------------
     double coherence = 0.0;
     const bool haveCoherence = jsonNumber(d, "noise_coherence", &coherence);
@@ -675,7 +664,6 @@ void DiversityWindow::clearReadouts()
     refreshSession();
     clearBandReadouts();
     clearSiteReadouts();
-    clearFilterReadouts();
     m_scope->clear();
     m_timeline->clear();
     m_mapStrip->setMap({});

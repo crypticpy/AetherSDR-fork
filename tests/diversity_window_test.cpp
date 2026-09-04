@@ -40,7 +40,11 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSignalSpy>
+#include <QStackedWidget>
 #include <QTest>
+#include <QToolButton>
+#include <QWidget>
 
 #include <cmath>
 #include <cstdio>
@@ -149,9 +153,11 @@ void testFullAndNullPayloadsApplyAndTheScopeAgrees()
     auto* align = w->findChild<QLabel*>(QStringLiteral("diversityWindowAlignLabel"));
     CHECK(align
           && align->text() == QStringLiteral("aligned · lag 3 · peak 0.910 · steady"));
-    // The tab row grew a fifth page (FILTER); the hint beside it must not.
+    // The tab row is four pages again now FILTER is retired; the hint beside
+    // it says so rather than counting a tab that is not there.
     auto* pagesHint = w->findChild<QLabel*>(QStringLiteral("diversityWindowPagesHint"));
-    CHECK(pagesHint && !pagesHint->toolTip().contains(QStringLiteral("four")));
+    CHECK(pagesHint && pagesHint->toolTip().contains(QStringLiteral("four")));
+    CHECK(pagesHint && !pagesHint->toolTip().contains(QStringLiteral("five")));
 
     // Now the same window fed a payload whose every optional leg is null.
     net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityNulls};
@@ -437,6 +443,101 @@ void testNothingScrollsAtTheInitialSize()
     closedToStart();
 }
 
+
+// (n) OPEN CHAIN is on the header block -- the tab row, beside the pair row
+// above it -- rather than on a page: it used to be at the top of the retired
+// FILTER tab, one page switch away from wherever the operator was. So the
+// button has to be found from START, from BAND, from anywhere, and every
+// press has to be another ask rather than a toggle that latches.
+void testOpenChainSitsOnTheHeaderRowAndAsksOnEveryPage()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityFull);
+    openButton(a)->click();
+    settle();
+
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* button =
+        w->findChild<QPushButton*>(QStringLiteral("diversityWindowOpenChain"));
+    auto* tabRow = w->findChild<QWidget*>(QStringLiteral("diversityWindowTabRow"));
+    auto* pages = w->findChild<QStackedWidget*>(QStringLiteral("diversityWindowPages"));
+    CHECK(button != nullptr);
+    CHECK(tabRow != nullptr);
+    if (!button || !tabRow || !pages)
+        return;
+    // On the header row itself, not on any page inside the stack -- a button
+    // on a page is a button three pages cannot reach.
+    CHECK(button->parentWidget() == tabRow);
+    CHECK(!pages->isAncestorOf(button));
+    CHECK(button->text() == QStringLiteral("OPEN CHAIN"));
+    CHECK(button->toolTip().length() <= 90);
+    CHECK(!button->isCheckable());
+
+    QSignalSpy spy(w, &DiversityWindow::requestOpenChain);
+    button->click();
+    settle();
+    CHECK(spy.count() == 1);
+
+    // MUTATION: from another page, the same button, still there and still
+    // asking -- which is the whole reason it left the page it was on.
+    w->findChild<QToolButton*>(QStringLiteral("diversityWindowPageBand"))->click();
+    settle();
+    CHECK(button->isVisible());
+    button->click();
+    settle();
+    CHECK(spy.count() == 2);
+    closedToStart();
+}
+
+// (o) The persisted page key holds an int. A station that last used the
+// retired FILTER tab has a 4 in it, and a build with four pages has no page
+// 4 -- that must land on START, never on a blank stack. Same for anything
+// else out of range, and for a value that is not a number at all.
+void testStoredPageOutOfRangeFallsBackToStart()
+{
+    const QString key = QStringLiteral("DiversityWindowPage");
+    for (const QString& stored : {QStringLiteral("4"), QStringLiteral("99"),
+                                  QStringLiteral("-1"), QStringLiteral("filter"),
+                                  QString()}) {
+        closedToStart();
+        AppSettings::instance().setValue(key, stored);
+        FakeGate net;
+        AetherGateApplet a(nullptr, &net);
+        connectGate(a, net, kDiversityFull);
+        openButton(a)->click();
+        settle();
+
+        DiversityWindow* w = a.diversityPanel()->window();
+        CHECK(w != nullptr);
+        if (!w)
+            continue;
+        auto* pages = w->findChild<QStackedWidget*>(QStringLiteral("diversityWindowPages"));
+        CHECK(pages != nullptr);
+        if (!pages)
+            continue;
+        // Four pages, START showing, and the key rewritten to the page that
+        // is actually up -- a stale 4 must not survive to be read again.
+        CHECK(pages->count() == 4);
+        CHECK(pages->currentIndex() == 0);
+        CHECK(pages->currentWidget() != nullptr);
+        CHECK(w->findChild<QToolButton*>(QStringLiteral("diversityWindowPageStart"))
+                  ->isChecked());
+        CHECK(w->findChild<QToolButton*>(QStringLiteral("diversityWindowPageFilter"))
+              == nullptr);
+        CHECK(AppSettings::instance().value(key).toString() == QStringLiteral("0"));
+        w->close();
+        settle();
+    }
+    AppSettings::instance().setValue(key, QString());
+    closedToStart();
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -453,6 +554,8 @@ int main(int argc, char** argv)
     testGateGoingAwayClearsTheWindowsReadouts();
     testMapPassbandParsesOnlyWhenTheGateSendsIt();
     testNothingScrollsAtTheInitialSize();
+    testOpenChainSitsOnTheHeaderRowAndAsksOnEveryPage();
+    testStoredPageOutOfRangeFallsBackToStart();
 
     std::printf("\n%d diversity window test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

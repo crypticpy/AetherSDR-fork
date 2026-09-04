@@ -1,7 +1,6 @@
 // The Diversity window's usability round: the two buttons on the pair row that
-// now answer back, the AGC threshold spin the FILTER page grew beside them, and
-// the window's own frame -- two sticky rows' worth of height reclaimed with
-// nothing on any of the FIVE pages behind a scrollbar. The START page's own
+// now answer back, and the window's own frame -- two sticky rows' worth of
+// height reclaimed with nothing on any of the FOUR pages behind a scrollbar. The START page's own
 // cards and the NEXT strip that quotes one of them are
 // tests/diversity_session_page_test.cpp; what is left here is the dig, whose
 // buttons this window owns wherever they are drawn.
@@ -465,8 +464,7 @@ void testNothingScrollsOnAnyPageAtTheInitialSize()
         {"diversityWindowPageStart", "diversityWindowStartScroll", "-start.png"},
         {"diversityWindowPageSlice", "diversityWindowSliceScroll", "-slice.png"},
         {"diversityWindowPageBand", "diversityWindowBandScroll", "-band.png"},
-        {"diversityWindowPageSite", "diversityWindowSiteScroll", "-site.png"},
-        {"diversityWindowPageFilter", "diversityWindowFilterScroll", "-filter.png"}};
+        {"diversityWindowPageSite", "diversityWindowSiteScroll", "-site.png"}};
     for (const auto& page : pages) {
         child<QToolButton>(w, page[0])->click();
         settle();

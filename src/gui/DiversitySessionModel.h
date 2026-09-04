@@ -71,16 +71,17 @@ public:
         LoopDestination
     };
 
-    // The window's five tabs, START first (R2 §3: "New persisted key
+    // The window's four tabs, START first (R2 §3: "New persisted key
     // DiversityWindowPage ... No stored value -> START"). WP-B renumbers its
     // own QStackedWidget to match; this model never opens a page, it only
-    // names one for a cure to land on.
+    // names one for a cure to land on. FILTER was a fifth: it is retired, and
+    // every stage switch it carried is in the CHAIN window now, which is a
+    // window of its own rather than a tab.
     enum Page {
         PageStart = 0,
         PageSlice,
         PageBand,
-        PageSite,
-        PageFilter
+        PageSite
     };
 
     // The one-click fix for the step's first undone tick, or an empty Cure

@@ -432,11 +432,6 @@ bool AetherGateDiversityPanel::wantsSitePoll() const
            && (m_window->sitePageVisible() || m_window->beaconPollWanted());
 }
 
-bool AetherGateDiversityPanel::wantsFilterPoll() const
-{
-    return m_window && m_window->isVisible() && m_window->filterPageVisible();
-}
-
 void AetherGateDiversityPanel::setPresent(bool present)
 {
     m_present = present;

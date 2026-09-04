@@ -184,7 +184,7 @@ void testDigNarratesTheRunTheReportAndTheVerdict()
     CHECK(w != nullptr);
     if (!w)
         return;
-    child<QToolButton>(w, "diversityWindowPageFilter")->click();
+    child<QToolButton>(w, "diversityWindowPageSite")->click();
     settle();
     digTick(w);
 

@@ -19,13 +19,13 @@ namespace AetherSDR {
 class DiversityHelp {
 public:
     // One topic per Diversity window page, plus CHAIN (its own window, not
-    // one of the five DiversitySessionModel::Page tabs).
+    // one of the four DiversitySessionModel::Page tabs). CHAIN is where the
+    // retired FILTER tab's own topic went: one window, one help page.
     enum class Topic {
         Start,
         Slice,
         Band,
         Site,
-        Filter,
         Chain
     };
 
