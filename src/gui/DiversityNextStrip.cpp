@@ -91,12 +91,13 @@ DiversityNextStrip::DiversityNextStrip(QWidget* parent)
     m_line = new QLabel(this);
     m_line->setObjectName(QStringLiteral("diversityWindowNextLine"));
     m_line->setAccessibleName(tr("Next step"));
+    // H1's 90-char tooltip rule: the long form used to live here whole; it
+    // is on the START page's own header now (DiversitySessionPage.cpp), and
+    // this line's accessibleDescription is kept in sync with what it is
+    // showing (see rebuild()) rather than holding a second copy of it.
     m_line->setToolTip(
-        tr("The one thing left to do, and the gate's own words for why. The "
-           "whole order -- RECEIVER, SITE NOISE, BAND, STATION, then LISTEN "
-           "-- is on the START page with what each step buys you. Once all "
-           "four are behind you this line collapses to who is talking; click "
-           "it to open it again."));
+        tr("The one thing left to do, and why. Click to expand once every "
+           "step is done."));
     m_line->setTextFormat(Qt::RichText);
     // The collapse toggle is a link in this label rather than a sixth button:
     // it is the line itself that opens and closes, and a control only a mouse
@@ -186,6 +187,22 @@ void DiversityNextStrip::applyDig(const QJsonObject& dig)
     m_digGainDb = dig.value(QStringLiteral("gain_db")).toDouble();
     m_digElapsedS = dig.value(QStringLiteral("elapsed_s")).toDouble();
     m_digSeconds = dig.value(QStringLiteral("seconds")).toDouble();
+
+    const QJsonValue remainingV = dig.value(QStringLiteral("remaining_s"));
+    m_haveDigRemaining = remainingV.isDouble();
+    m_digRemainingS = m_haveDigRemaining ? remainingV.toDouble() : 0.0;
+
+    const QJsonValue plannedV = dig.value(QStringLiteral("trials_planned"));
+    const QJsonValue doneV = dig.value(QStringLiteral("trials_done"));
+    m_haveDigTrials = plannedV.isDouble() && doneV.isDouble();
+    m_digTrialsPlanned = m_haveDigTrials ? int(std::llround(plannedV.toDouble())) : 0;
+    m_digTrialsDone = m_haveDigTrials ? int(std::llround(doneV.toDouble())) : 0;
+
+    const QJsonValue beforeV = dig.value(QStringLiteral("objective_before"));
+    const QJsonValue afterV = dig.value(QStringLiteral("objective_after"));
+    m_haveDigObjective = beforeV.isDouble() && afterV.isDouble();
+    m_digObjectiveBefore = m_haveDigObjective ? beforeV.toDouble() : 0.0;
+    m_digObjectiveAfter = m_haveDigObjective ? afterV.toDouble() : 0.0;
     rebuild();
 }
 
@@ -214,6 +231,14 @@ void DiversityNextStrip::clear()
     m_digGainDb = 0.0;
     m_digElapsedS = 0.0;
     m_digSeconds = 0.0;
+    m_haveDigRemaining = false;
+    m_digRemainingS = 0.0;
+    m_haveDigTrials = false;
+    m_digTrialsDone = 0;
+    m_digTrialsPlanned = 0;
+    m_haveDigObjective = false;
+    m_digObjectiveBefore = 0.0;
+    m_digObjectiveAfter = 0.0;
     m_governor = ChainAutoGovernor();
     updateAutoCleanButton();
     rebuild();
@@ -281,11 +306,18 @@ QString DiversityNextStrip::digTail() const
     if (!m_digAvailable)
         return QString();
     if (m_digRunning) {
-        return tr(" · DIG %1 of %2 · %3 dB · %4")
+        QString tail = tr(" · DIG %1 of %2 · %3 dB · %4")
             .arg(clockText(m_digElapsedS), clockText(m_digSeconds),
                  signedDb(m_digGainDb),
                  chainAutoDigStartedByAuto(m_governor) ? tr("started by AUTO")
                                                        : tr("started by you"));
+        // remaining_s/trials_*: DigRunner.status()'s own countdown and trial
+        // count, absent on a gate too old to send them.
+        if (m_haveDigRemaining)
+            tail += tr(", %1 s left").arg(qint64(std::llround(m_digRemainingS)));
+        if (m_haveDigTrials)
+            tail += tr(" · trial %1/%2").arg(m_digTrialsDone).arg(m_digTrialsPlanned);
+        return tail;
     }
     if (!m_digError.isEmpty())
         return QStringLiteral(" · ") + m_digError;
@@ -293,6 +325,17 @@ QString DiversityNextStrip::digTail() const
         return tr(" · DIG found %1 dB (put back)").arg(signedDb(m_digGainDb));
     if (digAwaitingVerdict())
         return tr(" · DIG done · %1 dB — better or worse?").arg(signedDb(m_digGainDb));
+    // A verdict has landed (better/worse/keep): the run's own before/after,
+    // quoted once and never again once the next dig's applyDig() clears it.
+    if (!m_digVerdict.isEmpty() && m_digPhase == QLatin1String("done")) {
+        QString tail = tr(" · DIG %1 dB, you said %2")
+                           .arg(signedDb(m_digGainDb), m_digVerdict);
+        if (m_haveDigObjective)
+            tail += QStringLiteral(" (%1 → %2)")
+                        .arg(QString::number(m_digObjectiveBefore, 'f', 1),
+                             QString::number(m_digObjectiveAfter, 'f', 1));
+        return tail;
+    }
     return QString();
 }
 

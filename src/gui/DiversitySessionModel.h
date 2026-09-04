@@ -32,10 +32,12 @@
 // WHAT APPLY() CANNOT SEE. Deliberately narrow: no /diversity/finder (the
 // FINDER candidate count some R2.2 examples quote, "FINDER has 6", is
 // therefore not reproduced here -- that number belongs to whichever package
-// owns the BAND page's own poller) and no /device (the FRONT END guard's
-// headroom number lives there, per AetherGateChainAuto.h's own note on
-// where "guard" is synthesised from; see headroomClear() below for the TODO
-// this leaves).
+// owns the BAND page's own poller) and no /device (the CHAIN window's GUARD
+// row is synthesised from that route's "frontend" key, per
+// AetherGateChainAuto.h's own note). RECEIVER's own headroom read is
+// narrower still: /diversity's own "frontend" object (guard, headroom_db),
+// which is the whole of what this model needs to know the loops are not
+// overloading -- see buildReceiver() in the .cpp.
 
 #include <QJsonObject>
 #include <QSet>

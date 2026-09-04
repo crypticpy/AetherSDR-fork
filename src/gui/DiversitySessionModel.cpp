@@ -251,12 +251,17 @@ DiversitySessionModel::Step DiversitySessionModel::buildReceiver() const
     const bool haveAlignRetry = alignRetryVal.isDouble();
     const QString mode = m_diversity.value(QStringLiteral("mode")).toString();
     const QString source = m_diversity.value(QStringLiteral("source")).toString();
-    // TODO(gate): no headroom/guard key exists on /diversity or /filter yet
-    // (AetherGateChainAuto.h's own note: the FRONT END guard is synthesised
-    // from GET /device's "frontend" key, which is outside this model's five-
-    // payload input contract). Read as always clear until a gate-side key
-    // lands and this model is told which one.
-    const bool headroomClear = true;
+    // /diversity's own "frontend" object (distinct from AetherGateChainAuto.h's
+    // GET /device synthesis for the CHAIN window's GUARD row): {"guard_active",
+    // "headroom_db", ...}. Absent on a gate too old to send it -- toBool(false)
+    // on an undefined value reads as "not guarding", the same "always clear"
+    // default this line held before the key existed.
+    const QJsonObject frontend =
+        m_diversity.value(QStringLiteral("frontend")).toObject();
+    const bool frontendGuarding = frontend.value(QStringLiteral("guard_active")).toBool(false);
+    const QJsonValue headroomDbVal = frontend.value(QStringLiteral("headroom_db"));
+    const bool haveHeadroomDb = headroomDbVal.isDouble();
+    const bool headroomClear = !frontendGuarding;
 
     const bool sourceOk = source == QLatin1String("combined")
                           || source == QLatin1String("stereo");
@@ -298,7 +303,10 @@ DiversitySessionModel::Step DiversitySessionModel::buildReceiver() const
         s.cure = Cure{QStringLiteral("HEAR OUT"), QStringLiteral("set"),
                       QStringLiteral("source=combined")};
     } else if (!headroomClear) {
-        s.state = QStringLiteral("loops overloading, headroom low");
+        s.state = haveHeadroomDb
+                      ? QStringLiteral("loops overloading, headroom low (%1 dB)")
+                            .arg(QString::number(headroomDbVal.toDouble(), 'f', 1))
+                      : QStringLiteral("loops overloading, headroom low");
         s.cure = Cure{QStringLiteral("OPEN FRONT END"), QStringLiteral("page"), QString()};
     } else {
         s.state = QStringLiteral("aligned, %1 · hearing %2")
@@ -677,21 +685,49 @@ QString DiversitySessionModel::digSummary() const
     const bool running = m_dig.value(QStringLiteral("running")).toBool(false);
     const double gainDb = num(m_dig.value(QStringLiteral("gain_db"))); // gate's own number
     if (running) {
-        return QStringLiteral("digging · %1 dB so far").arg(signedDb(gainDb));
+        QString line = QStringLiteral("digging · %1 dB so far").arg(signedDb(gainDb));
+        // remaining_s/trials_*: DigRunner.status()'s own countdown and trial
+        // count, absent on a gate too old to send them.
+        const QJsonValue remainingV = m_dig.value(QStringLiteral("remaining_s"));
+        if (remainingV.isDouble())
+            line += QStringLiteral(", %1 s left")
+                        .arg(qint64(std::llround(remainingV.toDouble())));
+        const QJsonValue plannedV = m_dig.value(QStringLiteral("trials_planned"));
+        const QJsonValue doneV = m_dig.value(QStringLiteral("trials_done"));
+        if (plannedV.isDouble() && doneV.isDouble())
+            line += QStringLiteral(" · trial %1/%2")
+                        .arg(qint64(std::llround(doneV.toDouble())))
+                        .arg(qint64(std::llround(plannedV.toDouble())));
+        return line;
     }
     if (m_dig.value(QStringLiteral("cancelled")).toBool(false))
         return QStringLiteral("found %1 dB (put back)").arg(signedDb(gainDb));
     if (m_dig.value(QStringLiteral("phase")).toString() != QLatin1String("done"))
         return QString();
 
+    // objective_before -> objective_after, and the operator's own verdict word
+    // once they have given one -- both absent on a gate too old to send them,
+    // or before the run has landed a verdict.
+    QString tail;
+    const QJsonValue beforeV = m_dig.value(QStringLiteral("objective_before"));
+    const QJsonValue afterV = m_dig.value(QStringLiteral("objective_after"));
+    if (beforeV.isDouble() && afterV.isDouble())
+        tail += QStringLiteral(" (%1 → %2)")
+                    .arg(QString::number(beforeV.toDouble(), 'f', 1),
+                         QString::number(afterV.toDouble(), 'f', 1));
+    const QString verdict = m_dig.value(QStringLiteral("verdict")).toString();
+    if (!verdict.isEmpty())
+        tail += QStringLiteral(" · you said %1").arg(verdict);
+
     const QJsonObject changed = m_dig.value(QStringLiteral("changed")).toObject();
     if (!changed.isEmpty()) {
         QStringList knobs;
         for (auto it = changed.begin(); it != changed.end(); ++it)
             knobs << it.key();
-        return QStringLiteral("%1 dB: %2").arg(signedDb(gainDb), knobs.join(QStringLiteral(", ")));
+        return QStringLiteral("%1 dB: %2%3")
+            .arg(signedDb(gainDb), knobs.join(QStringLiteral(", ")), tail);
     }
-    return QStringLiteral("nothing beat your settings");
+    return QStringLiteral("nothing beat your settings%1").arg(tail);
 }
 
 } // namespace AetherSDR

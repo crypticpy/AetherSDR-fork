@@ -123,30 +123,54 @@ QJsonObject held(const QString& tool, const QString& kind, const QString& why,
     return h;
 }
 
-// One row of governor.events[] -- held's shape plus `t` and `result`.
+// One row of governor.events[] -- held's shape plus `t` and `result`. `wall`
+// is the real epoch-seconds companion core/governor.py's events now carry
+// alongside `t`'s monotonic one; omitted (hasWall false) reproduces an older
+// gate that never sends it.
 QJsonObject event(double t, const QString& tool, const QString& kind, const QString& why,
-                  const QString& result, bool hasDelta, double deltaDb = 0.0)
+                  const QString& result, bool hasDelta, double deltaDb = 0.0,
+                  bool hasWall = false, double wall = 0.0)
 {
     QJsonObject e = held(tool, kind, why, 0.0, hasDelta, deltaDb);
     e.insert(QStringLiteral("t"), t);
     e.insert(QStringLiteral("result"), result);
+    if (hasWall)
+        e.insert(QStringLiteral("wall"), wall);
     return e;
 }
 
-QJsonObject backoff(const QString& kind, const QString& tool, double until)
+// `until_wall` is core/governor.py's real epoch-seconds companion to
+// `until`'s monotonic one; omitted (hasUntilWall false) reproduces an older
+// gate that never sends it.
+QJsonObject backoff(const QString& kind, const QString& tool, double until,
+                    bool hasUntilWall = false, double untilWall = 0.0)
 {
     QJsonObject b;
     b.insert(QStringLiteral("kind"), kind);
     b.insert(QStringLiteral("tool"), tool);
     b.insert(QStringLiteral("until"), until);
+    if (hasUntilWall)
+        b.insert(QStringLiteral("until_wall"), untilWall);
     return b;
+}
+
+// One row of governor.ruled_out[].
+QJsonObject ruledOut(const QString& tool, const QString& why)
+{
+    QJsonObject r;
+    r.insert(QStringLiteral("tool"), tool);
+    r.insert(QStringLiteral("why"), why);
+    return r;
 }
 
 // The whole governor block, /diversity/governor's own shape (docs/DIVERSITY
 // .md "AUTO CLEAN: the chain decides").
 QJsonObject governor(bool autoOn, const QString& state, const QString& why,
                      const QJsonArray& holding = {}, const QJsonValue& pending = QJsonValue(),
-                     const QJsonArray& events = {}, const QJsonArray& backoffs = {})
+                     const QJsonArray& events = {}, const QJsonArray& backoffs = {},
+                     const QJsonArray& ruledOutRows = {},
+                     const QString& objectiveSource = QString(),
+                     const QString& error = QString())
 {
     QJsonObject g;
     g.insert(QStringLiteral("available"), true);
@@ -156,11 +180,13 @@ QJsonObject governor(bool autoOn, const QString& state, const QString& why,
     g.insert(QStringLiteral("settle_s"), 5.0);
     g.insert(QStringLiteral("margin_db"), 1.0);
     g.insert(QStringLiteral("spread_db"), 2.0);
+    g.insert(QStringLiteral("objective_source"), objectiveSource);
     g.insert(QStringLiteral("holding"), holding);
     g.insert(QStringLiteral("pending"), pending);
     g.insert(QStringLiteral("events"), events);
+    g.insert(QStringLiteral("ruled_out"), ruledOutRows);
     g.insert(QStringLiteral("backoff"), backoffs);
-    g.insert(QStringLiteral("error"), QString());
+    g.insert(QStringLiteral("error"), error);
     return g;
 }
 
@@ -435,6 +461,181 @@ void testInspectorErrorEventAndBackoffLine()
     CHECK(lines.at(1) == QStringLiteral("backing off: mains/squeeze until 12:46"));
 }
 
+// H2: events[].wall, governor.ruled_out/objective_source/error, and
+// backoff[].until_wall -- all previously parsed-and-ignored or never parsed
+// at all. Each test below turns exactly one of them on and checks the one
+// line it is supposed to change; the "absent" half of every one of these is
+// already covered above (testInspectorEventLinesNewestFirstWithResultAndDelta
+// and testInspectorErrorEventAndBackoffLine both omit wall/until_wall/
+// ruled_out/objective_source and still pass unchanged).
+// --------------------------------------------------------------------------
+
+// A `t` chosen to format as a wildly wrong time of day (it is the gate's
+// monotonic clock, not epoch seconds) so the assertion only passes if the
+// line is actually reading `wall`, not silently still reading `t`.
+void testEventLinePrefersWallOverT()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    const QJsonArray events = {
+        event(12.5, QStringLiteral("nb"), QStringLiteral("impulse"), QStringLiteral("1.4/s"),
+             QStringLiteral("released"), false, 0.0, true, localEpoch(9, 15, 3)),
+    };
+    connectGate(applet, net,
+               withAutoCleanChain(true, governor(true, QStringLiteral("idle"),
+                                                 QStringLiteral("nothing to hold"), {},
+                                                 QJsonValue(), events)));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w);
+    strip(w)->selectStage(QStringLiteral("auto_clean"));
+    settle();
+
+    auto* events_ = w->findChild<QLabel*>(QStringLiteral("gateChainAutoEvents"));
+    CHECK(events_ != nullptr);
+    if (!events_)
+        return;
+    CHECK(events_->text() == QStringLiteral("09:15:03 · nb · impulse · released · 1.4/s"));
+}
+
+void testBackoffLinePrefersUntilWallAndAddsSeconds()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    const QJsonArray backoffs = {
+        backoff(QStringLiteral("mains"), QStringLiteral("squeeze"), 999.0, true,
+               localEpoch(12, 46, 30)),
+    };
+    connectGate(applet, net,
+               withAutoCleanChain(true, governor(true, QStringLiteral("backoff"),
+                                                 QStringLiteral("mains/squeeze backing off"),
+                                                 {}, QJsonValue(), {}, backoffs)));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w);
+    strip(w)->selectStage(QStringLiteral("auto_clean"));
+    settle();
+
+    auto* events_ = w->findChild<QLabel*>(QStringLiteral("gateChainAutoEvents"));
+    CHECK(events_ != nullptr);
+    if (events_)
+        CHECK(events_->text() == QStringLiteral("backing off: mains/squeeze until 12:46:30"));
+}
+
+void testStateLineAppendsHeldBackFromRuledOut()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    const QJsonArray ruled = {
+        ruledOut(QStringLiteral("guard"), QStringLiteral("the guard is already on")),
+        ruledOut(QStringLiteral("dig"), QStringLiteral("talker 3.2 dB: waiting for steady")),
+    };
+    // `why` here is deliberately NOT the ruled_out join (the governor is
+    // "applying" something else this tick), so the held-back clause has
+    // something to say that `why` alone does not.
+    connectGate(applet, net,
+               withAutoCleanChain(true, governor(true, QStringLiteral("applying"),
+                                                 QStringLiteral("nulling floor"), {},
+                                                 QJsonValue(), {}, {}, ruled)));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w);
+    strip(w)->selectStage(QStringLiteral("auto_clean"));
+    settle();
+
+    auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
+    CHECK(state != nullptr);
+    if (state)
+        CHECK(state->text()
+              == QStringLiteral("applying · nulling floor · held back: the guard is "
+                                "already on · talker 3.2 dB: waiting for steady"));
+}
+
+// When the governor is idle with nothing held, `why` IS already ruled_out's
+// own join (core/governor.py's _why_idle()) -- the held-back clause must not
+// repeat it a second time on the same line.
+void testStateLineOmitsHeldBackWhenSameAsWhy()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    const QJsonArray ruled = {
+        ruledOut(QStringLiteral("guard"), QStringLiteral("2 dB of ADC headroom, no clipping")),
+    };
+    connectGate(applet, net,
+               withAutoCleanChain(true, governor(true, QStringLiteral("idle"),
+                                                 QStringLiteral("2 dB of ADC headroom, no "
+                                                               "clipping"),
+                                                 {}, QJsonValue(), {}, {}, ruled)));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w);
+    strip(w)->selectStage(QStringLiteral("auto_clean"));
+    settle();
+
+    auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
+    CHECK(state != nullptr);
+    if (state)
+        CHECK(state->text()
+              == QStringLiteral("idle · 2 dB of ADC headroom, no clipping"));
+}
+
+void testStateLineAppendsObjectiveSource()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net,
+               withAutoCleanChain(true, governor(true, QStringLiteral("idle"),
+                                                 QStringLiteral("nothing to hold"), {},
+                                                 QJsonValue(), {}, {}, {},
+                                                 QStringLiteral("none"))));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w);
+    strip(w)->selectStage(QStringLiteral("auto_clean"));
+    settle();
+
+    auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
+    CHECK(state != nullptr);
+    if (state)
+        CHECK(state->text() == QStringLiteral("idle · nothing to hold · objective: none"));
+}
+
+void testStateLinePrefixesNonEmptyErrorAsWarning()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net,
+               withAutoCleanChain(true, governor(true, QStringLiteral("idle"),
+                                                 QStringLiteral("nothing to hold"), {},
+                                                 QJsonValue(), {}, {}, {}, QString(),
+                                                 QStringLiteral("RuntimeError: adapter has "
+                                                               "no device controls"))));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w);
+    strip(w)->selectStage(QStringLiteral("auto_clean"));
+    settle();
+
+    auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
+    CHECK(state != nullptr);
+    if (state)
+        CHECK(state->text()
+              == QStringLiteral("AUTO CLEAN ERROR: RuntimeError: adapter has no device "
+                                "controls · idle · nothing to hold"));
+}
+
 // --------------------------------------------------------------------------
 // The write path -- the one thing this task must not get wrong
 // --------------------------------------------------------------------------
@@ -600,6 +801,12 @@ int main(int argc, char** argv)
     testNoteIsADirectChildOfItsOwnTileOnly();
     testInspectorEventLinesNewestFirstWithResultAndDelta();
     testInspectorErrorEventAndBackoffLine();
+    testEventLinePrefersWallOverT();
+    testBackoffLinePrefersUntilWallAndAddsSeconds();
+    testStateLineAppendsHeldBackFromRuledOut();
+    testStateLineOmitsHeldBackWhenSameAsWhy();
+    testStateLineAppendsObjectiveSource();
+    testStateLinePrefixesNonEmptyErrorAsWarning();
     testToggleWritesExactlyAutoOffWhileOnAndAutoOnWhileOff();
     testEveryB25WidgetHasANameAndNothingScrollsAtInitialSize();
     testRenderAutoWhenAsked();

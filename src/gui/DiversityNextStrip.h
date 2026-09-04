@@ -135,6 +135,19 @@ private:
     double  m_digGainDb{0.0};
     double  m_digElapsedS{0.0};
     double  m_digSeconds{0.0};
+
+    // DigRunner.status()'s countdown and trial count, quoted on the running
+    // line; objective_before/after, quoted once a verdict has landed. All
+    // four "have" flags because a gate too old to send them must not draw a
+    // fabricated 0.
+    bool    m_haveDigRemaining{false};
+    double  m_digRemainingS{0.0};
+    bool    m_haveDigTrials{false};
+    int     m_digTrialsDone{0};
+    int     m_digTrialsPlanned{0};
+    bool    m_haveDigObjective{false};
+    double  m_digObjectiveBefore{0.0};
+    double  m_digObjectiveAfter{0.0};
 };
 
 } // namespace AetherSDR

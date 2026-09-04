@@ -40,6 +40,9 @@ ChainAutoEvent parseEvent(const QJsonObject& e)
 {
     ChainAutoEvent out;
     out.t = num(e.value(QStringLiteral("t")));
+    const QJsonValue wall = e.value(QStringLiteral("wall"));
+    out.hasWall = wall.isDouble();
+    out.wall = out.hasWall ? wall.toDouble() : 0.0;
     out.tool = e.value(QStringLiteral("tool")).toString();
     out.kind = e.value(QStringLiteral("kind")).toString();
     out.why = e.value(QStringLiteral("why")).toString();
@@ -77,7 +80,7 @@ QString timeOf(double epochSeconds, const char* fmt)
 // is not repeated after "error: ".
 QString eventLine(const ChainAutoEvent& e)
 {
-    const QString time = timeOf(e.t, "HH:mm:ss");
+    const QString time = timeOf(e.hasWall ? e.wall : e.t, "HH:mm:ss");
     QString line;
     if (e.result == QLatin1String("error")) {
         line = QStringLiteral("%1 · %2 · %3 · error: %4").arg(time, e.tool, e.kind, e.why);
@@ -97,11 +100,30 @@ QString eventLine(const ChainAutoEvent& e)
     return line;
 }
 
-// "backing off: mains/squeeze until 12:46".
+// "backing off: mains/squeeze until 12:46:00" once the gate sends
+// until_wall; "backing off: mains/squeeze until 12:46" (no seconds, the
+// pre-existing form) on a gate too old to, since `until` alone is the
+// monotonic clock and a seconds digit off it would claim a precision it
+// does not have.
 QString backoffLine(const ChainAutoBackoff& b)
 {
+    if (b.hasUntilWall)
+        return QStringLiteral("backing off: %1/%2 until %3")
+            .arg(b.kind, b.tool, timeOf(b.untilWall, "HH:mm:ss"));
     return QStringLiteral("backing off: %1/%2 until %3")
         .arg(b.kind, b.tool, timeOf(b.until, "HH:mm"));
+}
+
+// "held back: talker 3.2 dB: waiting for steady · guard is already on" -- the
+// gate's own ruled_out[].why, joined the same way core/governor.py's own
+// _why_idle() already joins them for `why` while idle. Empty when the gate
+// sent nothing this tick.
+QString ruledOutJoined(const ChainAutoGovernor& gov)
+{
+    QStringList reasons;
+    for (const ChainAutoRuledOut& r : gov.ruledOut)
+        reasons << r.why;
+    return reasons.join(QStringLiteral(" · "));
 }
 
 // "AUTO · <kind> · <why>[ · dig running <step>][ · scored by <scorer>]" for a
@@ -134,6 +156,7 @@ ChainAutoGovernor chainAutoParseGovernor(const QJsonObject& filter)
     g.settleS = num(o.value(QStringLiteral("settle_s")));
     g.marginDb = num(o.value(QStringLiteral("margin_db")));
     g.spreadDb = num(o.value(QStringLiteral("spread_db")));
+    g.objectiveSource = o.value(QStringLiteral("objective_source")).toString();
     g.error = o.value(QStringLiteral("error")).toString();
     for (const QJsonValue& hv : o.value(QStringLiteral("holding")).toArray())
         g.holding << parseHeld(hv.toObject());
@@ -144,11 +167,21 @@ ChainAutoGovernor chainAutoParseGovernor(const QJsonObject& filter)
     }
     for (const QJsonValue& ev : o.value(QStringLiteral("events")).toArray())
         g.events << parseEvent(ev.toObject());
+    for (const QJsonValue& rv : o.value(QStringLiteral("ruled_out")).toArray()) {
+        const QJsonObject ro = rv.toObject();
+        g.ruledOut << ChainAutoRuledOut{ro.value(QStringLiteral("tool")).toString(),
+                                        ro.value(QStringLiteral("why")).toString()};
+    }
     for (const QJsonValue& bv : o.value(QStringLiteral("backoff")).toArray()) {
         const QJsonObject bo = bv.toObject();
-        g.backoff << ChainAutoBackoff{bo.value(QStringLiteral("kind")).toString(),
-                                      bo.value(QStringLiteral("tool")).toString(),
-                                      num(bo.value(QStringLiteral("until")))};
+        ChainAutoBackoff b;
+        b.kind = bo.value(QStringLiteral("kind")).toString();
+        b.tool = bo.value(QStringLiteral("tool")).toString();
+        b.until = num(bo.value(QStringLiteral("until")));
+        const QJsonValue untilWall = bo.value(QStringLiteral("until_wall"));
+        b.hasUntilWall = untilWall.isDouble();
+        b.untilWall = b.hasUntilWall ? untilWall.toDouble() : 0.0;
+        g.backoff << b;
     }
     return g;
 }
@@ -236,6 +269,16 @@ QString chainAutoStateLine(const ChainAutoGovernor& gov)
     const QString dig = chainAutoDigLine(gov);
     if (!dig.isEmpty())
         line += QStringLiteral(" · ") + dig;
+    // ruled_out, unless it is only repeating `why` verbatim -- which it is
+    // whenever the governor is idle with nothing held, since `why` is
+    // already core/governor.py's own join of the same list (_why_idle()).
+    const QString heldBack = ruledOutJoined(gov);
+    if (!heldBack.isEmpty() && heldBack != gov.why)
+        line += QStringLiteral(" · held back: ") + heldBack;
+    if (!gov.objectiveSource.isEmpty())
+        line += QStringLiteral(" · objective: ") + gov.objectiveSource;
+    if (!gov.error.isEmpty())
+        line = QStringLiteral("AUTO CLEAN ERROR: %1 · %2").arg(gov.error, line);
     return line;
 }
 

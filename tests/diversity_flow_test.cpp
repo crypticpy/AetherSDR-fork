@@ -368,6 +368,52 @@ void testSpectrumLineFollowsPanAndAlignment()
     closedToStart();
 }
 
+// align_retry_s: the same countdown DiversitySessionModel's RECEIVER step
+// reads off this field (tests/diversity_session_model_test.cpp's own
+// receiverRetryPendingKeepsCureWithNote), quoted by the EVENTS panel's own
+// alignment line so the two never disagree about when the next re-measure
+// lands. Also proves the peak-threshold sentence names the noise floor
+// rather than the stale fixed-0.5 wording (H2's copy fix).
+// MUTATION GUARD: printing a countdown for an absent align_retry_s instead
+// of falling back to "steady", or leaving the stale "(above about 0.5 is
+// solid)" sentence in the accessible description.
+void testAlignLineNamesRetryCountdownAndNoiseFloorThreshold()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    const QByteArray notAligned =
+        with(kDiversityStatusWithKinds, "\"aligned\": true", "\"aligned\": false");
+    const QByteArray withRetry =
+        with(notAligned, "\"aligned\": false",
+             "\"aligned\": false, \"align_retry_s\": 21.0");
+    connectGate(a, net, withRetry);
+    DiversityWindow* w = openWindow(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* align = child<QLabel>(w, "diversityWindowAlignLabel");
+    CHECK(align != nullptr);
+    if (!align)
+        return;
+    CHECK(align->text().contains(QStringLiteral("re-measuring in 21 s")));
+    CHECK(align->accessibleDescription().contains(QStringLiteral(
+        "in multiples of the noise floor (10 or more is a credible lock)")));
+    CHECK(!align->accessibleDescription().contains(QStringLiteral("0.5 is solid")));
+
+    // MUTATION: no align_retry_s at all (an old gate, or this fixture's own
+    // default) falls back to the bare "steady" the line always used, not an
+    // invented countdown.
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, notAligned};
+    tick(a);
+    CHECK(align->text().contains(QStringLiteral("steady")));
+    CHECK(!align->text().contains(QStringLiteral("re-measuring in")));
+    w->close();
+    settle();
+    closedToStart();
+}
+
 // --------------------------------------------------------------------------
 // (g) CAPTURE answers, from every page
 // --------------------------------------------------------------------------
@@ -662,6 +708,9 @@ void testDigNarratesTheRunTheReportAndTheVerdict()
     // as a thing happening now, the START page's offer line as a state.
     CHECK(nextHas(w, QStringLiteral("DIG 1:12 of 3:00 · +2.1 dB · started by you")));
     CHECK(digLineHas(w, QStringLiteral("digging · +2.1 dB so far")));
+    // remaining_s/trials_planned/trials_done: kDigRunning's own countdown and
+    // trial count (108 s, trial 9 of 24), appended after "started by you".
+    CHECK(nextHas(w, QStringLiteral("started by you, 108 s left · trial 9/24")));
     auto* stack = child<QStackedWidget>(w, "diversityWindowFlowDigControls");
     CHECK(child<QWidget>(w, "diversityWindowFlowDigRunning") == stack->currentWidget());
     child<QPushButton>(w, "diversityWindowFlowDigStop")->click();
@@ -689,6 +738,10 @@ void testDigNarratesTheRunTheReportAndTheVerdict()
     digRoute(net, judged);
     digTick(w);
     CHECK(digLineHas(w, QStringLiteral("+4.1 dB: nb_db, post, width")));
+    // objective_before -> objective_after (kDigDone's own -3.2 and 0.9), quoted
+    // once the verdict is in -- never while still awaiting one, which is why
+    // this CHECK sits after judged rather than after kDigDone above.
+    CHECK(nextHas(w, QStringLiteral("DIG +4.1 dB, you said better (-3.2 → 0.9)")));
     // Judged: the footer stops asking, because there is nothing left to decide.
     CHECK(!nextHas(w, QStringLiteral("better or worse?")));
     CHECK(child<QWidget>(w, "diversityWindowFlowDigVerdict") != stack->currentWidget());
@@ -730,6 +783,39 @@ void testDigNarratesTheRunTheReportAndTheVerdict()
     closedToStart();
 }
 
+// A gate too old to send remaining_s/trials_planned/trials_done: the running
+// tail reads exactly as it did before those keys existed, with no dangling
+// ", s left" or "trial" clause -- the other half of the behaviour
+// testDigNarratesTheRunTheReportAndTheVerdict's kDigRunning already checks
+// present.
+// MUTATION GUARD: printing ", 0 s left · trial 0/0" for absent fields instead
+// of omitting the clause entirely.
+void testDigRunningOmitsCountdownAndTrialsWhenGateDoesNotSendThem()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net);
+    QByteArray old = kDigRunning;
+    old.replace(", \"remaining_s\": 108.0", "");
+    old.replace("\"trials_planned\": 24, \"trials_done\": 9,\n    \"steps\"",
+               "\"steps\"");
+    CHECK(old != kDigRunning);
+    digRoute(net, old);
+    DiversityWindow* w = openWindow(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    digTick(w);
+
+    CHECK(nextHas(w, QStringLiteral("DIG 1:12 of 3:00 · +2.1 dB · started by you")));
+    CHECK(!nextHas(w, QStringLiteral("s left")));
+    CHECK(!nextHas(w, QStringLiteral("trial")));
+    w->close();
+    settle();
+    closedToStart();
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -740,9 +826,11 @@ int main(int argc, char** argv)
     testRealignNarratesOnItsOwnFace();
     testRealignThatIsNeverAnsweredGivesTheButtonBack();
     testSpectrumLineFollowsPanAndAlignment();
+    testAlignLineNamesRetryCountdownAndNoiseFloorThreshold();
     testCaptureCountsDownAndNamesTheFileEverywhere();
     testDigOffersThreeDurationsAndWritesTheGatesOwnQuery();
     testDigNarratesTheRunTheReportAndTheVerdict();
+    testDigRunningOmitsCountdownAndTrialsWhenGateDoesNotSendThem();
     testNothingScrollsOnAnyPageAtTheInitialSize();
 
     std::printf("\n%d diversity flow test(s) failed\n", g_failed);

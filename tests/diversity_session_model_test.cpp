@@ -509,6 +509,131 @@ void stationDoneWhenFilterMatchesTalkerElseCureIsDig()
     CHECK(stepById(m.steps(), DiversitySessionModel::StepStation).done == true);
 }
 
+// /diversity's own "frontend.guard" (distinct from GET /device's "frontend"
+// key the CHAIN window reads): while true, RECEIVER is not done even though
+// every other tick is, and the cure opens the FRONT END page rather than
+// offering a query -- there is no set=... that clears a hardware headroom
+// problem.
+// MUTATION GUARD: reading toBool(false) as the "guarding" state instead of
+// "clear" (inverted sense), or still reporting done=true.
+void receiverHeadroomLowIsNotDoneAndOffersOpenFrontEnd()
+{
+    DiversitySessionModel m;
+    m.setNowSecs(1000);
+
+    m.apply(F::makeDiversity(true, QStringLiteral("track"), QStringLiteral("combined"), true, false,
+                             false, -1, {}, true, {}, true, QString(), QString(), QString(), false,
+                             0.0, false, false, QString(), false, 0.0,
+                             /*haveFrontend=*/true, /*frontendGuard=*/true,
+                             /*haveHeadroomDb=*/true, /*headroomDb=*/2.3),
+            F::makeFilter(), F::makeDig(false, false, QString(), 0.0), F::makeBeacons(false),
+            F::makeCompass(), F::kHz20m);
+    const DiversitySessionModel::Step receiver =
+        stepById(m.steps(), DiversitySessionModel::StepReceiver);
+    CHECK(receiver.done == false);
+    CHECK(receiver.state == QStringLiteral("loops overloading, headroom low (2.3 dB)"));
+    CHECK(receiver.cure.kind == QStringLiteral("page"));
+}
+
+// The same guard with no headroom_db number yet (a gate that sends "guard_active"
+// before it starts sending the figure) drops the parenthesised dB rather
+// than printing a blank or a stale one.
+// MUTATION GUARD: printing "(0.0 dB)" for an absent headroom_db instead of
+// omitting the parens entirely.
+void receiverHeadroomLowWithoutDbOmitsParens()
+{
+    DiversitySessionModel m;
+    m.setNowSecs(1000);
+
+    m.apply(F::makeDiversity(true, QStringLiteral("track"), QStringLiteral("combined"), true, false,
+                             false, -1, {}, true, {}, true, QString(), QString(), QString(), false,
+                             0.0, false, false, QString(), false, 0.0,
+                             /*haveFrontend=*/true, /*frontendGuard=*/true,
+                             /*haveHeadroomDb=*/false),
+            F::makeFilter(), F::makeDig(false, false, QString(), 0.0), F::makeBeacons(false),
+            F::makeCompass(), F::kHz20m);
+    CHECK(stepById(m.steps(), DiversitySessionModel::StepReceiver).state
+          == QStringLiteral("loops overloading, headroom low"));
+}
+
+// A gate that has never heard of "frontend" (the fixture's own default)
+// reads exactly as it did before the key existed: headroom always clear,
+// RECEIVER done once every other tick is -- the last case of
+// receiverNotDoneUntilAllTicks above already covers this; this test names it
+// explicitly against a guard-shaped payload's opposite (guard=false) so the
+// "absent" and "present-but-clear" paths are both on the record.
+// MUTATION GUARD: reading an absent "frontend" object as guarding (true)
+// instead of clear.
+void receiverHeadroomAbsentOrClearIsDone()
+{
+    DiversitySessionModel m;
+    m.setNowSecs(1000);
+
+    m.apply(F::makeDiversity(true, QStringLiteral("track"), QStringLiteral("combined"), true, false,
+                             false, -1, {}, true, {}, true, QString(), QString(), QString(), false,
+                             0.0, false, false, QString(), false, 0.0,
+                             /*haveFrontend=*/true, /*frontendGuard=*/false),
+            F::makeFilter(), F::makeDig(false, false, QString(), 0.0), F::makeBeacons(false),
+            F::makeCompass(), F::kHz20m);
+    CHECK(stepById(m.steps(), DiversitySessionModel::StepReceiver).done == true);
+}
+
+// digSummary() while running: the gate's own remaining_s counts down and
+// trials_done/trials_planned show progress through the A/B set, both absent
+// on an older gate (digStateQuotesTheGateOnly and every other running-dig
+// call in this file already cover that half unchanged).
+// MUTATION GUARD: dropping the ", N s left" or " · trial d/p" clause, or
+// truncating remaining_s instead of rounding it.
+void digRunningShowsRemainingSecondsAndTrials()
+{
+    DiversitySessionModel m;
+    m.setNowSecs(1000);
+    m.apply(F::makeDiversity(), F::makeFilter(),
+            F::makeDig(true, true, QString(), 1.2, QJsonObject(), false, false, 0.0, 0.0,
+                      /*haveRemaining=*/true, /*remainingS=*/12.4, /*haveTrials=*/true,
+                      /*trialsDone=*/1, /*trialsPlanned=*/4),
+            F::makeBeacons(false), F::makeCompass(), F::kHz20m);
+    CHECK(m.digSummary()
+          == QStringLiteral("digging · +1.2 dB so far, 12 s left · trial 1/4"));
+}
+
+// digSummary() once done: objective_before -> objective_after (the gate's
+// own numbers, one decimal) and the operator's own verdict word, appended
+// after the kept-knobs clause digStateQuotesTheGateOnly already covers.
+// MUTATION GUARD: swapping before/after in the arrow, or dropping "you said
+// <verdict>" once the gate has one.
+void digDoneShowsObjectiveBeforeAfterAndVerdict()
+{
+    DiversitySessionModel m;
+    m.setNowSecs(1000);
+    QJsonObject changed;
+    changed["post"] = QStringLiteral("v2");
+    m.apply(F::makeDiversity(), F::makeFilter(),
+            F::makeDig(true, false, QStringLiteral("done"), 0.6, changed, false,
+                      /*haveObjective=*/true, /*objectiveBefore=*/12.3, /*objectiveAfter=*/15.7,
+                      false, 0.0, false, 0, 0, QStringLiteral("keep")),
+            F::makeBeacons(false), F::makeCompass(), F::kHz20m);
+    CHECK(m.digSummary()
+          == QStringLiteral("+0.6 dB: post (12.3 → 15.7) · you said keep"));
+}
+
+// No objective pair at all (a gate too old to send them) omits the arrow
+// clause entirely rather than printing a bogus "0.0 -> 0.0".
+// MUTATION GUARD: defaulting an absent objective_before/after to 0.0 and
+// still printing the parenthesised arrow.
+void digDoneOmitsObjectiveArrowWhenAbsent()
+{
+    DiversitySessionModel m;
+    m.setNowSecs(1000);
+    m.apply(F::makeDiversity(), F::makeFilter(),
+            F::makeDig(true, false, QStringLiteral("done"), 0.6, QJsonObject(), false,
+                      /*haveObjective=*/false),
+            F::makeBeacons(false), F::makeCompass(), F::kHz20m);
+    const QString summary = m.digSummary();
+    CHECK(summary == QStringLiteral("nothing beat your settings"));
+    CHECK(!summary.contains(QStringLiteral("→")));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -537,6 +662,12 @@ int main(int argc, char** argv)
     manualModeNeverOffersAButton();
     quickStartSendsExactlyThreeQueries();
     stationDoneWhenFilterMatchesTalkerElseCureIsDig();
+    receiverHeadroomLowIsNotDoneAndOffersOpenFrontEnd();
+    receiverHeadroomLowWithoutDbOmitsParens();
+    receiverHeadroomAbsentOrClearIsDone();
+    digRunningShowsRemainingSecondsAndTrials();
+    digDoneShowsObjectiveBeforeAfterAndVerdict();
+    digDoneOmitsObjectiveArrowWhenAbsent();
 
     std::printf("\n%d test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

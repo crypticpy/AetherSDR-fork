@@ -416,9 +416,9 @@ QWidget* DiversityWindow::buildEventsPanel()
         tr("The two tuners each start their own sample stream, so before "
            "anything can be combined the gate has to know how far apart they "
            "are. Lag is that offset in samples; the peak is how confident the "
-           "correlation was about it (above about 0.5 is solid); realigning "
-           "means it is measuring again right now. Press REALIGN after "
-           "changing frequency or sample rate."));
+           "correlation was about it, in multiples of the noise floor (10 or "
+           "more is a credible lock); realigning means it is measuring again "
+           "right now. Press REALIGN after changing frequency or sample rate."));
     body->addWidget(m_alignLine);
 
     m_captureResult = DiversityWidgets::makeReadoutLine(
@@ -486,6 +486,11 @@ void DiversityWindow::applyAlign(const QJsonObject& d, bool aligned, bool realig
         haveLag ? QString::number(qint64(std::llround(lag))) : QStringLiteral("—");
     const QString peakText =
         havePeak ? QString::number(peak, 'f', 3) : QStringLiteral("—");
+    // The same countdown DiversitySessionModel's RECEIVER step reads off this
+    // field, so the two lines never disagree about when the next background
+    // re-measure lands. Absent on a gate too old to send it.
+    const QJsonValue alignRetryVal = d.value(QStringLiteral("align_retry_s"));
+    const bool haveAlignRetry = alignRetryVal.isDouble();
 
     if (alignHeld) {
         m_alignLine->setText(
@@ -497,10 +502,17 @@ void DiversityWindow::applyAlign(const QJsonObject& d, bool aligned, bool realig
                                      : alignNote);
         m_alignLine->setAccessibleDescription(alignNote);
     } else {
+        QString status;
+        if (realigning)
+            status = tr("realigning…");
+        else if (!aligned && haveAlignRetry)
+            status = tr("re-measuring in %1 s")
+                         .arg(qint64(std::llround(alignRetryVal.toDouble())));
+        else
+            status = tr("steady");
         m_alignLine->setText(
             tr("%1 · lag %2 · peak %3 · %4")
-                .arg(aligned ? tr("aligned") : tr("not aligned"), lagText, peakText,
-                     realigning ? tr("realigning…") : tr("steady")));
+                .arg(aligned ? tr("aligned") : tr("not aligned"), lagText, peakText, status));
         m_alignLine->setToolTip(
             tr("How far apart the two tuner streams are, and how confident. "
                "REALIGN after retuning."));
@@ -508,9 +520,10 @@ void DiversityWindow::applyAlign(const QJsonObject& d, bool aligned, bool realig
             tr("The two tuners each start their own sample stream, so before "
                "anything can be combined the gate has to know how far apart they "
                "are. Lag is that offset in samples; the peak is how confident the "
-               "correlation was about it (above about 0.5 is solid); realigning "
-               "means it is measuring again right now. Press REALIGN after "
-               "changing frequency or sample rate."));
+               "correlation was about it, in multiples of the noise floor (10 or "
+               "more is a credible lock); realigning means it is measuring again "
+               "right now. Press REALIGN after changing frequency or sample "
+               "rate."));
     }
     DiversityWidgets::setLive(m_alignLine, realigning);
 }

@@ -96,6 +96,13 @@ inline QJsonObject makeGovernor(bool autoOn, const QString& holdTool = QString()
 // three from the payload -- an old gate that has never heard of them).
 // haveAlignRetry gates align_retry_s alone, since the gate sends align_held
 // and align_note together but align_retry_s only while nothing is locked.
+// The trailing four params are /diversity's own new "frontend" object
+// ({"guard_active", "headroom_db"}), distinct from GET /device's own "frontend" key
+// -- see DiversitySessionModel.cpp's own comment at the read site.
+// haveFrontend defaults to false (an old gate that has never heard of the
+// key), which is DiversitySessionModel's "always clear" fallback; headroom_db
+// is gated on its own flag since the gate may send guard without a number
+// yet.
 inline QJsonObject makeDiversity(bool available = true, const QString& mode = QStringLiteral("track"),
                                  const QString& source = QStringLiteral("combined"),
                                  bool aligned = true, bool realigning = false, bool haveTalker = false,
@@ -107,7 +114,9 @@ inline QJsonObject makeDiversity(bool available = true, const QString& mode = QS
                                  bool talking = false, double outDb = 0.0,
                                  bool haveAlignExtras = false, bool alignHeld = false,
                                  const QString& alignNote = QString(), bool haveAlignRetry = false,
-                                 double alignRetryS = 0.0)
+                                 double alignRetryS = 0.0, bool haveFrontend = false,
+                                 bool frontendGuard = false, bool haveHeadroomDb = false,
+                                 double headroomDb = 0.0)
 {
     QJsonObject o;
     o["available"] = available;
@@ -151,6 +160,14 @@ inline QJsonObject makeDiversity(bool available = true, const QString& mode = QS
     snr["b"] = 0.0;
     snr["out"] = outDb;
     o["snr_db"] = snr;
+
+    if (haveFrontend) {
+        QJsonObject frontend;
+        frontend["guard_active"] = frontendGuard;
+        if (haveHeadroomDb)
+            frontend["headroom_db"] = headroomDb;
+        o["frontend"] = frontend;
+    }
     return o;
 }
 
@@ -173,11 +190,20 @@ inline QJsonObject makeFilter(bool haveTalkerMatch = false, int talkerId = -1, d
 
 // --- /diversity/dig --------------------------------------------------------
 
-// objective_before/after are deliberately far from gain_db's own value:
-// digStateQuotesTheGateOnly checks digSummary() never recomputes a gain from
-// them.
+// objective_before/after default to values deliberately far from gain_db's
+// own value: digStateQuotesTheGateOnly checks digSummary() never recomputes a
+// gain from them. haveObjective defaults true (every existing call site gets
+// the same pair it always did); set it false to reproduce a gate too old to
+// send either key. remaining_s and trials_done/trials_planned are
+// DigRunner.status()'s own countdown and trial count while running, each
+// gated on its own flag since an older gate sends neither; verdict is the
+// operator's own word once given, empty until then.
 inline QJsonObject makeDig(bool available, bool running, const QString& phase, double gainDb,
-                           const QJsonObject& changed = QJsonObject(), bool cancelled = false)
+                           const QJsonObject& changed = QJsonObject(), bool cancelled = false,
+                           bool haveObjective = true, double objectiveBefore = 0.538,
+                           double objectiveAfter = 0.286, bool haveRemaining = false,
+                           double remainingS = 0.0, bool haveTrials = false, int trialsDone = 0,
+                           int trialsPlanned = 0, const QString& verdict = QString())
 {
     QJsonObject o;
     o["available"] = available;
@@ -186,8 +212,18 @@ inline QJsonObject makeDig(bool available, bool running, const QString& phase, d
     o["running"] = running;
     o["phase"] = phase;
     o["gain_db"] = gainDb;
-    o["objective_before"] = 0.538;
-    o["objective_after"] = 0.286;
+    if (haveObjective) {
+        o["objective_before"] = objectiveBefore;
+        o["objective_after"] = objectiveAfter;
+    }
+    if (haveRemaining)
+        o["remaining_s"] = remainingS;
+    if (haveTrials) {
+        o["trials_done"] = trialsDone;
+        o["trials_planned"] = trialsPlanned;
+    }
+    if (!verdict.isEmpty())
+        o["verdict"] = verdict;
     o["changed"] = changed;
     o["cancelled"] = cancelled;
     return o;

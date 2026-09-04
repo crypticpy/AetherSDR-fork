@@ -12,19 +12,35 @@
 // window's own stage map (AetherGateChainStrip::tile()); the window and the
 // stage carry only the hooks that call into it.
 //
-// THE SHAPE, verbatim from aether_gate/adapters/diversity_governor.py's
-// status() -- the same block rides on /diversity under "governor" and on
-// /filter under the same key (see docs/DIVERSITY.md "AUTO CLEAN: the chain
-// decides"):
+// THE SHAPE, verbatim from aether_gate/core/governor.py's status() -- the
+// same block rides on /diversity under "governor" and on /filter under the
+// same key (see docs/DIVERSITY.md "AUTO CLEAN: the chain decides"):
 //
 //   {"auto", "state" (idle|measuring|applying|settling|backoff), "why",
-//    "settle_s", "margin_db", "spread_db",
+//    "settle_s", "margin_db", "spread_db", "objective_source" ("snr" or
+//    "none" -- there is no talker to score against right now, so a kept
+//    move was scored by its tool's own proxy instead),
 //    "holding": [{"tool", "params", "kind", "why", "since", "delta_db"}],
 //    "pending": one row of the same shape, or null,
-//    "events": [{"t", "tool", "kind", "params", "undo", "why", "before",
-//                "result": pending|kept|undone|released|error, "delta_db"}],
-//    "backoff": [{"kind", "tool", "until"}],
+//    "events": [{"t", "wall", "tool", "kind", "params", "undo", "why",
+//                "before", "result": pending|kept|undone|released|error,
+//                "delta_db"}],
+//    "ruled_out": [{"tool", "why"}] -- this tick's rules that found nothing
+//    to do, in the order they ran; the same list `why` is already the
+//    joined sentence of when the governor is otherwise idle (core/
+//    governor.py's _why_idle()), kept here raw so a state other than idle
+//    can still say what else it is not doing,
+//    "backoff": [{"kind", "tool", "until", "until_wall"}],
 //    "available", "error"}
+//
+// TWO CLOCKS. `t` (governor events) and `until` (backoff) are the gate's own
+// monotonic clock -- fine for `until - now` maths, meaningless run through
+// QDateTime. `wall` and `until_wall` are the real epoch-seconds companions
+// a gate now sends alongside them, and are what every formatter below prints
+// the time of day from; a gate too old to send the `_wall` field falls back
+// to the monotonic one rather than blanking the line, which reads as a
+// wrong clock rather than no clock -- the same trade-off this file already
+// made everywhere else a gate-side field can simply be missing.
 //
 // TOOL -> CHAIN ROW. The governor names a TOOL (guard, nb, mode, squeeze,
 // dig); the card it decorates is named by ROW ID, and the two are not
@@ -71,6 +87,12 @@ struct ChainAutoHeld {
 // One row of governor.events[].
 struct ChainAutoEvent {
     double  t{0.0};
+    // `wall` -- the same event's real epoch-seconds stamp. Absent on an
+    // older gate (hasWall false); eventLine() falls back to `t` then, which
+    // is the gate's monotonic clock and prints a meaningless time of day,
+    // but a wrong time reads no worse than the pre-existing behaviour did.
+    bool    hasWall{false};
+    double  wall{0.0};
     QString tool;
     QString kind;
     QString why;
@@ -88,6 +110,17 @@ struct ChainAutoBackoff {
     QString kind;
     QString tool;
     double  until{0.0};
+    // `until_wall` -- the same deadline as real epoch seconds. Absent on an
+    // older gate (hasUntilWall false); backoffLine() falls back to `until`.
+    bool    hasUntilWall{false};
+    double  untilWall{0.0};
+};
+
+// One row of governor.ruled_out[]: a rule that ran this tick and found
+// nothing to do, and why not.
+struct ChainAutoRuledOut {
+    QString tool;
+    QString why;
 };
 
 // The whole block, transcribed rather than interpreted -- the same contract
@@ -101,11 +134,16 @@ struct ChainAutoGovernor {
     double  settleS{0.0};
     double  marginDb{0.0};
     double  spreadDb{0.0};
-    QList<ChainAutoHeld>    holding;
-    bool                    hasPending{false};
-    ChainAutoHeld           pending;
-    QList<ChainAutoEvent>   events;     // gate order: oldest first
-    QList<ChainAutoBackoff> backoff;
+    // "snr", or "none" while there is no talker to score a move against (a
+    // proxy-scored move is still kept, per core/governor.py's own docstring
+    // -- this just says which basis was in force). Empty on an older gate.
+    QString objectiveSource;
+    QList<ChainAutoHeld>       holding;
+    bool                       hasPending{false};
+    ChainAutoHeld              pending;
+    QList<ChainAutoEvent>      events;     // gate order: oldest first
+    QList<ChainAutoRuledOut>   ruledOut;   // this tick's rules, in gate order
+    QList<ChainAutoBackoff>    backoff;
     QString error;
 };
 
@@ -132,17 +170,27 @@ QString chainAutoNoteForStage(const QString& stageId, const ChainAutoGovernor& g
 void chainAutoApplyNotes(AetherGateChainStrip* strip, const ChainAutoGovernor& gov);
 
 // The AUTO CLEAN inspector's event history, newest first: one line per event
-// ("12:41:07 · squeeze · carrier · kept +1.8 dB · <why>"), then one line per
-// active backoff ("backing off: mains/squeeze until 12:46"). Capped at
-// `maxLines` between the two lists together, because the CHAIN window's
-// inspector has no scroll of its own and nothing in this window scrolls at
-// the initial size.
+// ("12:41:07 · squeeze · carrier · kept +1.8 dB · <why>", the time from
+// `wall` where the gate sends it), then one line per active backoff
+// ("backing off: mains/squeeze until 12:46:00" once the gate sends
+// `until_wall`, "...until 12:46" -- no seconds -- on one that does not).
+// Capped at `maxLines` between the two lists together, because the CHAIN
+// window's inspector has no scroll of its own and nothing in this window
+// scrolls at the initial size.
 QStringList chainAutoEventLines(const ChainAutoGovernor& gov, int maxLines = 8);
 
-// "state · why", for the inspector's line under the AUTO CLEAN card's own
-// detail. Empty when the governor block never arrived. A held or just-
-// finished dig is folded in (see chainAutoDigLine()) since DIG has no card
-// of its own to carry it.
+// "state · why[ · dig line][ · held back: ...][ · objective: source][ · ERROR: ...]",
+// for the inspector's line under the AUTO CLEAN card's own detail. Empty
+// when the governor block never arrived. A held or just-finished dig is
+// folded in (see chainAutoDigLine()) since DIG has no card of its own to
+// carry it; "held back" is `ruled_out` joined the same way the gate's own
+// `why` already is while idle (core/governor.py's _why_idle()), omitted
+// when it would only repeat `why` verbatim; "objective" names which basis
+// (`objective_source`) the governor is currently scoring by; a non-empty
+// `error` is prefixed ahead of everything else so it reads as the warning
+// it is. The whole line reaches the widget through setElided() at the call
+// site, which is where the H1 90-char tooltip cap and the uncapped
+// accessibleDescription both come from -- nothing here truncates.
 QString chainAutoStateLine(const ChainAutoGovernor& gov);
 
 // DIG has no chain row of its own (chainAutoRowIdForTool() answers "" for

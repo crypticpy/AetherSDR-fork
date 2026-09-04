@@ -128,14 +128,16 @@ namespace {
 
 // One small button on a dig row. The caller wires the click, because what
 // goes on the wire is the window's business and this is a widget.
+// `tip` is the one-line hover text (what the button is and what it is for);
+// `why` is the longer story, kept as the accessible description.
 QPushButton* makeDigButton(QWidget* row, const QString& text, const QString& objectName,
-                           const QString& accessible, const QString& tip)
+                           const QString& accessible, const QString& tip, const QString& why)
 {
     auto* button = new QPushButton(text, row);
     button->setObjectName(objectName);
     button->setAccessibleName(accessible);
     button->setToolTip(tip);
-    button->setAccessibleDescription(tip);
+    button->setAccessibleDescription(why);
     button->setFixedHeight(kDigButtonHeight);
     applyToggleButtonStyle(button);
     row->layout()->addWidget(button);
@@ -170,17 +172,20 @@ QWidget* DiversityWindow::buildDigDurations()
     };
     wire(makeDigButton(offer, tr("1 MIN"), QStringLiteral("diversityWindowFlowDig60"),
                        tr("Dig for one minute"),
+                       tr("A one-minute dig - a quick pass over the knobs that usually matter."),
                        tr("One minute of trying knobs. Long enough for the two or three "
                           "changes that usually matter, short enough to do mid-over.")),
          QStringLiteral("60"));
     wire(makeDigButton(offer, tr("3 MIN"), QStringLiteral("diversityWindowFlowDig180"),
                        tr("Dig for three minutes"),
+                       tr("A three-minute dig, the default - finds a second change on top of the first."),
                        tr("Three minutes. The default: enough trials to get past the "
                           "first change that helped and find out whether a second one "
                           "helps on top of it.")),
          QStringLiteral("180"));
     wire(makeDigButton(offer, tr("5 MIN"), QStringLiteral("diversityWindowFlowDig300"),
                        tr("Dig for five minutes"),
+                       tr("A five-minute dig for a weak signal that needs a long baseline."),
                        tr("Five minutes, for a weak signal that needs a long baseline "
                           "before a half-decibel means anything. Stop it at any time -- "
                           "what it has already kept, it keeps.")),
@@ -204,6 +209,7 @@ QWidget* DiversityWindow::buildDigControls()
     QWidget* running = makeDigRow(m_digStack, "diversityWindowFlowDigRunning");
     connect(makeDigButton(running, tr("STOP"), QStringLiteral("diversityWindowFlowDigStop"),
                           tr("Stop digging"),
+                          tr("Stop the dig now and put the chain back as you had it."),
                           tr("End the run now and put the chain back exactly as you had "
                              "it. Nothing the dig found is kept.")),
             &QPushButton::clicked, this, [this] {
@@ -225,6 +231,7 @@ QWidget* DiversityWindow::buildDigControls()
     wireVerdict(makeDigButton(verdict, tr("BETTER"),
                               QStringLiteral("diversityWindowFlowDigBetter"),
                               tr("It sounds better"),
+                              tr("Keep the dig's changes and file the run as one that helped."),
                               tr("Keep the changes and tell the gate they worked. It files "
                                  "the run so the next dig on this kind of signal starts "
                                  "from what helped last time.")),
@@ -232,6 +239,7 @@ QWidget* DiversityWindow::buildDigControls()
     wireVerdict(makeDigButton(verdict, tr("WORSE"),
                               QStringLiteral("diversityWindowFlowDigWorse"),
                               tr("It sounds worse"),
+                              tr("Put your own settings back and file the run as wrong."),
                               tr("Put the chain back on your own settings and tell the gate "
                                  "the run was wrong. The measurement said it helped and "
                                  "your ears say it did not -- yours win, and the gate "
@@ -240,6 +248,7 @@ QWidget* DiversityWindow::buildDigControls()
     wireVerdict(makeDigButton(verdict, tr("KEEP"),
                               QStringLiteral("diversityWindowFlowDigKeep"),
                               tr("Keep it without judging"),
+                              tr("Keep the changes without a verdict - for a run you did not hear."),
                               tr("Leave the changes in force without saying whether they "
                                  "sounded better. For a run you did not get to listen to.")),
                 QStringLiteral("keep"));

@@ -65,11 +65,15 @@ DiversitySessionPage::DiversitySessionPage(QWidget* parent)
         tr("The order, and why. A step lower down never undoes one above it."), this);
     header->setObjectName(QStringLiteral("diversityWindowSessionHeader"));
     header->setAccessibleName(tr("Session order"));
+    // H1's 90-char tooltip rule: the short form on the control, the full
+    // sentence -- exactly what was here before -- kept for the screen reader.
     header->setToolTip(
+        tr("The order, and what resets when: RECEIVER/SITE NOISE stay, BAND "
+           "and STATION reset."));
+    header->setAccessibleDescription(
         tr("RECEIVER and SITE NOISE last the whole session; BAND resets when "
            "you change band; STATION resets when the talker does. LISTEN is "
            "where the four of them were leading."));
-    header->setAccessibleDescription(header->toolTip());
     header->setWordWrap(false);
     header->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     header->setMinimumWidth(0);
@@ -110,11 +114,14 @@ DiversitySessionPage::DiversitySessionPage(QWidget* parent)
     m_quickStart = new QPushButton(tr("QUICK START"), m_offers);
     m_quickStart->setObjectName(QStringLiteral("diversityWindowQuickStartButton"));
     m_quickStart->setAccessibleName(tr("Quick start"));
-    m_quickStart->setToolTip(
+    // H1's 90-char rule: the sidebar's own short form for the tooltip
+    // (AetherGateDiversityPanel.cpp's QUICK START button), the full sentence
+    // for the screen reader.
+    m_quickStart->setToolTip(tr("Track, hear OUT, AUTO CLEAN on."));
+    m_quickStart->setAccessibleDescription(
         tr("Puts the pair where the first card is asking for it: TRACK, the "
            "combined output in your ears, and AUTO CLEAN on. Three writes, "
            "in that order. It changes nothing else."));
-    m_quickStart->setAccessibleDescription(m_quickStart->toolTip());
     m_quickStart->setCursor(Qt::PointingHandCursor);
     m_quickStart->setFixedHeight(kOfferButtonHeight);
     applyToggleButtonStyle(m_quickStart);
@@ -127,12 +134,16 @@ DiversitySessionPage::DiversitySessionPage(QWidget* parent)
     QLabel* digCaption = DiversityWidgets::makeCaption(tr("DIG OUT"), m_offers);
     digCaption->setObjectName(QStringLiteral("diversityWindowSessionDigCaption"));
     digCaption->setAccessibleName(tr("Dig out"));
+    // H1's 90-char rule: short form on the control, full sentence for the
+    // screen reader.
     digCaption->setToolTip(
+        tr("Spend a minute or more trying one knob at a time; STOP puts it "
+           "all back."));
+    digCaption->setAccessibleDescription(
         tr("Let the gate spend a minute, three or five trying one knob of the "
            "chain at a time on whoever is talking, keeping only what "
            "measurably helped. Never a step -- it is an offer, and STOP puts "
            "everything back."));
-    digCaption->setAccessibleDescription(digCaption->toolTip());
     offersRow->addWidget(digCaption);
     offersRoot->addLayout(offersRow);
 

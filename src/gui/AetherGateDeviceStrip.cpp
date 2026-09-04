@@ -27,11 +27,15 @@ const char* kDeviceLabelStyle =
 constexpr int kButtonHeight = 20;
 
 const char* kDiversityTip =
+    QT_TR_NOOP("Run both tuners as one receiver - off falls back to a single tuner.");
+const char* kDiversityLong =
     QT_TR_NOOP("Both tuners, summed. Off drops back to one tuner feeding the "
                "audio and the panadapter -- the way out of diversity without "
                "opening the gate's own page.");
 
 const char* kTunerTip =
+    QT_TR_NOOP("Which tuner feeds the receiver while diversity is off.");
+const char* kTunerLong =
     QT_TR_NOOP("Which tuner feeds the receiver when diversity is off. Pick one "
                "while the pair is stopped; with both running there is nothing "
                "to choose.");
@@ -67,7 +71,7 @@ AetherGateDeviceStrip::AetherGateDeviceStrip(QWidget* parent) : QWidget(parent)
     m_diversity->setObjectName(QStringLiteral("gateDiversityToggle"));
     m_diversity->setAccessibleName(tr("Run both tuners in diversity"));
     m_diversity->setToolTip(tr(kDiversityTip));
-    m_diversity->setAccessibleDescription(m_diversity->toolTip());
+    m_diversity->setAccessibleDescription(tr(kDiversityLong));
     m_diversity->setCheckable(true);
     m_diversity->setFixedHeight(kButtonHeight);
     m_diversity->setCursor(Qt::PointingHandCursor);
@@ -91,7 +95,7 @@ AetherGateDeviceStrip::AetherGateDeviceStrip(QWidget* parent) : QWidget(parent)
         button->setObjectName(names.at(i));
         button->setAccessibleName(tr("Feed the receiver from tuner %1").arg(labels.at(i)));
         button->setToolTip(tr(kTunerTip));
-        button->setAccessibleDescription(button->toolTip());
+        button->setAccessibleDescription(tr(kTunerLong));
         button->setCheckable(true);
         button->setFixedHeight(kButtonHeight);
         button->setCursor(Qt::PointingHandCursor);
