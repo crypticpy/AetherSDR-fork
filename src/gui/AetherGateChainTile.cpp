@@ -22,6 +22,21 @@ namespace AetherSDR {
 
 using namespace chainstage;
 
+namespace {
+
+// The NOW strip's own row highlight: a 2 px left edge in the same accent the
+// selected border already uses (design §2.3), so a stage the governor is
+// talking about and a stage the operator clicked read as the same kind of
+// thing. Appended to kTileStyle rather than added into it --
+// AetherGateChainStagePrivate.h is shared with AetherGateChainStage.cpp,
+// which this task does not touch -- so this stays a second rule layered on
+// by AetherGateChainWindow's own tile()->setProperty("lit", ...), the same
+// property-plus-repolish pattern setSelected() below already uses.
+const char* const kLitStyle =
+    "QFrame[lit=\"true\"] { border-left: 2px solid {{color.accent.bright}}; }";
+
+} // namespace
+
 // --------------------------------------------------------------------------
 // AetherGateChainTile
 // --------------------------------------------------------------------------
@@ -40,7 +55,9 @@ AetherGateChainTile::AetherGateChainTile(const ChainStage& stage,
     // It can still be SELECTED -- the inspector explains a fixed stage as
     // readily as a switchable one -- so the click is live either way.
     setCursor(stage.fixed ? Qt::ArrowCursor : Qt::PointingHandCursor);
-    ThemeManager::instance().applyStyleSheet(this, QString::fromLatin1(kTileStyle));
+    setProperty("lit", false);
+    ThemeManager::instance().applyStyleSheet(
+        this, QString::fromLatin1(kTileStyle) + QString::fromLatin1(kLitStyle));
 
     if (shape == ChainTileShape::Line)
         buildLine();

@@ -2906,6 +2906,7 @@ add_executable(aether_gate_applet_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -2976,6 +2977,7 @@ add_executable(aether_gate_applet_diversity_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3048,6 +3050,7 @@ add_executable(diversity_window_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3117,6 +3120,7 @@ add_executable(diversity_window_talkers_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3190,6 +3194,7 @@ add_executable(diversity_band_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3263,6 +3268,7 @@ add_executable(diversity_band_background_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3336,6 +3342,7 @@ add_executable(aether_gate_chain_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3409,6 +3416,7 @@ add_executable(aether_gate_chain_ux_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3477,6 +3485,7 @@ add_executable(aether_gate_chain_b21_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3543,6 +3552,7 @@ add_executable(aether_gate_chain_frontend_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3609,6 +3619,7 @@ add_executable(aether_gate_chain_squeeze_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3675,6 +3686,7 @@ add_executable(aether_gate_chain_auto_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3727,6 +3739,78 @@ add_test(NAME aether_gate_chain_auto_test COMMAND aether_gate_chain_auto_test)
 set_tests_properties(aether_gate_chain_auto_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# NOW -- the CHAIN window's 8-case ladder strip. Split out rather than
+# added to aether_gate_chain_auto_test.cpp above: that file's own toggle
+# and name-hygiene tests moved here where the auto_clean row still has a
+# widget to address once it left the diagram (W1). Same harness, same
+# fixture (AetherGateChainAutoTestSupport.h).
+add_executable(aether_gate_chain_now_test
+    tests/aether_gate_chain_now_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateAppletControls.cpp
+    src/gui/AetherGateAppletDiversity.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainTile.cpp
+    src/gui/AetherGateChainAuto.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateChainBypass.cpp
+    src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
+    src/gui/AetherGateChainPresets.cpp
+    src/gui/AetherGateChainVisual.cpp
+    src/gui/AetherGateDeviceStrip.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityHelp.cpp
+    src/gui/DiversityNextStrip.cpp
+    src/gui/DiversitySessionCard.cpp
+    src/gui/DiversitySessionModel.cpp
+    src/gui/DiversitySessionPage.cpp
+    src/gui/DiversitySessionText.cpp
+    src/gui/HelpDialog.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFilterPanelPaint.cpp
+    src/gui/DiversityFilterPanelSqueeze.cpp
+    src/gui/DiversityFilterPanelRoof.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityNoiseProfileDismiss.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(aether_gate_chain_now_test PRIVATE src tests)
+target_link_libraries(aether_gate_chain_now_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(aether_gate_chain_now_test PROPERTIES AUTOMOC ON)
+add_test(NAME aether_gate_chain_now_test COMMAND aether_gate_chain_now_test)
+set_tests_properties(aether_gate_chain_now_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The AUTO CLEAN card's own state+events inspector -- split out of
 # aether_gate_chain_auto_test.cpp, which was over the 800-line budget
 # AGENTS.md asks for. Same harness, same fixture.
@@ -3744,6 +3828,7 @@ add_executable(aether_gate_chain_auto_inspector_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3810,6 +3895,7 @@ add_executable(aether_gate_chain_roof_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3876,6 +3962,7 @@ add_executable(diversity_auto_visibility_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -3949,6 +4036,7 @@ add_executable(aether_gate_device_strip_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -4021,6 +4109,7 @@ add_executable(aether_gate_tune_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -4095,6 +4184,7 @@ add_executable(diversity_site_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -4167,6 +4257,7 @@ add_executable(diversity_filter_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -4240,6 +4331,7 @@ add_executable(diversity_filter_hold_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -4313,6 +4405,7 @@ add_executable(diversity_filter_layout_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -4385,6 +4478,7 @@ add_executable(diversity_site_actions_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -4454,6 +4548,7 @@ add_executable(diversity_beacon_sweep_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -4525,6 +4620,7 @@ add_executable(diversity_talker_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -4596,6 +4692,7 @@ add_executable(diversity_flow_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -4665,6 +4762,7 @@ add_executable(diversity_flow_dig_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -6291,6 +6389,7 @@ add_executable(aether_gate_chain_bypass_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -6364,6 +6463,7 @@ add_executable(diversity_site_dismiss_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -6436,6 +6536,7 @@ add_executable(diversity_session_page_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -6507,6 +6608,7 @@ add_executable(diversity_session_page_next_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp
@@ -6585,6 +6687,7 @@ add_executable(diversity_help_audit_test
     src/gui/AetherGateChainWindow.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainNow.cpp
     src/gui/AetherGateChainPresets.cpp
     src/gui/AetherGateChainVisual.cpp
     src/gui/AetherGateDeviceStrip.cpp

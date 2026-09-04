@@ -1,14 +1,17 @@
-// B25 AUTO CLEAN -- the AUTO CLEAN card's own inspector: the state+why
-// line, the recent-moves event list (newest first, wall-clock preferred
-// over the gate's monotonic `t`), and the backoff line -- split out of
-// aether_gate_chain_auto_test.cpp, which was over the 800-line budget
-// AGENTS.md asks for.
+// B25 AUTO CLEAN -- the governor's two lines: the state+why line and the
+// recent-moves list (newest first, wall-clock preferred over the gate's
+// monotonic `t`, the backoff line last). Split out of
+// aether_gate_chain_auto_test.cpp, which was over the 800-line budget.
 //
 // The governor's shape and rules are docs/DIVERSITY.md's own "AUTO CLEAN:
 // the chain decides" section, verbatim in gui/AetherGateChainAuto.h. This
 // file tests gui/AetherGateChainAuto.cpp's parsing and formatting of
-// governor.events[]/backoff[]/ruled_out/objective_source/error into the
-// inspector's two labels.
+// governor.events[]/backoff[]/ruled_out/objective_source/error through the
+// two pure helpers themselves -- chainAutoStateLine() and
+// chainAutoEventLines() -- which is all the CHAIN window's NOW strip
+// (AetherGateChainNow.cpp, its HISTORY disclosure) reads. The AUTO CLEAN
+// card and its inspector are gone: auto_clean never draws on the diagram
+// any more (design §2.1), so there is no tile to select here.
 //
 // The chain-row/governor fixture (bringUp/feedDevice/autoCleanRow/
 // squeezeRow/withAutoCleanChain/held/event/backoff/ruledOut/governor/
@@ -19,24 +22,33 @@
 
 #include <QApplication>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
-#include <QLabel>
 #include <QTest>
 
 #include <cstdio>
 
 using namespace AetherGateChainFixture;
+using AetherSDR::ChainAutoGovernor;
+using AetherSDR::chainAutoEventLines;
+using AetherSDR::chainAutoParseGovernor;
+using AetherSDR::chainAutoStateLine;
 
 namespace {
 
+// One /filter body, parsed the way AetherGateChainWindow::applyFilter()
+// parses it, down to the governor block the two helpers read.
+ChainAutoGovernor governorOf(const QByteArray& body)
+{
+    return chainAutoParseGovernor(QJsonDocument::fromJson(body).object());
+}
+
 // --------------------------------------------------------------------------
-// The AUTO CLEAN card's own inspector
+// The governor's two lines
 // --------------------------------------------------------------------------
 
 void testInspectorEventLinesNewestFirstWithResultAndDelta()
 {
-    FakeGate net;
-    AetherGateApplet applet(nullptr, &net);
     const QJsonArray events = {
         event(localEpoch(12, 40, 1), QStringLiteral("nb"), QStringLiteral("impulse"),
              QStringLiteral("1.4/s"), QStringLiteral("released"), false),
@@ -45,36 +57,16 @@ void testInspectorEventLinesNewestFirstWithResultAndDelta()
         event(localEpoch(12, 42, 30), QStringLiteral("guard"), QStringLiteral("neighbour"),
              QStringLiteral("headroom low"), QStringLiteral("undone"), true, -0.9),
     };
-    connectGate(applet, net,
+    const ChainAutoGovernor gov = governorOf(
                withAutoCleanChain(true, governor(true, QStringLiteral("idle"),
                                                  QStringLiteral("nothing to hold"), {},
                                                  QJsonValue(), events)));
-    AetherGateChainWindow* w = openChain(applet);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-    bringUp(w);
 
-    // selectStage(), not a click on the toggle: AetherGateChainTile's own
-    // mousePressEvent is what a real click on the CARD reaches, and the
-    // switch is a child QPushButton that consumes the press before it gets
-    // there -- clicking the switch actually writes, which is its own test
-    // below and must not be entangled with this one.
-    strip(w)->selectStage(QStringLiteral("auto_clean"));
-    settle();
+    const QString state = chainAutoStateLine(gov);
+    CHECK(state == QStringLiteral("idle · nothing to hold"));
 
-    auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
-    CHECK(state != nullptr);
-    if (state)
-        CHECK(state->text() == QStringLiteral("idle · nothing to hold"));
-
-    auto* events_ = w->findChild<QLabel*>(QStringLiteral("gateChainAutoEvents"));
-    CHECK(events_ != nullptr);
-    if (!events_)
-        return;
-    CHECK(events_->isVisible());
-    CHECK(!events_->wordWrap());
-    const QStringList lines = events_->text().split(QLatin1Char('\n'));
+    const QString eventsText = chainAutoEventLines(gov).join(QLatin1Char('\n'));
+    const QStringList lines = eventsText.split(QLatin1Char('\n'));
     CHECK(lines.size() == 3);
     if (lines.size() != 3)
         return;
@@ -89,8 +81,6 @@ void testInspectorEventLinesNewestFirstWithResultAndDelta()
 
 void testInspectorErrorEventAndBackoffLine()
 {
-    FakeGate net;
-    AetherGateApplet applet(nullptr, &net);
     const QJsonArray events = {
         event(localEpoch(9, 1, 0), QStringLiteral("mode"), QStringLiteral("floor"),
              QStringLiteral("bad value: mode='x'"), QStringLiteral("error"), false),
@@ -98,24 +88,13 @@ void testInspectorErrorEventAndBackoffLine()
     const QJsonArray backoffs = {
         backoff(QStringLiteral("mains"), QStringLiteral("squeeze"), localEpoch(12, 46, 0)),
     };
-    connectGate(applet, net,
+    const ChainAutoGovernor gov = governorOf(
                withAutoCleanChain(true, governor(true, QStringLiteral("backoff"),
                                                  QStringLiteral("mains/squeeze backing off"),
                                                  {}, QJsonValue(), events, backoffs)));
-    AetherGateChainWindow* w = openChain(applet);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-    bringUp(w);
 
-    strip(w)->selectStage(QStringLiteral("auto_clean"));
-    settle();
-
-    auto* events_ = w->findChild<QLabel*>(QStringLiteral("gateChainAutoEvents"));
-    CHECK(events_ != nullptr);
-    if (!events_)
-        return;
-    const QStringList lines = events_->text().split(QLatin1Char('\n'));
+    const QString eventsText = chainAutoEventLines(gov).join(QLatin1Char('\n'));
+    const QStringList lines = eventsText.split(QLatin1Char('\n'));
     CHECK(lines.size() == 2);
     if (lines.size() != 2)
         return;
@@ -138,61 +117,36 @@ void testInspectorErrorEventAndBackoffLine()
 // line is actually reading `wall`, not silently still reading `t`.
 void testEventLinePrefersWallOverT()
 {
-    FakeGate net;
-    AetherGateApplet applet(nullptr, &net);
     const QJsonArray events = {
         event(12.5, QStringLiteral("nb"), QStringLiteral("impulse"), QStringLiteral("1.4/s"),
              QStringLiteral("released"), false, 0.0, true, localEpoch(9, 15, 3)),
     };
-    connectGate(applet, net,
+    const ChainAutoGovernor gov = governorOf(
                withAutoCleanChain(true, governor(true, QStringLiteral("idle"),
                                                  QStringLiteral("nothing to hold"), {},
                                                  QJsonValue(), events)));
-    AetherGateChainWindow* w = openChain(applet);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-    bringUp(w);
-    strip(w)->selectStage(QStringLiteral("auto_clean"));
-    settle();
 
-    auto* events_ = w->findChild<QLabel*>(QStringLiteral("gateChainAutoEvents"));
-    CHECK(events_ != nullptr);
-    if (!events_)
-        return;
-    CHECK(events_->text() == QStringLiteral("09:15:03 · nb · impulse · released · 1.4/s"));
+    const QString eventsText = chainAutoEventLines(gov).join(QLatin1Char('\n'));
+    CHECK(eventsText == QStringLiteral("09:15:03 · nb · impulse · released · 1.4/s"));
 }
 
 void testBackoffLinePrefersUntilWallAndAddsSeconds()
 {
-    FakeGate net;
-    AetherGateApplet applet(nullptr, &net);
     const QJsonArray backoffs = {
         backoff(QStringLiteral("mains"), QStringLiteral("squeeze"), 999.0, true,
                localEpoch(12, 46, 30)),
     };
-    connectGate(applet, net,
+    const ChainAutoGovernor gov = governorOf(
                withAutoCleanChain(true, governor(true, QStringLiteral("backoff"),
                                                  QStringLiteral("mains/squeeze backing off"),
                                                  {}, QJsonValue(), {}, backoffs)));
-    AetherGateChainWindow* w = openChain(applet);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-    bringUp(w);
-    strip(w)->selectStage(QStringLiteral("auto_clean"));
-    settle();
 
-    auto* events_ = w->findChild<QLabel*>(QStringLiteral("gateChainAutoEvents"));
-    CHECK(events_ != nullptr);
-    if (events_)
-        CHECK(events_->text() == QStringLiteral("backing off: mains/squeeze until 12:46:30"));
+    const QString eventsText = chainAutoEventLines(gov).join(QLatin1Char('\n'));
+    CHECK(eventsText == QStringLiteral("backing off: mains/squeeze until 12:46:30"));
 }
 
 void testStateLineAppendsHeldBackFromRuledOut()
 {
-    FakeGate net;
-    AetherGateApplet applet(nullptr, &net);
     const QJsonArray ruled = {
         ruledOut(QStringLiteral("guard"), QStringLiteral("the guard is already on")),
         ruledOut(QStringLiteral("dig"), QStringLiteral("talker 3.2 dB: waiting for steady")),
@@ -200,22 +154,13 @@ void testStateLineAppendsHeldBackFromRuledOut()
     // `why` here is deliberately NOT the ruled_out join (the governor is
     // "applying" something else this tick), so the held-back clause has
     // something to say that `why` alone does not.
-    connectGate(applet, net,
+    const ChainAutoGovernor gov = governorOf(
                withAutoCleanChain(true, governor(true, QStringLiteral("applying"),
                                                  QStringLiteral("nulling floor"), {},
                                                  QJsonValue(), {}, {}, ruled)));
-    AetherGateChainWindow* w = openChain(applet);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-    bringUp(w);
-    strip(w)->selectStage(QStringLiteral("auto_clean"));
-    settle();
 
-    auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
-    CHECK(state != nullptr);
-    if (state)
-        CHECK(state->text()
+    const QString state = chainAutoStateLine(gov);
+    CHECK(state
               == QStringLiteral("applying · nulling floor · held back: the guard is "
                                 "already on · talker 3.2 dB: waiting for steady"));
 }
@@ -225,76 +170,43 @@ void testStateLineAppendsHeldBackFromRuledOut()
 // repeat it a second time on the same line.
 void testStateLineOmitsHeldBackWhenSameAsWhy()
 {
-    FakeGate net;
-    AetherGateApplet applet(nullptr, &net);
     const QJsonArray ruled = {
         ruledOut(QStringLiteral("guard"), QStringLiteral("2 dB of ADC headroom, no clipping")),
     };
-    connectGate(applet, net,
+    const ChainAutoGovernor gov = governorOf(
                withAutoCleanChain(true, governor(true, QStringLiteral("idle"),
                                                  QStringLiteral("2 dB of ADC headroom, no "
                                                                "clipping"),
                                                  {}, QJsonValue(), {}, {}, ruled)));
-    AetherGateChainWindow* w = openChain(applet);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-    bringUp(w);
-    strip(w)->selectStage(QStringLiteral("auto_clean"));
-    settle();
 
-    auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
-    CHECK(state != nullptr);
-    if (state)
-        CHECK(state->text()
+    const QString state = chainAutoStateLine(gov);
+    CHECK(state
               == QStringLiteral("idle · 2 dB of ADC headroom, no clipping"));
 }
 
 void testStateLineAppendsObjectiveSource()
 {
-    FakeGate net;
-    AetherGateApplet applet(nullptr, &net);
-    connectGate(applet, net,
+    const ChainAutoGovernor gov = governorOf(
                withAutoCleanChain(true, governor(true, QStringLiteral("idle"),
                                                  QStringLiteral("nothing to hold"), {},
                                                  QJsonValue(), {}, {}, {},
                                                  QStringLiteral("none"))));
-    AetherGateChainWindow* w = openChain(applet);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-    bringUp(w);
-    strip(w)->selectStage(QStringLiteral("auto_clean"));
-    settle();
 
-    auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
-    CHECK(state != nullptr);
-    if (state)
-        CHECK(state->text() == QStringLiteral("idle · nothing to hold · objective: none"));
+    const QString state = chainAutoStateLine(gov);
+    CHECK(state == QStringLiteral("idle · nothing to hold · objective: none"));
 }
 
 void testStateLinePrefixesNonEmptyErrorAsWarning()
 {
-    FakeGate net;
-    AetherGateApplet applet(nullptr, &net);
-    connectGate(applet, net,
+    const ChainAutoGovernor gov = governorOf(
                withAutoCleanChain(true, governor(true, QStringLiteral("idle"),
                                                  QStringLiteral("nothing to hold"), {},
                                                  QJsonValue(), {}, {}, {}, QString(),
                                                  QStringLiteral("RuntimeError: adapter has "
                                                                "no device controls"))));
-    AetherGateChainWindow* w = openChain(applet);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-    bringUp(w);
-    strip(w)->selectStage(QStringLiteral("auto_clean"));
-    settle();
 
-    auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
-    CHECK(state != nullptr);
-    if (state)
-        CHECK(state->text()
+    const QString state = chainAutoStateLine(gov);
+    CHECK(state
               == QStringLiteral("AUTO CLEAN ERROR: RuntimeError: adapter has no device "
                                 "controls · idle · nothing to hold"));
 }

@@ -2,6 +2,7 @@
 
 #include "core/ThemeManager.h"
 #include "gui/AetherGateChainBypass.h"
+#include "gui/AetherGateChainNow.h"
 #include "gui/AetherGateChainPresets.h"
 #include "gui/AetherGateChainStrip.h"
 #include "gui/AetherGateChainVisual.h"
@@ -17,6 +18,7 @@
 #include <QScrollArea>
 #include <QShowEvent>
 #include <QSizePolicy>
+#include <QStyle>
 #include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -185,66 +187,52 @@ void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
 
 void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
 {
-    // B25 AUTO CLEAN's read-only header, above the tabs: the third of the
-    // three surfaces docs/DIVERSITY.md's "AUTO CLEAN: the chain decides"
-    // asks the operator be able to SEE it on (the other two carry the
-    // switch itself -- gui/AetherGateDiversityPanel.cpp's sidebar toggle and
-    // gui/DiversityFlowStripAuto.cpp's FLOW banner). This window has no
-    // write path of its own for /diversity/set, so it is read-only here;
-    // the tooltip below says where to turn it on or off.
+    // NOW, above the tabs: the one thing worth changing right now, per the
+    // eight-case ladder AetherGateChainNow.cpp runs, on both CHAIN and
+    // VISUAL. It replaces the read-only AUTO CLEAN banner this header used
+    // to show -- that banner only ever said what the governor was doing;
+    // NOW says what to do about it, with a button that writes.
     //
-    // m_governor is already this window's own member, kept current by
-    // applyFilter() (AetherGateChainWindow.cpp), which this header cannot
-    // be edited to hook into directly -- but a lambda defined lexically
-    // inside a genuine member function, even one whose body lives in this
-    // .cpp file, keeps full access to `this`'s private members regardless.
-    // No new poll: this timer only re-reads state /filter already delivered.
-    auto* autoBanner = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainAutoCleanBanner"),
-        QStringLiteral("AUTO CLEAN ON · trying a null on the mains hum · "
-                       "mains/squeeze backing off until 12:46"),
-        tr("The chain's own governor, read-only here; switch it from the "
-           "sidebar or Diversity window."),
-        bodyWidget());
-    autoBanner->setAccessibleName(tr("AUTO CLEAN status"));
-    // This header has the room the switches lack, so it carries the whole
-    // sentence (U1: the switches show the label alone). The gate's own `why`
-    // has no true worst case -- same Ignored treatment the sidebar's and
-    // FLOW strip's own AUTO CLEAN widgets carry, so a long one clips instead
-    // of pushing this window's minimum width past the 1120 it opens at.
-    autoBanner->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    autoBanner->setMinimumWidth(0);
-    autoBanner->setVisible(false);
+    // m_governor, m_autoCleanRow and m_frontend are already this window's
+    // own members, kept current by applyFilter()/applyDevice()
+    // (AetherGateChainWindow.cpp), which this header cannot be edited to
+    // hook into directly -- but a lambda defined lexically inside a genuine
+    // member function, even one whose body lives in this .cpp file, keeps
+    // full access to `this`'s private members regardless. No new poll: this
+    // timer only re-reads state /filter and /device already delivered, the
+    // same 500 ms the banner it replaces re-read its own state at -- a held
+    // tool's age (design §2.3 case 4) has to keep counting up between polls
+    // that answer byte-identical bodies.
+    m_now = new AetherGateChainNow(bodyWidget());
+    connect(m_now, &AetherGateChainNow::requestWrite, this,
+            &AetherGateChainWindow::onWriteRequested);
+    connect(m_now, &AetherGateChainNow::stageLit, this, &AetherGateChainWindow::applyLitStage);
 
-    // The banner shares its line with HEAR RAW at the right end -- the
-    // operator's request, verbatim: "a little bypass button where we can
-    // temporarily hear the signal without going through the chain" so they
-    // can A/B how much the chain is doing. See AetherGateChainBypass.h for
-    // the button's own contract; this is only where it lives on screen.
+    // NOW shares its row with HEAR RAW at the right end -- the operator's
+    // request, verbatim: "a little bypass button where we can temporarily
+    // hear the signal without going through the chain" so they can A/B how
+    // much the chain is doing. See AetherGateChainBypass.h for the button's
+    // own contract; this is only where it lives on screen.
     auto* headerRow = new QWidget(bodyWidget());
     headerRow->setObjectName(QStringLiteral("gateChainHeaderRow"));
-    headerRow->setAccessibleName(tr("AUTO CLEAN status and HEAR RAW"));
+    headerRow->setAccessibleName(tr("What to do now, and HEAR RAW"));
     auto* headerBox = new QHBoxLayout(headerRow);
     headerBox->setContentsMargins(0, 0, 0, 0);
     headerBox->setSpacing(6);
-    headerBox->addWidget(autoBanner, 1);
+    headerBox->addWidget(m_now, 1);
     m_hearRaw = new AetherGateChainHearRawButton(headerRow);
     connect(m_hearRaw, &AetherGateChainHearRawButton::requestWrite, this,
             &AetherGateChainWindow::onWriteRequested);
     headerBox->addWidget(m_hearRaw, 0);
     root->addWidget(headerRow);
 
-    auto* autoTimer = new QTimer(this);
-    autoTimer->setObjectName(QStringLiteral("gateChainAutoCleanBannerTimer"));
-    autoTimer->setInterval(500);
-    connect(autoTimer, &QTimer::timeout, this, [this, autoBanner] {
-        const QString indicator = chainAutoIndicatorSentence(this->m_governor);
-        autoBanner->setVisible(!indicator.isEmpty());
-        if (!indicator.isEmpty())
-            autoBanner->setText(indicator);
-        DiversityWidgets::setLive(autoBanner, !indicator.isEmpty());
+    auto* nowTimer = new QTimer(this);
+    nowTimer->setObjectName(QStringLiteral("gateChainNowTimer"));
+    nowTimer->setInterval(500);
+    connect(nowTimer, &QTimer::timeout, this, [this] {
+        m_now->refresh(this->m_autoCleanRow, this->m_governor, this->m_frontend);
     });
-    autoTimer->start();
+    nowTimer->start();
 
     m_tabs = new QTabWidget(bodyWidget());
     m_tabs->setObjectName(QStringLiteral("gateChainTabs"));
@@ -345,6 +333,30 @@ void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
             refreshStrip();
     });
     root->addWidget(m_tabs, 1);
+}
+
+// NOW's own stageLit(id) handler: walks every tile currently on the diagram
+// and sets the "lit" property to match `id`, repolishing only the tiles
+// whose property actually changed. A fresh walk each call rather than
+// remembering the last id and clearing just that one tile, because
+// AetherGateChainStrip::setStages() throws old tiles away and builds new
+// ones whenever a row's shape changes -- a remembered id could be pointing
+// at a QFrame that no longer exists on screen.
+void AetherGateChainWindow::applyLitStage(const QString& id)
+{
+    if (!m_strip)
+        return;
+    for (int i = 0; i < m_strip->tileCount(); ++i) {
+        AetherGateChainTile* t = m_strip->tileAt(i);
+        if (!t)
+            continue;
+        const bool lit = !id.isEmpty() && t->id() == id;
+        if (t->property("lit").toBool() == lit)
+            continue;
+        t->setProperty("lit", lit);
+        t->style()->unpolish(t);
+        t->style()->polish(t);
+    }
 }
 
 // The door back from the picture. The card is selected -- which fills the

@@ -220,14 +220,6 @@ QString chainAutoStateWord(const ChainAutoGovernor& gov);
 // just disappears).
 QString chainAutoIndicatorLine(const ChainAutoGovernor& gov);
 
-// The whole line for the one surface with room for it -- the CHAIN window's
-// read-only header: "AUTO CLEAN ON · <state_label> · <why>". Empty on the
-// same terms. Not used by the switches any more (see
-// chainAutoSetButtonIndicator()); built independently of
-// chainAutoIndicatorLine() above so the header keeps the label even though
-// the switches' own face text no longer carries it.
-QString chainAutoIndicatorSentence(const ChainAutoGovernor& gov);
-
 // Puts the indicator on a switch: the face shows `indicator` verbatim (empty
 // collapses it to the bare "AUTO CLEAN"), the accessible description carries
 // `stateWord` folded in -- "AUTO CLEAN ON · <stateWord>", short, for screen

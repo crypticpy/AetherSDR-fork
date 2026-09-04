@@ -41,8 +41,14 @@ namespace AetherSDR {
 
 // The rows one /filter answer describes. `fromGate` (optional) reports
 // whether they came from the gate's own chain[] or from the built-in
-// fallback.
-QList<ChainStage> chainFromFilter(const QJsonObject& filter, bool* fromGate = nullptr);
+// fallback. `autoCleanOut` (optional) receives the auto_clean row when the
+// gate's own chain[] carries one, or a default-constructed ChainStage (empty
+// id) when it does not -- AUTO CLEAN never rejoins the returned list; the
+// CHAIN window's NOW strip (AetherGateChainNow.h) is the only thing that
+// still draws it. Ignored entirely on the fallback path (chainFallback()
+// never carries an auto_clean row at all).
+QList<ChainStage> chainFromFilter(const QJsonObject& filter, bool* fromGate = nullptr,
+                                  ChainStage* autoCleanOut = nullptr);
 
 // The 13 rows a chain-less /filter can honestly describe, exported for the
 // test that pins them.

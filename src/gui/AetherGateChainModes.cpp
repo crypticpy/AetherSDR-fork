@@ -83,6 +83,11 @@ const ModeRow kModeTable[] = {
 // the only thing in this window that rearranges anything -- four columns
 // instead of one wall of tiles. Within a column the gate's order is kept
 // exactly.
+//
+// "auto_clean" is deliberately absent from this table: AetherGateChainRows
+// .cpp's chainFromFilter() lifts the row out of the list before it ever
+// reaches chainStageGroup(), because AUTO CLEAN is drawn by the CHAIN
+// window's NOW strip (AetherGateChainNow.h) and nowhere on the diagram.
 
 struct GroupRow {
     const char* id;
@@ -103,6 +108,12 @@ const GroupRow kGroupTable[] = {
     {"combiner",     ChainGroup::Pair},
     {"subband",      ChainGroup::Pair},
     {"post",         ChainGroup::Pair},
+    // Not necessarily adjacent to the rest of PAIR in the gate's own order --
+    // chainstatus.py can send squeeze anywhere, including after every other
+    // row -- so it needs its own entry rather than relying on `previous`
+    // (design §1.1: squeeze had the same gap auto_clean did, and only landed
+    // in PAIR by accident when it happened to follow a PAIR row).
+    {"squeeze",      ChainGroup::Pair},
 
     {"roof_digital", ChainGroup::Passband},
     {"slice",        ChainGroup::Passband},

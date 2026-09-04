@@ -3,6 +3,7 @@
 #include "core/ThemeManager.h"
 #include "gui/AetherGateChainAuto.h"
 #include "gui/AetherGateChainBypass.h"
+#include "gui/AetherGateChainNow.h"
 #include "gui/AetherGateChainPresets.h"
 #include "gui/AetherGateChainStrip.h"
 #include "gui/AetherGateChainVisual.h"
@@ -512,7 +513,7 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
     // at VISUAL must still say so the instant they look back at the
     // sidebar, not only once they flip back to CHAIN.
     bool fromGate = false;
-    m_filterStages = chainFromFilter(filter, &fromGate);
+    m_filterStages = chainFromFilter(filter, &fromGate, &m_autoCleanRow);
     m_fromGate = fromGate;
     const QList<ChainStage> stages = mergedStages();
     // Held against the preset in force -- AFTER the sequencer has seen the
@@ -531,8 +532,15 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
     // no re-fetch, no re-parse.
     // Either skip leaves the diagram behind the body, so the body is not
     // recorded as drawn: the next poll, identical or not, gets to rebuild.
+    // NOW reads m_autoCleanRow/m_governor directly, so it is current the
+    // instant a poll lands rather than waiting on its own 500 ms ticker
+    // (AetherGateChainWindowTabs.cpp's gateChainNowTimer, which only exists
+    // to keep a held tool's age climbing between polls) -- refreshed on both
+    // skip paths below, and NOW shows on both tabs regardless.
     if (currentTab() != kTabChain) {
         m_lastFilterBody = QJsonObject();
+        if (m_now)
+            m_now->refresh(m_autoCleanRow, m_governor, m_frontend);
         return;
     }
     // The operator's hand is on the picture on the OTHER tab, but this
@@ -540,9 +548,17 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
     // unwelcome here as it would be under the pointer.
     if (m_visual && m_visual->dragging()) {
         m_lastFilterBody = QJsonObject();
+        if (m_now)
+            m_now->refresh(m_autoCleanRow, m_governor, m_frontend);
         return;
     }
     applyChainBody(stages);
+    // NOW's lit-row signal walks the strip's tiles (applyLitStage()), so it
+    // has to fire AFTER applyChainBody() has rebuilt them -- refreshing NOW
+    // any earlier lights a tile that setStages()'s rebuild() is about to
+    // replace out from under it.
+    if (m_now)
+        m_now->refresh(m_autoCleanRow, m_governor, m_frontend);
 }
 
 // Turns already-merged stages into strip/tile updates -- the part of a
@@ -571,6 +587,11 @@ void AetherGateChainWindow::applyDevice(const QJsonObject& device)
         return;
     m_frontend = chainFrontendFromDevice(device);
     refreshStrip();
+    // See the matching comment in applyFilter(): NOW has to refresh AFTER
+    // the strip's tiles are current, or its lit-row signal lands on tiles
+    // refreshStrip()'s rebuild() is about to throw away.
+    if (m_now)
+        m_now->refresh(m_autoCleanRow, m_governor, m_frontend);
 }
 
 // What applyFilter() and applyDevice() both need built before either the
@@ -628,6 +649,9 @@ void AetherGateChainWindow::setPresent(bool present)
     m_filterStages.clear();
     m_frontend = ChainFrontendStatus();
     m_governor = ChainAutoGovernor();
+    m_autoCleanRow = ChainStage();
+    if (m_now)
+        m_now->refresh(m_autoCleanRow, m_governor, m_frontend);
     // A gate gone -- the next reconnect's first body must rebuild the strip
     // even if it happens to match, byte for byte, whatever was on screen
     // before the gate dropped: the strip below was just cleared.

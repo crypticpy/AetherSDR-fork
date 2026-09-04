@@ -1,14 +1,21 @@
 // B25 AUTO CLEAN -- the app half: the "held by AUTO" note on a stage card,
-// the AUTO CLEAN card's own inspector (state+why, then its recent moves),
-// and the one write the toggle is allowed to make.
+// and (for every stage but auto_clean itself) the settling/name-hygiene
+// coverage AetherGateChainStrip/Stage does not already give it.
 //
 // The governor's shape and rules are docs/DIVERSITY.md's own "AUTO CLEAN:
 // the chain decides" section, verbatim in gui/AetherGateChainAuto.h. This
 // file tests gui/AetherGateChainAuto.cpp's parsing and formatting plus the
-// two hooks AetherGateChainWindow.cpp added to call it -- it does NOT retest
-// anything AetherGateChainStrip/Stage already cover (tile selection, no
-// word wrap, the settling window), the way aether_gate_chain_frontend_test
-// .cpp and aether_gate_chain_squeeze_test.cpp do not either.
+// "held by AUTO" hook AetherGateChainWindow.cpp calls it through -- it does
+// NOT retest anything AetherGateChainStrip/Stage already cover (tile
+// selection, no word wrap, the settling window), the way
+// aether_gate_chain_frontend_test.cpp and aether_gate_chain_squeeze_test.cpp
+// do not either.
+//
+// AUTO CLEAN's own card and its one write left the diagram entirely (W1,
+// design §2.1 item 4): chain[0] is no longer drawn, and what used to be
+// this file's write-path test and part of its name-hygiene sweep moved to
+// aether_gate_chain_now_test.cpp, which is where AetherGateChainNow.h's own
+// widgets and writes now live.
 //
 // The auto_clean chain row and the "squeeze" row it needs to show a held
 // squeeze note are built locally, the same way squeeze's own
@@ -20,8 +27,9 @@
 // aether_gate_chain_auto_inspector_test.cpp: this file was at the
 // 800-line budget AGENTS.md asks for. The chain-row/governor fixture
 // (bringUp/feedDevice/autoCleanRow/squeezeRow/withAutoCleanChain/held/
-// event/backoff/ruledOut/governor/localEpoch) is shared by both binaries
-// and lives in AetherGateChainAutoTestSupport.h so it is not duplicated.
+// event/backoff/ruledOut/governor/localEpoch) is shared by all three
+// binaries and lives in AetherGateChainAutoTestSupport.h so it is not
+// duplicated.
 #include "AetherGateChainAutoTestSupport.h"
 #include "AetherGateChainFixture.h"
 
@@ -29,7 +37,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLabel>
-#include <QPushButton>
 #include <QScrollBar>
 #include <QTest>
 
@@ -205,51 +212,14 @@ void testNoteIsADirectChildOfItsOwnTileOnly()
 }
 
 // --------------------------------------------------------------------------
-// The write path -- the one thing this task must not get wrong
-// --------------------------------------------------------------------------
-
-void testToggleWritesExactlyAutoOffWhileOnAndAutoOnWhileOff()
-{
-    FakeGate net;
-    AetherGateApplet applet(nullptr, &net);
-    connectGate(applet, net, withAutoCleanChain(true));
-    AetherGateChainWindow* w = openChain(applet);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-    bringUp(w);
-
-    auto* toggle = w->findChild<QPushButton*>(QStringLiteral("gateChainToggle_auto_clean"));
-    CHECK(toggle != nullptr);
-    if (!toggle)
-        return;
-
-    int writes = net.log.size();
-    toggle->click();
-    settle();
-    CHECK(net.log.size() == writes + 1);
-    CHECK(net.log.last() == QStringLiteral("/diversity/set?auto=off"));
-
-    // The gate confirms off; the same button now asks for on.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             withAutoCleanChain(false)};
-    filterTick(applet);
-
-    writes = net.log.size();
-    toggle->click();
-    settle();
-    CHECK(net.log.size() == writes + 1);
-    CHECK(net.log.last() == QStringLiteral("/diversity/set?auto=on"));
-    // MUTATION: swap the on/off strings in autoCleanRow()'s action.query
-    // above (this fixture, not production code) and both CHECKs above fail
-    // -- proof the assertion is reading the gate's own action.query rather
-    // than a hard-coded guess. Verified by hand during development: flipped
-    // the two literals, reran, watched both FAIL lines print, restored, and
-    // confirmed `git diff` on this file was clean.
-}
-
-// --------------------------------------------------------------------------
 // Names, and nothing scrolls
+//
+// The write path itself -- the toggle that used to live on the auto_clean
+// card -- moved to aether_gate_chain_now_test.cpp along with the card: NOW
+// (AetherGateChainNow.h) is the only thing that still writes auto=on/off,
+// and its own ladder tests (cases 4 and 5) cover the on->off and off->on
+// halves the old testToggleWritesExactlyAutoOffWhileOnAndAutoOnWhileOff()
+// used to.
 // --------------------------------------------------------------------------
 
 void testEveryB25WidgetHasANameAndNothingScrollsAtInitialSize()
@@ -289,8 +259,10 @@ void testEveryB25WidgetHasANameAndNothingScrollsAtInitialSize()
         CHECK(!note->wordWrap());
     }
 
-    CHECK(w->findChild<QPushButton*>(QStringLiteral("gateChainToggle_auto_clean")) != nullptr);
-    strip(w)->selectStage(QStringLiteral("auto_clean"));
+    // auto_clean itself has no tile any more -- see AetherGateChainNow.h --
+    // so this is any other real stage, only to exercise the inspector's own
+    // no-word-wrap widgets below.
+    strip(w)->selectStage(QStringLiteral("squeeze"));
     settle();
 
     auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
@@ -350,7 +322,10 @@ void testRenderAutoWhenAsked()
     feedDevice(w, frontend(true, QStringLiteral("4"), QStringLiteral("6"), true, 1.1, 0,
                           QStringLiteral("holding")));
     bringUp(w);
-    strip(w)->selectStage(QStringLiteral("auto_clean"));
+    // auto_clean itself has no tile any more -- see AetherGateChainNow.h,
+    // which is what now draws on this same PNG above the tabs -- so the
+    // selection is the squeeze card its own held note decorates.
+    strip(w)->selectStage(QStringLiteral("squeeze"));
     settle();
     CHECK(w->grab().save(QStringLiteral("/tmp/chain-b25-auto.png")));
 }
@@ -367,7 +342,6 @@ int main(int argc, char** argv)
     testNoteForPendingNbHasNoScoreYet();
     testNoteRemovedWhenHoldingEmpties();
     testNoteIsADirectChildOfItsOwnTileOnly();
-    testToggleWritesExactlyAutoOffWhileOnAndAutoOnWhileOff();
     testEveryB25WidgetHasANameAndNothingScrollsAtInitialSize();
     testRenderAutoWhenAsked();
 

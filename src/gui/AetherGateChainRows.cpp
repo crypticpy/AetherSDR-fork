@@ -544,8 +544,11 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
     return rows;
 }
 
-QList<ChainStage> chainFromFilter(const QJsonObject& filter, bool* fromGate)
+QList<ChainStage> chainFromFilter(const QJsonObject& filter, bool* fromGate,
+                                  ChainStage* autoCleanOut)
 {
+    if (autoCleanOut)
+        *autoCleanOut = ChainStage();
     const QJsonValue chain = filter.value(QStringLiteral("chain"));
     if (chain.isArray()) {
         if (fromGate)
@@ -553,8 +556,19 @@ QList<ChainStage> chainFromFilter(const QJsonObject& filter, bool* fromGate)
         QList<ChainStage> rows;
         const QJsonArray array = chain.toArray();
         for (const QJsonValue& v : array) {
-            if (v.isObject())
-                rows.append(stageFromJson(v.toObject()));
+            if (!v.isObject())
+                continue;
+            ChainStage row = stageFromJson(v.toObject());
+            // AUTO CLEAN is drawn by the CHAIN window's NOW strip and never
+            // on the diagram -- lifted out here, once, rather than filtered
+            // by every consumer of this list (AetherGateChainModes.cpp's
+            // kGroupTable carries no entry for it for the same reason).
+            if (row.id == QLatin1String("auto_clean")) {
+                if (autoCleanOut)
+                    *autoCleanOut = row;
+                continue;
+            }
+            rows.append(row);
         }
         return rows;
     }

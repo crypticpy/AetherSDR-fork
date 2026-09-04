@@ -322,16 +322,6 @@ QString chainAutoIndicatorLine(const ChainAutoGovernor& gov)
     return QStringLiteral("AUTO CLEAN ON");
 }
 
-QString chainAutoIndicatorSentence(const ChainAutoGovernor& gov)
-{
-    if (!gov.available || !gov.autoOn)
-        return QString();
-    QString line = QStringLiteral("AUTO CLEAN ON · %1").arg(chainAutoStateWord(gov));
-    if (!gov.why.isEmpty())
-        line += QStringLiteral(" · ") + gov.why;
-    return line;
-}
-
 void chainAutoSetButtonIndicator(QPushButton* button, const QString& indicator,
                                  const QString& stateWord)
 {

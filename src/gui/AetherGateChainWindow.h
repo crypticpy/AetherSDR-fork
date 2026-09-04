@@ -100,6 +100,7 @@ namespace AetherSDR {
 class AetherGateChainStrip;
 class AetherGateChainControl;
 class AetherGateChainHearRawButton;
+class AetherGateChainNow;
 class AetherGateChainPresetBar;
 class AetherGateChainVisual;
 class AudioEngine;
@@ -219,6 +220,15 @@ private:
     // half gated on CHAIN being the front tab and the picture not being
     // dragged. See applyFilter()'s own comment for why it may be skipped.
     void applyChainBody(const QList<ChainStage>& stages);
+    // AetherGateChainWindowTabs.cpp: the NOW strip's own stageLit(id) signal
+    // handler. Lights `id`'s tile with the 2 px left edge
+    // AetherGateChainTile.cpp's own kLitStyle carries, dims whichever tile
+    // carried it before (a fresh property walk each time rather than a
+    // stored QPointer, since AetherGateChainStrip may have rebuilt its
+    // tiles between one call and the next). Public API only --
+    // AetherGateChainStrip::tile() -- so nothing here needs a header this
+    // task does not own.
+    void applyLitStage(const QString& id);
 
     // One write on the wire, per stage.
     struct PendingWrite {
@@ -234,6 +244,8 @@ private:
     AetherGateChainPresetBar* m_presets{nullptr};
     // The header's momentary bypass button -- see AetherGateChainBypass.h.
     AetherGateChainHearRawButton* m_hearRaw{nullptr};
+    // The NOW strip, above the tabs -- see AetherGateChainNow.h.
+    AetherGateChainNow*     m_now{nullptr};
     QLabel*                 m_detailName{nullptr};
     QLabel*                 m_detailText{nullptr};   // what it is doing now
     QLabel*                 m_detailTip{nullptr};    // what it does to the sound
@@ -263,6 +275,10 @@ private:
     // blank the guard.
     QList<ChainStage>       m_filterStages;
     ChainFrontendStatus     m_frontend;
+    // The auto_clean row chainFromFilter() lifted out of m_filterStages --
+    // empty id when the gate's last chain[] carried none. The NOW strip's
+    // own input; see AetherGateChainNow.h.
+    ChainStage              m_autoCleanRow;
     // The last /filter body this window parsed, kept only to skip a rebuild
     // the poll's own body did not change (QJsonObject's operator== is a
     // deep, order-independent compare). m_filterStages -- not this -- is
