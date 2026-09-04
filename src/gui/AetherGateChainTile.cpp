@@ -235,7 +235,7 @@ void AetherGateChainTile::refreshPrimary()
 // why a fixed row cannot move. A row that is neither refused nor fixed hides
 // it, so the card does not carry an empty line.
 //
-// On a summary ROW the shared "all set on the setup page" hint under the card
+// On a summary ROW the shared "all set in the GATE panel" hint under the card
 // already answers the common case, so only a DIFFERENT reason shows.
 void AetherGateChainTile::refreshUnderline()
 {
@@ -245,11 +245,17 @@ void AetherGateChainTile::refreshUnderline()
         && text == chainFrontEndSharedWhy()) {
         text.clear();
     }
-    // A summary ROW never carries one: the card's single hint under all seven
-    // rows says the one thing they have in common, and anything else is on
-    // the hover and in the inspector. Seven reasons stacked in a 244 px
-    // column was the "there is a lot of stuff" the operator read.
-    if (m_shape == ChainTileShape::Line)
+    // A summary ROW never carries a `why` of its own: the card's single hint
+    // under all seven rows says the one thing they have in common, and
+    // anything else is on the hover and in the inspector. Seven reasons
+    // stacked in a 244 px column was the "there is a lot of stuff" the
+    // operator read.
+    //
+    // A REFUSAL is not a `why` -- it is what the receiver just said about
+    // THIS row's own write (GUARD is the one FRONT END row with a switch),
+    // and it stays on the row that asked rather than joining the shared hint
+    // that has nothing to do with it.
+    if (!refused && m_shape == ChainTileShape::Line)
         text.clear();
     m_under->setVisible(!text.isEmpty());
     DiversityWidgets::setLive(m_under, refused);

@@ -193,47 +193,50 @@ void AetherGateChainWindow::setMode(ChainMode mode)
 // records what was on screen when it left. Without that record a stale poll --
 // one the gate answered from a status it read BEFORE the write applied -- is
 // indistinguishable from news.
-void AetherGateChainWindow::onWriteRequested(const QString& route, const QUrlQuery& query)
+// Which stage asked? The one whose control carries this route and query --
+// or, for the GUARD row, whose FLOOR control does, the one stage in this
+// window where a single row's control sends two different queries to the
+// same route -- or, for a checks[] row (ROOFING · DIGITAL's PEAK OFFSET),
+// whose check does. Shared by onWriteRequested(), which stage this write
+// belongs to, and setNote(), which stage's row a refusal belongs on.
+QString AetherGateChainWindow::stageOwning(const QString& route, const QString& query) const
 {
-    m_lastWriteStage.clear();
-    // Which stage asked? The one whose control carries this route and query
-    // -- or, for the GUARD row, whose FLOOR control does, the one stage in
-    // this window where a single row's control sends two different queries
-    // to the same route. A refusal stays on its tile until the operator
-    // tries THAT stage again -- clearing it on the next poll would be a
-    // 500 ms flash of the one sentence that says why nothing happened.
-    const QString sent = query.toString();
     for (const ChainStage& stage : m_strip->stages()) {
-        bool matched = false;
         if (stage.actionable() && stage.actionRoute == route) {
             const QString key = stage.actionQuery;
-            matched = sent == key || (key.endsWith(QLatin1Char('=')) && sent.startsWith(key));
+            if (query == key || (key.endsWith(QLatin1Char('=')) && query.startsWith(key)))
+                return stage.id;
         }
-        if (!matched && stage.hasFloorControl && stage.floorActionRoute == route
-            && stage.floorActionQuery.endsWith(QLatin1Char('='))) {
-            matched = sent.startsWith(stage.floorActionQuery);
+        if (stage.hasFloorControl && stage.floorActionRoute == route
+            && stage.floorActionQuery.endsWith(QLatin1Char('='))
+            && query.startsWith(stage.floorActionQuery)) {
+            return stage.id;
         }
-        // A check on this row -- ROOFING · DIGITAL's PEAK OFFSET is the
-        // first, and the query is a whole string the gate wrote, not a
-        // prefix the app appends to.
-        if (!matched) {
-            for (const ChainCheck& check : stage.checks) {
-                if (check.route == route && (sent == check.queryOn || sent == check.queryOff)) {
-                    matched = true;
-                    break;
-                }
-            }
+        for (const ChainCheck& check : stage.checks) {
+            if (check.route == route && (query == check.queryOn || query == check.queryOff))
+                return stage.id;
         }
-        if (!matched)
-            continue;
-        m_lastWriteStage = stage.id;
+    }
+    return QString();
+}
+
+void AetherGateChainWindow::onWriteRequested(const QString& route, const QUrlQuery& query)
+{
+    // A refusal stays on its tile until the operator tries THAT stage
+    // again -- clearing it on the next poll would be a 500 ms flash of the
+    // one sentence that says why nothing happened.
+    const QString sent = query.toString();
+    m_lastWriteRoute = route;
+    m_lastWriteQuery = sent;
+    m_lastWriteStage = stageOwning(route, sent);
+    if (AetherGateChainTile* tile = m_lastWriteStage.isEmpty()
+                                        ? nullptr
+                                        : m_strip->tile(m_lastWriteStage)) {
         PendingWrite pending;
-        pending.before = stage.settingKey();
+        pending.before = tile->stage().settingKey();
         pending.age.start();
-        m_pending.insert(stage.id, pending);
-        if (AetherGateChainTile* tile = m_strip->tile(stage.id))
-            tile->setError(QString());
-        break;
+        m_pending.insert(m_lastWriteStage, pending);
+        tile->setError(QString());
     }
     // A new attempt clears the last refusal: the note is about THIS write.
     setNote(QString());
@@ -335,7 +338,7 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
         if (m_preset->running())
             m_preset->noteError(error);
         else
-            setNote(error);
+            setNote(m_lastWriteRoute, m_lastWriteQuery, error);
         return;
     }
     if (!looksLikeFilterStatus(filter))
@@ -557,8 +560,24 @@ void AetherGateChainWindow::setLink(ChainLink link)
     DiversityWidgets::setLive(m_status, link != ChainLink::Gone);
 }
 
-void AetherGateChainWindow::setNote(const QString& text)
+// `route`/`query` are the write the note is about, in onWriteRequested()'s
+// own terms (route, query.toString()) -- empty when the note is not about
+// any one write, which is exactly today's clearing calls and the calls a
+// preset run cannot attribute to a single route. When they name a stage
+// this window knows, that stage's own tile carries the same words (elided,
+// full text on hover, via AetherGateChainTile::setError()) as well as the
+// inspector line below, which keeps showing every note regardless of which
+// stage -- if any -- is selected.
+void AetherGateChainWindow::setNote(const QString& route, const QString& query,
+                                    const QString& text)
 {
+    if (!route.isEmpty()) {
+        const QString owner = stageOwning(route, query);
+        if (!owner.isEmpty()) {
+            if (AetherGateChainTile* tile = m_strip->tile(owner))
+                tile->setError(text);
+        }
+    }
     if (!m_detailNote)
         return;
     m_detailNote->setVisible(!text.isEmpty());

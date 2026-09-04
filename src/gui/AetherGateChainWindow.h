@@ -53,7 +53,7 @@
 //
 // IT OWNS NO TRANSPORT. AetherGateApplet is still the one place a gate request
 // is built: /filter arrives here through the applet's DiversityBandPoller (the
-// same 2 Hz poll the FILTER page uses, on the applet's own manager, with the
+// same 2 Hz poll the retired FILTER page used, on the applet's own manager, with the
 // same transfer timeout), and every write leaves as requestWrite(), which the
 // applet turns into one GET whose reply IS the next status.
 //
@@ -171,6 +171,11 @@ signals:
     // query. The mode sets are the one exception, and even they send the same
     // /filter/set the tiles do, one line at a time.
     void requestWrite(QString route, QUrlQuery query);
+    // The FRONT END card's OPEN PANEL button: everything it summarises --
+    // antenna, gain, rate -- is set in the Aether-gate applet panel, not
+    // here. The applet is the one place that knows how to bring its own
+    // panel to the front, so this window only asks.
+    void openPanelRequested();
 
 private:
     // AetherGateChainWindowTabs.cpp: the two tabs, the PRESETS row, and the
@@ -196,8 +201,18 @@ private:
     enum class ChainLink { Live, Applying, Gone };
     void setLink(ChainLink link);
     // What the receiver said when it refused. Printed in the inspector, where
-    // the operator is already looking, and on the tile that asked.
-    void setNote(const QString& text);
+    // the operator is already looking, and -- when `route`+`query` match a
+    // stage's own actionRoute/actionQuery (or its floor control's) -- on the
+    // tile that asked, via stageOwning(). An empty route behaves exactly as
+    // before: the inspector's line only.
+    void setNote(const QString& route, const QString& query, const QString& text);
+    void setNote(const QString& text) { setNote(QString(), QString(), text); }
+    // The stage, if any, whose actionRoute/actionQuery, floor control or a
+    // checks[] entry matches this route and this exact query string (the
+    // same `sent` a query.toString() gives onWriteRequested()). Shared by
+    // onWriteRequested() -- which stage is about to be marked busy -- and
+    // setNote() -- which stage's own row a refusal belongs on.
+    QString stageOwning(const QString& route, const QString& query) const;
     void setSetProgress(const QString& text);
     void onWriteRequested(const QString& route, const QUrlQuery& query);
     // Drops any settling-window entry past kSettleMs without an answer.
@@ -276,6 +291,12 @@ private:
     AetherGateChainPreset*  m_preset{nullptr};
     QHash<QString, PendingWrite> m_pending;
     QString                 m_lastWriteStage;
+    // The route and the exact query string (query.toString()) the write in
+    // flight went out with -- kept alongside m_lastWriteStage so a refusal
+    // that arrives for it can be attributed by setNote() the same way
+    // onWriteRequested() attributed the write itself.
+    QString                 m_lastWriteRoute;
+    QString                 m_lastWriteQuery;
     // The two halves of the merge refreshStrip() draws: /filter's own rows,
     // and GET /device's "frontend" key parsed into ChainFrontendStatus. Kept
     // apart rather than pre-merged so either one can arrive alone -- a

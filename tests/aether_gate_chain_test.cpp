@@ -217,7 +217,9 @@ void testAFixedRowCarriesNoControlAndSaysWhyOnItsOwnFace()
     CHECK(hint != nullptr);
     if (hint) {
         CHECK(hint->isVisibleTo(w));
-        CHECK(hint->text().contains(QStringLiteral("SETUP PAGE")));
+        // The label itself may be shortened to fit the card; the full
+        // sentence is always on the hover.
+        CHECK(hint->toolTip().contains(QStringLiteral("GATE panel")));
     }
     // And an ACTIONABLE row carries the hand it promises.
     AetherGateChainTile* live = strip(w)->tile(QStringLiteral("nb"));

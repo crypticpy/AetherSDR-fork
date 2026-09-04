@@ -159,7 +159,7 @@ void AetherGateApplet::toggleChainWindow()
         connect(m_chainWindow, &AetherGateChainWindow::requestWrite, this,
                 &AetherGateApplet::onChainRequestWrite);
         // The window redraws from /filter and from nothing else -- the same
-        // object the FILTER page is fed, off the same poller, so the two views
+        // object the Diversity window's STATION card is fed, off the same poller, so the two views
         // can never disagree about what the receiver is doing.
         connect(m_bandPoller, &DiversityBandPoller::filterReceived, m_chainWindow,
                 &AetherGateChainWindow::applyFilter);
@@ -167,6 +167,18 @@ void AetherGateApplet::toggleChainWindow()
         // surely as pressing the door again does.
         connect(m_chainWindow, &QDialog::finished, this,
                 &AetherGateApplet::updateBandPoll);
+        // The door back: the FRONT END card's OPEN PANEL button asks for
+        // this applet, the same way toggleChainWindow() itself brings the
+        // chain window forward a few lines below -- show it, then raise and
+        // activate whatever top-level window is hosting it.
+        connect(m_chainWindow, &AetherGateChainWindow::openPanelRequested, this, [this] {
+            setVisible(true);
+            raise();
+            if (QWidget* top = window()) {
+                top->raise();
+                top->activateWindow();
+            }
+        });
     }
     const bool wantVisible = !m_chainWindow->isVisible();
     if (!wantVisible) {

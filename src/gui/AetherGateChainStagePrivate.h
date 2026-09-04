@@ -145,11 +145,11 @@ inline void applyTabularFigures(QLabel* label)
 }
 
 // The one reason the FRONT END card prints once, under all of its rows,
-// instead of once per row. It is the gate's own wording.
+// instead of once per row.
 inline QString frontEndSharedWhy()
 {
     return QCoreApplication::translate("AetherGateChainStage",
-                                       "set on the setup page");
+                                       "set in the GATE panel");
 }
 
 

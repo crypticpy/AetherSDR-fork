@@ -33,6 +33,7 @@
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QTest>
+#include <QUrlQuery>
 
 #include <cstdio>
 
@@ -434,6 +435,128 @@ void testARefusedWriteLandsOnTheTileAndTheRowDoesNotMove()
         CHECK(why->toolTip().contains(QStringLiteral("digital_roof_hz")));
 }
 
+// W2 item 2, and the bug it uncovered: a FRONT END row (roof_rf, drawn as a
+// summary-card LINE rather than a full card) never showed its own refusal at
+// all before this change -- AetherGateChainTile::refreshUnderline() cleared
+// every Line-shape under-line unconditionally, refusal or not. setError() on
+// the tile already ran; what was missing was the underline honouring it.
+void testAFrontEndRowsRefusalLandsOnThatRowNotASibling()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kRoofingFilter);   // analogue_options makes roof_rf live
+    net.routes[QStringLiteral("/filter/set")] = {
+        QNetworkReply::NoError,
+        QByteArray(R"({"error": "bad value: unsupported roof_hz"})")};
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* select = w->findChild<QComboBox*>(QStringLiteral("gateChainSelect_roof_rf"));
+    CHECK(select != nullptr);
+    if (!select)
+        return;
+    const int idx = select->findData(QStringLiteral("600000"));
+    CHECK(idx >= 0);
+    if (idx < 0)
+        return;
+    QMetaObject::invokeMethod(select, "activated", Qt::DirectConnection, Q_ARG(int, idx));
+    settle();
+
+    // The row that asked shows it, elided with the whole sentence on hover.
+    QLabel* why = label(w, QStringLiteral("gateChainWhy_roof_rf"));
+    CHECK(why != nullptr);
+    if (why) {
+        CHECK(why->isVisibleTo(w));
+        CHECK(why->toolTip().contains(QStringLiteral("roof_hz")));
+        CHECK(why->property("live").toBool());     // warning-coloured
+    }
+    // A sibling on the same card that never asked for anything stays exactly
+    // as quiet as it was -- the refusal did not move.
+    QLabel* siblingWhy = label(w, QStringLiteral("gateChainWhy_lna"));
+    if (siblingWhy)
+        CHECK(!siblingWhy->isVisibleTo(w));
+
+    // The inspector's own line keeps showing every note regardless of
+    // selection -- unchanged from before this task.
+    QLabel* note = label(w, QStringLiteral("gateChainDetailNote"));
+    CHECK(note != nullptr);
+    if (note) {
+        CHECK(note->isVisibleTo(w));
+        CHECK(note->toolTip().contains(QStringLiteral("roof_hz")));
+    }
+}
+
+// The other half of item 2: a write whose route and query name no stage this
+// window knows reaches the inspector's line same as ever, and touches no
+// tile -- "behave as today".
+void testAnUnownedRouteOnlyReachesTheGlobalLine()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kChainFullFilter);
+    net.routes[QStringLiteral("/filter/set")] = {
+        QNetworkReply::NoError,
+        QByteArray(R"({"error": "bad value: nonsense=1"})")};
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    AetherGateChainStrip* s = strip(w);
+    CHECK(s != nullptr);
+    if (!s)
+        return;
+
+    // No control on this strip ever sends this query; the same as a gate
+    // refusing a stage this build has never heard of.
+    s->requestWrite(QStringLiteral("/filter/set"), QUrlQuery(QStringLiteral("nonsense=1")));
+    settle();
+
+    QLabel* note = label(w, QStringLiteral("gateChainDetailNote"));
+    CHECK(note != nullptr);
+    if (note) {
+        CHECK(note->isVisibleTo(w));
+        CHECK(note->toolTip().contains(QStringLiteral("nonsense")));
+    }
+    for (const QString& id : {QStringLiteral("nb"), QStringLiteral("contour"),
+                              QStringLiteral("roof_digital"), QStringLiteral("apf")}) {
+        QLabel* rowWhy = label(w, QStringLiteral("gateChainWhy_") + id);
+        if (rowWhy)
+            CHECK(!rowWhy->isVisibleTo(w));
+    }
+}
+
+// W2 item 1: the FRONT END card no longer sends the operator to a setup page
+// that does not exist, and the door it opens instead actually reaches the
+// applet.
+void testFrontEndCardOpensTheGatePanelInsteadOfNaming()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kChainFullFilter);
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    QLabel* hint = label(w, QStringLiteral("gateChainFrontEndHint"));
+    CHECK(hint != nullptr);
+    if (hint)
+        CHECK(!hint->toolTip().contains(QStringLiteral("setup page"), Qt::CaseInsensitive));
+
+    auto* openPanel = button(w, QStringLiteral("gateChainOpenPanelButton"));
+    CHECK(openPanel != nullptr);
+    if (!openPanel)
+        return;
+
+    bool requested = false;
+    QObject::connect(w, &AetherGateChainWindow::openPanelRequested,
+                      [&requested] { requested = true; });
+    openPanel->click();
+    CHECK(requested);
+}
+
 // --------------------------------------------------------------------------
 // §0.3 items 1 and 2 -- MODE, and the sets
 // --------------------------------------------------------------------------
@@ -637,6 +760,9 @@ int main(int argc, char** argv)
     testAGateThatListsItsAnalogueOptionsGetsALiveRfRoof();
     testAWidthTheGateDidNotListStaysOnTheMenuAndCannotBePicked();
     testARefusedWriteLandsOnTheTileAndTheRowDoesNotMove();
+    testAFrontEndRowsRefusalLandsOnThatRowNotASibling();
+    testAnUnownedRouteOnlyReachesTheGlobalLine();
+    testFrontEndCardOpensTheGatePanelInsteadOfNaming();
     testTheModeChoosesWhatIsOnTheStrip();
     testTheModeSetsSendTheirTableInOrderOneWriteAtATime();
     testASetStopsWhenTheGateRefusesALine();

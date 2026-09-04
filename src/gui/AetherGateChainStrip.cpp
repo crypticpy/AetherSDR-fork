@@ -198,19 +198,40 @@ void AetherGateChainStrip::buildColumns(QVBoxLayout* root)
             column.grid->setVerticalSpacing(1);
             inner->addWidget(column.body);
 
-            column.hint = DiversityWidgets::makeFieldLabel(
-                tr("THE REST IS SET ON THE SETUP PAGE"), card);
+            column.hint = DiversityWidgets::makeFieldLabel(QString(), card);
             column.hint->setObjectName(QStringLiteral("gateChainFrontEndHint"));
             column.hint->setAccessibleName(tr("Where the front end is set"));
+            const QString hintText =
+                tr("antenna, gain and rate are set in the GATE panel");
+            column.hint->setText(
+                chainFitToWidth(column.hint, hintText, kFrontEndCardTextWidth));
             column.hint->setToolTip(
-                tr("The rest belongs to the setup page. GUARD is the one "
-                   "control on this card."));
+                tr("The rest belongs to the GATE panel. OPEN PANEL brings it "
+                   "to the front."));
             column.hint->setAccessibleDescription(
                 tr("The antenna port, the traps, the gain and "
-                   "the sample rate all belong to the setup "
-                   "page. GUARD is the one control on this "
-                   "card."));
+                   "the sample rate all belong to the Aether-gate "
+                   "panel, not this window. GUARD is the one "
+                   "control on this card."));
             inner->addWidget(column.hint);
+
+            // The door back: this card cannot move the antenna, the gain or
+            // the rate, but it can bring the panel that does to the front --
+            // the same "open the other window" idea AetherGateApplet's own
+            // OPEN CHAIN door already uses, run in reverse.
+            auto* openPanel = new QPushButton(tr("OPEN PANEL"), card);
+            openPanel->setObjectName(QStringLiteral("gateChainOpenPanelButton"));
+            openPanel->setAccessibleName(tr("Open the Aether-gate panel"));
+            openPanel->setToolTip(
+                tr("Brings the GATE panel to the front, where the antenna, "
+                   "gain and rate are set."));
+            openPanel->setAccessibleDescription(
+                tr("The GATE panel is the Aether-gate applet elsewhere in "
+                   "the app. This button raises it instead of opening a "
+                   "second copy."));
+            openPanel->setCursor(Qt::PointingHandCursor);
+            applyToggleButtonStyle(openPanel);
+            inner->addWidget(openPanel);
 
             // The B23 linearity guard's one caveat: a guard-moved LNA state
             // breaks the gate's own dBm calibration. Built once, kept in the

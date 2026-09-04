@@ -288,6 +288,17 @@ void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
             &AetherGateChainWindow::onWriteRequested);
     hostBox->addWidget(m_strip);
 
+    // The FRONT END card's OPEN PANEL button lives inside the strip, which
+    // this window does not own the header of; a plain QPushButton with no
+    // signal of its own to wire, found the same way AetherGateChainStrip.h's
+    // own widgets already are (findChild by objectName) rather than adding
+    // one to a header this task does not touch.
+    if (QPushButton* openPanel = m_strip->findChild<QPushButton*>(
+            QStringLiteral("gateChainOpenPanelButton"))) {
+        connect(openPanel, &QPushButton::clicked, this,
+                &AetherGateChainWindow::openPanelRequested);
+    }
+
     buildInspector(hostBox, host);
     hostBox->addStretch(1);
 
