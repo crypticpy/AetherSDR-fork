@@ -30,6 +30,7 @@ class SliceModel;
 // own header comment). This applet still owns the network transport: every
 // write the panel wants to make arrives here as a signal and leaves as a GET.
 class AetherGateDiversityPanel;
+class AudioEngine;
 
 // The line under the connection status: what the gate has plugged in, and --
 // on a device that can combine two tuners -- the switch that stops it and the
@@ -120,6 +121,11 @@ public:
     // The CHAIN window, or null until the button has been pressed once. Built
     // lazily for the same reason the Diversity window is.
     AetherGateChainWindow* chainWindow() const;
+
+    // The RX audio the operator hears, for the CHAIN window's VISUAL tab to
+    // analyse locally. Held here because that window is built lazily; a null
+    // engine (tests) simply leaves the local trace off.
+    void setAudioEngine(AudioEngine* audio);
 
 signals:
     void gatePresenceChanged(bool present);
@@ -212,6 +218,7 @@ private:
     // CHAIN -- the door and the window behind it.
     QPushButton*                   m_openChainButton{nullptr};
     QPointer<AetherGateChainWindow> m_chainWindow;
+    AudioEngine* m_audio{nullptr};
 
     // Resolution — hidden when the gate predates the "res" status field.
     QWidget*   m_resBox{nullptr};

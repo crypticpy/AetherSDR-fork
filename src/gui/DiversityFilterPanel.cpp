@@ -87,7 +87,7 @@ DiversityFilterPanel::DiversityFilterPanel(QWidget* parent) : QWidget(parent)
 
 void DiversityFilterPanel::clear()
 {
-    if (!m_available && m_hz.isEmpty() && m_specDb.isEmpty())
+    if (!m_available && m_hz.isEmpty() && m_specDb.isEmpty() && m_localAxisDb.isEmpty())
         return;                       // already empty: an empty poll costs nothing
     m_available = false;
     m_hz.clear();
@@ -98,8 +98,12 @@ void DiversityFilterPanel::clear()
     m_specFloorDb = std::numeric_limits<double>::quiet_NaN();
     m_notches.clear();
     m_anf.clear();
+    m_localHz.clear();
+    m_localAxisDb.clear();
     m_minHz = 0.0;
     m_maxHz = 0.0;
+    m_viewMinHz = 0.0;
+    m_viewMaxHz = 0.0;
     m_lowHz = 0;
     m_highHz = 0;
     m_contourHz = std::numeric_limits<double>::quiet_NaN();
@@ -123,23 +127,42 @@ void DiversityFilterPanel::clear()
 // changes twice a second on its own. Comparing the bytes before and after a
 // parse is how applyStatus() answers "did this body say anything new?" without
 // keeping a second copy of every field -- the same trick ChainStage::shape()
-// uses to decide whether a strip has to be rebuilt. Raw doubles, so a NaN
-// matches a NaN: "the contour is off" is one state, not a change every poll.
+// uses to decide whether a strip has to be rebuilt.
+//
+// EVERY NaN IS THE SAME NaN HERE, canonicalised on the way in. "The contour is
+// off" is ONE state and must fingerprint as one, but IEEE-754 has 2^52 of
+// them: a quiet NaN carries a payload and a sign bit, and comparing the raw
+// bytes of two NaNs that came from different arithmetic answers "these differ"
+// for a picture in which nothing changed. Left alone that is a rebuild of both
+// cached layers on every poll, forever, for a filter nobody touched -- exactly
+// the cost rule 1 exists to avoid. So each double goes through feedOne() and a
+// NaN becomes one fixed pattern.
 namespace {
+// One NaN, always the same bytes. The value itself is never read back -- it
+// only ever has to compare equal to itself.
+constexpr double kCanonicalNaN = std::numeric_limits<double>::quiet_NaN();
+
+void feedOne(QByteArray& b, double v)
+{
+    const double canon = std::isnan(v) ? kCanonicalNaN : v;
+    b.append(reinterpret_cast<const char*>(&canon), qsizetype(sizeof(double)));
+}
 void feed(QByteArray& b, const QVector<double>& v)
 {
-    b.append(reinterpret_cast<const char*>(v.constData()),
-             qsizetype(v.size() * sizeof(double)));
+    for (double x : v)
+        feedOne(b, x);
 }
 void feed(QByteArray& b, const QVector<QPointF>& v)
 {
-    b.append(reinterpret_cast<const char*>(v.constData()),
-             qsizetype(v.size() * sizeof(QPointF)));
+    for (const QPointF& p : v) {
+        feedOne(b, p.x());
+        feedOne(b, p.y());
+    }
 }
 void feed(QByteArray& b, std::initializer_list<double> vs)
 {
     for (double v : vs)
-        b.append(reinterpret_cast<const char*>(&v), qsizetype(sizeof(double)));
+        feedOne(b, v);
 }
 } // namespace
 
@@ -308,10 +331,18 @@ void DiversityFilterPanel::applyStatus(const QJsonObject& filter)
     if (m_roofDrag)
         m_roofOffsetHz = heldRoofOffset;
 
+    // The drawn Hz axis follows the passband, so it is re-taken here, after
+    // low_hz/high_hz and the response array have landed and before anything is
+    // measured against it. A span that moved invalidates BOTH cached pictures
+    // whatever else the body said: they are drawn in pixels, and every pixel
+    // in them is xForHz() of something.
+    const bool spanMoved = updateSpan();
     const bool specChanged = spectrumFingerprint() != wasSpectrum;
     const bool filterChanged = filterFingerprint() != wasFilter;
-    if (!specChanged && !filterChanged)
+    if (!specChanged && !filterChanged && !spanMoved)
         return;                       // a poll that is not news costs no paint
+    if (spanMoved)
+        m_specAreaDirty = true;
     if (specChanged) {
         // Floor pinning is arithmetic on the payload, not on the pixels: the
         // picture is drawn many more times than the numbers arrive.
@@ -322,77 +353,24 @@ void DiversityFilterPanel::applyStatus(const QJsonObject& filter)
         }
         m_specAreaDirty = true;
     }
-    if (filterChanged)
+    if (filterChanged || spanMoved)
         m_layersDirty = true;
     update();
 }
 
 // --------------------------------------------------------------------------
-// Geometry
+// Hit testing
+//
+// The axis these all read -- plotRect(), xForHz(), hzForX(), yForDb() and the
+// span behind them -- lives in DiversityFilterPanelPaint.cpp, with the picture
+// it is the geometry of.
 // --------------------------------------------------------------------------
-
-QRectF DiversityFilterPanel::plotRect() const
-{
-    return QRectF(kLeftGutter, kTopMargin,
-                  std::max(1, width() - kLeftGutter - kRightMargin),
-                  std::max(1, height() - kTopMargin - kBottomGutter));
-}
-
-double DiversityFilterPanel::xForHz(double hz) const
-{
-    const QRectF r = plotRect();
-    if (m_maxHz <= m_minHz)
-        return r.left();
-    const double t = (hz - m_minHz) / (m_maxHz - m_minHz);
-    return r.left() + std::clamp(t, 0.0, 1.0) * r.width();
-}
-
-double DiversityFilterPanel::hzForX(double x) const
-{
-    const QRectF r = plotRect();
-    if (m_maxHz <= m_minHz || r.width() <= 0.0)
-        return 0.0;
-    const double t = std::clamp((x - r.left()) / r.width(), 0.0, 1.0);
-    return m_minHz + t * (m_maxHz - m_minHz);
-}
-
-double DiversityFilterPanel::yForDb(double db) const
-{
-    const QRectF r = plotRect();
-    const double t = (kTopDb - std::clamp(db, kBottomDb, kTopDb)) / (kTopDb - kBottomDb);
-    return r.top() + t * r.height();
-}
-
-double DiversityFilterPanel::spectrumAxisDbAt(int index) const
-{
-    if (index < 0 || index >= int(m_specAxisDb.size()))
-        return std::numeric_limits<double>::quiet_NaN();
-    return m_specAxisDb[index];
-}
 
 double DiversityFilterPanel::notchHzAt(int index) const
 {
     if (index < 0 || index >= int(m_notches.size()))
         return std::numeric_limits<double>::quiet_NaN();
     return m_notches[index].x();
-}
-
-double DiversityFilterPanel::cursorDb() const
-{
-    if (std::isnan(m_cursorHz) || m_specAxisDb.isEmpty())
-        return std::numeric_limits<double>::quiet_NaN();
-    // The nearest bin, not an interpolation: a number between two bins is one
-    // nobody measured.
-    int best = 0;
-    double bestGap = std::abs(m_specHz[0] - m_cursorHz);
-    for (int i = 1; i < int(m_specHz.size()); ++i) {
-        const double gap = std::abs(m_specHz[i] - m_cursorHz);
-        if (gap < bestGap) {
-            bestGap = gap;
-            best = i;
-        }
-    }
-    return m_specAxisDb[best];
 }
 
 DiversityFilterPanel::Edge DiversityFilterPanel::edgeAt(double x) const
@@ -477,6 +455,11 @@ void DiversityFilterPanel::moveEdge(Edge edge, double hz, bool partial)
         update(before.united(after));
         return;
     }
+    // Not a drag -- an arrow key, or the release at the end of one. This is
+    // the moment the axis is allowed to move: re-spanning per pixel would
+    // slide the plot out from under the pointer holding the handle.
+    if (updateSpan())
+        m_specAreaDirty = true;
     m_layersDirty = true;
     update();
 }
@@ -570,7 +553,7 @@ void DiversityFilterPanel::mouseMoveEvent(QMouseEvent* ev)
 {
     const double x = ev->position().x();
     m_cursorHz = m_available ? hzForX(x) : std::numeric_limits<double>::quiet_NaN();
-    emit cursorMoved(m_cursorHz, cursorDb());
+    emit cursorMoved(m_cursorHz, cursorDbOverFloor());
     if (m_drag != Edge::None) {
         moveEdge(m_drag, hzForX(x), /*partial=*/true);
         ev->accept();
@@ -615,6 +598,10 @@ void DiversityFilterPanel::mouseReleaseEvent(QMouseEvent* ev)
 {
     if (m_drag != Edge::None) {
         m_drag = Edge::None;
+        // The axis re-spans HERE, on the release, and not once during the
+        // drag -- see updateSpan()'s own comment.
+        if (updateSpan())
+            m_specAreaDirty = true;
         m_layersDirty = true;         // one rebuild per drag, not one per pixel
         update();
         // A press on a handle that never moved it is a CLICK on the passband,

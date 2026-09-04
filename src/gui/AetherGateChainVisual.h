@@ -39,24 +39,32 @@
 
 #include "gui/AetherGateChainModes.h"
 
+#include <QElapsedTimer>
 #include <QJsonObject>
 #include <QList>
 #include <QString>
 #include <QUrlQuery>
 #include <QWidget>
 
+#include <memory>
+
 class QLabel;
 class QPushButton;
 class QResizeEvent;
+class QTimer;
 
 namespace AetherSDR {
 
+class AudioEngine;
+class ClientEqFftAnalyzer;
 class DiversityFilterPanel;
 
 class AetherGateChainVisual : public QWidget {
     Q_OBJECT
 public:
     explicit AetherGateChainVisual(QWidget* parent = nullptr);
+    // Out-of-line: m_fft holds a forward-declared type.
+    ~AetherGateChainVisual() override;
 
     // One /filter answer -- the same object the window applies to the diagram.
     // Remembered whether or not the tab is in front; drawn only when it is.
@@ -66,9 +74,31 @@ public:
     void setActive(bool active);
     bool active() const { return m_active; }
 
+    // WHAT YOU ARE ACTUALLY HEARING. The gate's spectrum is measured before
+    // the gate's own filter; this application's output is measured after all
+    // of it, gate chain and client chain both. Handed in rather than reached
+    // for: there is no singleton AudioEngine, and this tab is built in tests
+    // that have no audio at all, so the second trace is an optional extra and
+    // never a dependency. Same shape ClientEqApplet::setAudioEngine() has.
+    void setAudioEngine(AudioEngine* audio);
+
     // Gate gone. The picture empties: last minute's curve must not sit there
     // looking live.
     void clear();
+
+    // Is there a gate on the other end at all. clear() empties the picture but
+    // leaves the two SQUEEZE controls live and the status line still inviting
+    // "Shift+click a signal", which is an offer nothing can accept once the
+    // gate is away. Called by the window, the same shape
+    // AetherGateChainHearRawButton::setPresent() has.
+    void setPresent(bool present);
+
+    // The last poll failed. The body already on screen is not wrong, it is
+    // OLD, and those are different things: the picture keeps drawing and the
+    // caption says so, rather than blanking a curve that was true a second
+    // ago. The window says setStale(true) on an empty body and
+    // setStale(false) on a good one.
+    void setStale(bool stale);
 
     // True while a handle or a notch mark is under the pointer. The window
     // checks it before feeding a poll.
@@ -95,24 +125,57 @@ protected:
 private:
     void onEdgesDragged(int lowHz, int highHz);
     void refreshReadout();
+    // One FFT of the client's own RX tap, at 25 Hz, ONLY while this tab is in
+    // front and an audio engine was handed in.
+    void tickLocalSpectrum();
+    void updateLocalSpectrumTimer();
+    // The corner readout is written at most once every kCursorThrottleMs: a
+    // mouse move is delivered per pixel, and a QLabel::setText is a relayout.
+    void setCursorText(const QString& text);
+    void flushCursorText();
+    // The key to the marks, in the tokens they are actually drawn in, naming
+    // only the families the CURRENT picture has on it.
+    void refreshLegend();
+    // "PASSBAND · LSB · CW-R", and "· NOT ANSWERING" while the poll is
+    // failing: what the picture IS, which the picture itself cannot say.
+    void refreshCaption();
     // SQUEEZE (B24): off/armed/held, in the gate's own words. See
     // AetherGateChainVisual.cpp for the exact text each state uses.
     void refreshSqueezeLine();
     QString squeezeLineText() const;
 
     DiversityFilterPanel* m_panel{nullptr};
+    QLabel*               m_caption{nullptr};
     QLabel*               m_readout{nullptr};
     QLabel*               m_cursor{nullptr};
     QPushButton*          m_squeezeComb{nullptr};
     QPushButton*          m_squeezeRelease{nullptr};
     QLabel*               m_squeezeLine{nullptr};
+    QLabel*               m_legend{nullptr};
     QJsonObject           m_last;
+
+    // The second trace's machinery. All three are null in a test.
+    AudioEngine*                         m_audio{nullptr};
+    QTimer*                              m_fftTimer{nullptr};
+    std::unique_ptr<ClientEqFftAnalyzer> m_fft;
+
+    // Corner-readout throttle. The clock is invalid until the first write, so
+    // a single move in a test lands immediately rather than a frame later.
+    static constexpr int kCursorThrottleMs = 60;
+    QTimer*       m_cursorTimer{nullptr};
+    QElapsedTimer m_cursorClock;
+    QString       m_cursorPending;
     // The edges the GATE last reported, which is what a drag is compared
     // against to work out which one the operator moved. Not the panel's own
     // lowHz()/highHz(): those have already moved by the time the drag ends.
     int  m_gateLowHz{0};
     int  m_gateHighHz{0};
     bool m_active{false};
+    // Present until a window says otherwise: a tab built and never told is a
+    // tab in front of a gate that answered, which is how every test that does
+    // not care about presence reaches it.
+    bool m_present{true};
+    bool m_stale{false};
 };
 
 } // namespace AetherSDR

@@ -70,14 +70,40 @@ a button that wrote nothing would be a lie.
 **Two tabs.** The window has two tabs at the top, `CHAIN` and `VISUAL`, and they are
 two views of the same `/filter` poll. `CHAIN` is the block diagram
 above. `VISUAL` is the passband drawn as a curve at the full width of the
-window, over what is actually arriving: the measured response in blue,
-the spectrum filled in under it with the noise floor as a dotted line,
-each notch as a vertical line labelled with its depth, each tone the ANF
-is holding as a dashed line, the CONTOUR centre and the APF centre as
-ticks along the bottom, and the AUTO WIDTH edges as faint lines when
-AUTO is on. The one line under the picture reads what the gate said:
-`350–2400 Hz · floor -70.0 dB · 2 notches`. Hover anywhere and the
-top-right corner reads the frequency and the response there.
+window, over what is actually arriving: the measured response, the
+spectrum filled in under it with the noise floor as a dotted line, each
+notch as a vertical line labelled with its depth, each tone the ANF is
+holding as a dashed line, the CONTOUR centre and the APF centre as ticks
+along the bottom, and the AUTO WIDTH edges as faint lines when AUTO is
+on. The row of coloured squares under the picture is the key to all of
+it, and it names only the marks that are actually on the plot.
+
+**The axis is the passband's.** The gate answers on a fixed audio array,
+but the picture spans the passband in force plus a margin either side,
+so a 250 Hz CW filter is not four pixels wide in the middle of 3 kHz of
+empty air. The span is recomputed when a drag ENDS, never during one —
+an axis that moved under the handle you were holding would be
+unpointable — and any mark that falls outside it is clamped to the edge
+rather than dropped, so it is still there to be clicked.
+
+**A second trace** shows what you are actually *hearing*: the FFT of this
+application's own receive audio, after the gate's chain and after the
+client chain both. It only runs while `VISUAL` is the tab in front. The
+gate's spectrum is in dB below its own peak and this one is dBFS after a
+volume control, so the two are pinned to the same floor tick and read
+against their own floors rather than laid on one another — a comparison
+of *shape*, which is the honest one: if the response curve says 40 dB
+down at 3 kHz and this trace is not, something downstream is not doing
+what the curve claims.
+
+The caption over the picture says what it is of — `PASSBAND · LSB ·
+CW-R` — and adds `NOT ANSWERING` when the last poll failed, keeping the
+old curve on screen rather than blanking something that was true a
+second ago. The line under the picture reads what the gate said:
+`350–2400 Hz · floor -70.0 dB · 2 notches · SHARP · 1023 taps · 49 Hz
+skirt`. Hover anywhere and the top-right corner reads the frequency and
+how far the band stands over the noise floor there, `+34.0 dB over
+floor` — a measurement of the signal, not of where your pointer is.
 
 Only the tab in front is fed. With `CHAIN` in front the picture is not
 walked, fingerprinted or painted at all; turn to `VISUAL` and it catches

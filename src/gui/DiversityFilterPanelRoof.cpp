@@ -178,13 +178,16 @@ bool DiversityFilterPanel::roofHandleHit(double x) const
 // Whether the band's low/high edge is a genuine boundary on the plot's own
 // audio axis, or one the wash reaches without a line because the true edge
 // sits outside the plot entirely -- read back by paintRoofBand() below and
-// by tests, the way notchHzAt() is.
+// by tests, the way notchHzAt() is. Against the axis as DRAWN (the passband
+// plus its margin), not against the gate's whole array: an edge the zoom has
+// pushed off the side is exactly as absent from the picture as one the array
+// never covered.
 bool DiversityFilterPanel::roofLowEdgeInPlot() const
 {
     if (!m_roofAvailable)
         return false;
     const double loHz = m_roofOffsetHz - m_roofDigitalHz / 2.0;
-    return loHz >= m_minHz && loHz <= m_maxHz;
+    return loHz >= m_viewMinHz && loHz <= m_viewMaxHz;
 }
 
 bool DiversityFilterPanel::roofHighEdgeInPlot() const
@@ -192,7 +195,7 @@ bool DiversityFilterPanel::roofHighEdgeInPlot() const
     if (!m_roofAvailable)
         return false;
     const double hiHz = m_roofOffsetHz + m_roofDigitalHz / 2.0;
-    return hiHz >= m_minHz && hiHz <= m_maxHz;
+    return hiHz >= m_viewMinHz && hiHz <= m_viewMaxHz;
 }
 
 // The header strip's own label -- what names the roof width and the offset
@@ -230,7 +233,12 @@ void DiversityFilterPanel::paintRoofBand(QPainter& p, const QRectF& r) const
     const double hiX = xForHz(m_roofOffsetHz + half);
 
     ThemeManager& tm = ThemeManager::instance();
-    const QColor base = tm.color(this, QStringLiteral("color.text.secondary"));
+    // color.text.label, not color.text.secondary: secondary is the AUTO
+    // edges' colour AND the gutter's, so a dashed roof edge in it was a third
+    // full-height vertical line no legend could tell from the other two. The
+    // roof is meant to be the faintest thing on the plot -- it is a boundary,
+    // not a mark -- and label is the dimmest token the theme defines.
+    const QColor base = tm.color(this, QStringLiteral("color.text.label"));
 
     if (m_roofChecked) {
         QColor tint = base;
@@ -263,7 +271,10 @@ void DiversityFilterPanel::paintRoofHandle(QPainter& p, const QRectF& r) const
         return;
 
     ThemeManager& tm = ThemeManager::instance();
-    const QColor base = tm.color(this, QStringLiteral("color.text.secondary"));
+    // The strip belongs to the wash under it -- same token, see
+    // paintRoofBand(). Only the HANDLE stays bright: it is the one thing on
+    // the strip that can be dragged.
+    const QColor base = tm.color(this, QStringLiteral("color.text.label"));
     const QRectF strip(r.left(), r.top(), r.width(), kRoofStripHeight);
 
     QColor backing = base;

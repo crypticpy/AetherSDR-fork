@@ -8,6 +8,7 @@
 #include <QJsonValue>
 #include <QPainter>
 #include <QPen>
+#include <QStringList>
 
 #include <algorithm>
 #include <cmath>
@@ -83,15 +84,34 @@ void DiversityFilterPanel::resetSqueeze()
     m_squeezeTeethHz.clear();
 }
 
-// One /filter object's "squeeze" block (and its "mode", for the sign flip
-// every future click needs). Called from applyStatus() before the two
-// fingerprints are re-taken, so a squeeze that moved is a filter-layer
-// change like any other.
+// One /filter object's "squeeze" block, and the sideband every future click's
+// sign depends on. Called from applyStatus() before the two fingerprints are
+// re-taken, so a squeeze that moved is a filter-layer change like any other.
+//
+// THE SIDEBAND IS ASKED FOR DIRECTLY, not guessed from the mode string. The
+// gate answers a top-level `sideband` of exactly "lsb" or "usb"
+// (core/filter.py's status(): `"lsb" if self.lsb else "usb"`), which is the
+// same flag its own _sign() flips on -- so this reads the gate's answer rather
+// than re-deriving it. mode.startsWith("LSB") was that re-derivation, and it
+// was wrong for every mode whose name does not begin with the sideband it
+// actually uses: CW and CW-R, RTTY and RTTY-R, and any digital mode the
+// adapter names for the protocol instead of the sideband. A wrong answer here
+// does not fail loudly -- it puts a Shift+click's squeeze on the MIRROR
+// frequency.
+//
+// `mode` stays as the fallback for a gate too old to send `sideband`. When
+// neither key is present the last answer is kept: the sideband did not change
+// just because one body left it out.
 void DiversityFilterPanel::parseSqueeze(const QJsonObject& filter)
 {
-    const QString mode = filter.value(QStringLiteral("mode")).toString();
-    if (!mode.isEmpty())
-        m_squeezeLsb = mode.startsWith(QLatin1String("LSB"), Qt::CaseInsensitive);
+    const QString sideband = filter.value(QStringLiteral("sideband")).toString();
+    if (!sideband.isEmpty()) {
+        m_squeezeLsb = sideband.compare(QLatin1String("lsb"), Qt::CaseInsensitive) == 0;
+    } else {
+        const QString mode = filter.value(QStringLiteral("mode")).toString();
+        if (!mode.isEmpty())
+            m_squeezeLsb = mode.startsWith(QLatin1String("LSB"), Qt::CaseInsensitive);
+    }
 
     resetSqueeze();
     const QJsonValue sqv = filter.value(QStringLiteral("squeeze"));
@@ -198,17 +218,22 @@ double DiversityFilterPanel::squeezeHzForClick(double x) const
 }
 
 // Drawn into the cached filter layer, right after the manual notches: one
-// bracket for a signal target, one thin tooth per line for a comb. Reuses
-// the ANF tones' own colour token (this widget adds no new colour literal --
-// see the colour ratchet in AGENTS.md) with dash patterns and a fill neither
-// ANF nor AUTO use, so the three families of "something is marked here" stay
-// visually distinct without a fourth token.
+// bracket for a signal target, one thin tooth per line for a comb.
+//
+// ITS OWN TOKEN, not the spectrum's. This used to borrow
+// color.spectrum.average, which is also the arriving band's fill and used to
+// be the ANF tones' as well -- three families of mark in one colour, and a
+// legend under the plot cannot name three things that look the same. It takes
+// color.accent.danger instead: already in the theme, used nowhere else on
+// this widget (so the colour ratchet in AGENTS.md is unmoved), and the right
+// word for it -- a null or a notch the operator aimed at something on purpose
+// is the most destructive mark on the picture.
 void DiversityFilterPanel::paintSqueeze(QPainter& p, const QRectF& r) const
 {
     if (!m_squeezeHeld)
         return;
     ThemeManager& tm = ThemeManager::instance();
-    const QColor base = tm.color(this, QStringLiteral("color.spectrum.average"));
+    const QColor base = tm.color(this, QStringLiteral("color.accent.danger"));
 
     const QString toolWord = m_squeezeTool == QLatin1String("null")   ? tr("NULL")
                              : m_squeezeTool == QLatin1String("notch") ? tr("NOTCH")
@@ -216,10 +241,20 @@ void DiversityFilterPanel::paintSqueeze(QPainter& p, const QRectF& r) const
     const QString depthWord =
         std::isnan(m_squeezeDepthDb)
             ? QString()
-            : QStringLiteral(" %1%2 dB")
+            : QStringLiteral("%1%2 dB")
                   .arg(m_squeezeDepthDb < 0.0 ? QStringLiteral("−") : QString(),
                        QString::number(std::abs(m_squeezeDepthDb), 'f', 1));
-    const QString label = QStringLiteral("squeeze %1%2").arg(toolWord, depthWord);
+    // Built from the parts that are actually there. "squeeze %1%2" with no
+    // tool word reads "squeeze  -12.0 dB", with the gap where a NULL/NOTCH
+    // would have been -- the gate leaves `tool` null while it is still
+    // choosing, which is exactly when the label is being read.
+    QStringList labelParts;
+    labelParts << QStringLiteral("squeeze");
+    if (!toolWord.isEmpty())
+        labelParts << toolWord;
+    if (!depthWord.isEmpty())
+        labelParts << depthWord;
+    const QString label = labelParts.join(QLatin1Char(' '));
 
     if (m_squeezeTarget == QLatin1String("comb")) {
         QColor tooth = base;

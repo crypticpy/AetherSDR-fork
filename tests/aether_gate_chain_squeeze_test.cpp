@@ -498,6 +498,252 @@ void testEveryB24WidgetHasANameNoLabelWrapsAndNothingScrolls()
         CHECK(line->width() <= visual->width());
 }
 
+// The VISUAL tab's own audit (2026-09): the axis, the caption, the legend, the
+// corner, the gate-away state and the staleness cue. In THIS file rather than
+// a new one because tests/tests.cmake lists the panel sources in twenty-seven
+// separate targets, each of which a new sibling would have to be added to.
+
+// The gate's `sideband` key, which core/filter.py's status() answers "lsb" or
+// "usb" at the TOP level, next to `mode`.
+QByteArray withSideband(const QByteArray& body, const QString& sideband,
+                        const QString& mode = QString())
+{
+    QJsonObject root = QJsonDocument::fromJson(body).object();
+    root.insert(QStringLiteral("sideband"), sideband);
+    if (!mode.isEmpty())
+        root.insert(QStringLiteral("mode"), mode);
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+AetherGateChainVisual* visualTab(AetherGateChainWindow* w)
+{
+    return w ? w->findChild<AetherGateChainVisual*>() : nullptr;
+}
+
+// A 250 Hz CW filter used to be four pixels wide in the middle of three
+// kilohertz of empty air. The span is the passband plus a margin of 60% of
+// its width, floored at 250 Hz, clamped to what the gate actually sent.
+//
+// MUTATION: drop updateSpan()'s margin and the first pair reads 900/1150;
+// drop the call from applyStatus() and it reads 0/3000.
+void testTheAxisSpansThePassbandPlusItsMargin()
+{
+    DiversityFilterPanel p;
+    p.resize(1060, 320);
+    p.show();
+    settle();
+    p.applyStatus(QJsonDocument::fromJson(visualFilter(128, 900, 1150)).object());
+    settle();
+    CHECK(std::abs(p.viewMinHz() - 650.0) < 1.0);
+    CHECK(std::abs(p.viewMaxHz() - 1400.0) < 1.0);
+
+    // A wide SSB passband asks for more margin than the array has, so the span
+    // clamps back to the whole of it -- the picture everyone already knows.
+    p.applyStatus(QJsonDocument::fromJson(visualFilter()).object());
+    settle();
+    CHECK(std::abs(p.viewMinHz()) < 1.0);
+    CHECK(std::abs(p.viewMaxHz() - 3000.0) < 1.0);
+}
+
+// The corner used to read the axis coordinate under the pointer, which is a
+// fact about the mouse. It reads a measurement now: how far the arriving band
+// stands over the gate's own floor.
+//
+// MUTATION: return the axis dB and both readings are about -5; drop the floor
+// subtraction and both are near -70. The fixture's carrier is a peak at
+// 1 200 Hz over a -70 dB floor; 2 800 Hz is empty air on the same floor. The
+// carrier is not checked against 70 exactly because the nearest of the 128
+// bins the gate sends is 4.7 Hz off the peak of a 40 Hz-wide triangle.
+void testTheCursorReadsDbOverTheFloorNotTheAxis()
+{
+    DiversityFilterPanel p;
+    p.resize(1060, 320);
+    p.show();
+    settle();
+    p.applyStatus(QJsonDocument::fromJson(visualFilter()).object());
+    settle();
+    QTest::mouseMove(&p, QPoint(int(p.xForHz(1200)), p.height() / 2));
+    settle();
+    CHECK(std::abs(p.cursorHz() - 1200.0) < 30.0);
+    CHECK(p.cursorDbOverFloor() > 50.0);
+
+    QTest::mouseMove(&p, QPoint(int(p.xForHz(2800)), p.height() / 2));
+    settle();
+    CHECK(std::abs(p.cursorDbOverFloor()) < 5.0);
+}
+
+// The no-news rule, with the NaNs the gate really sends in it. AUTO is off in
+// the fixture, so autoLowHz/autoHighHz are NaN -- and NaN != NaN, so a
+// fingerprint over the raw bytes of every double would differ from itself on
+// every poll and rebuild both cached layers forever.
+//
+// MUTATION: feed the doubles to the fingerprint without canonicalising the
+// NaNs and the rebuild count climbs with the poll count.
+void testIdenticalBodiesWithNaNsInThemRebuildNothing()
+{
+    DiversityFilterPanel p;
+    p.resize(1060, 320);
+    p.show();
+    settle();
+    const QJsonObject body = QJsonDocument::fromJson(visualFilter()).object();
+    p.applyStatus(body);
+    settle();
+    p.grab();
+    CHECK(std::isnan(p.autoLowHz()));
+    const int rebuilds = p.staticRebuildCount();
+    CHECK(rebuilds > 0);
+    for (int i = 0; i < 3; ++i) {
+        p.applyStatus(body);
+        settle();
+        p.grab();
+    }
+    CHECK(p.staticRebuildCount() == rebuilds);
+}
+
+// What the picture is OF. A response curve on an always-positive audio axis
+// looks the same on USB, on LSB and on CW-R, so the caption says which.
+//
+// MUTATION: read `mode` first and the caption says "PASSBAND · CW-R · USB".
+void testTheCaptionSaysTheSidebandAndTheMode()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net,
+                withSideband(visualFilter(), QStringLiteral("usb"),
+                             QStringLiteral("CW-R")));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w, kTabVisual);
+    CHECK(labelText(w, "gateChainVisualCaption")
+          == QStringLiteral("PASSBAND · USB · CW-R"));
+
+    // A mode that is only its own sideband spelled again is said once.
+    net.routes[QStringLiteral("/filter")] = {
+        QNetworkReply::NoError,
+        withSideband(visualFilter(), QStringLiteral("usb"), QStringLiteral("USB"))};
+    filterTick(applet);
+    settle();
+    CHECK(labelText(w, "gateChainVisualCaption") == QStringLiteral("PASSBAND · USB"));
+
+    // ...and the key under the picture names the families that are ON it and
+    // no others: the fixture has notches, ANF tones and a contour, and no
+    // test has an audio engine, so there is nothing to hear.
+    const QString legend = labelText(w, "gateChainVisualLegend");
+    CHECK(legend.contains(QStringLiteral("auto-notch")));
+    CHECK(legend.contains(QStringLiteral("contour/APF")));
+    CHECK(!legend.contains(QStringLiteral("hearing")));
+}
+
+// The gate is away. clear() used to empty the picture and leave SQUEEZE: COMB
+// live under "Shift+click a signal" -- an offer nothing can accept.
+//
+// MUTATION: drop setPresent()'s refreshSqueezeLine() and the line keeps the
+// invitation; drop its m_present term and RELEASE comes back on.
+void testGateAwayTakesTheSqueezeOfferWithIt()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, withSqueeze(visualFilter(), squeezeOffBlock()));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w, kTabVisual);
+    AetherGateChainVisual* v = visualTab(w);
+    QPushButton* comb = button(w, QStringLiteral("gateChainSqueezeComb"));
+    CHECK(v != nullptr);
+    CHECK(comb != nullptr);
+    if (!v || !comb)
+        return;
+    CHECK(comb->isEnabled());
+
+    v->setPresent(false);
+    settle();
+    CHECK(!comb->isEnabled());
+    CHECK(labelText(w, "gateChainSqueezeLine").contains(QStringLiteral("gate is away")));
+    QPushButton* release = button(w, QStringLiteral("gateChainSqueezeRelease"));
+    CHECK(release != nullptr);
+    if (release)
+        CHECK(!release->isEnabled());
+
+    v->setPresent(true);
+    settle();
+    CHECK(comb->isEnabled());
+    CHECK(labelText(w, "gateChainSqueezeLine").contains(QStringLiteral("Shift+click")));
+}
+
+// A poll that did not answer. The curve stays -- it was true a second ago --
+// and the caption carries the cue, in the same [live] property the AUTO CLEAN
+// banner uses.
+//
+// MUTATION: drop the setLive() call and the property never turns true; drop
+// the m_stale branch in refreshCaption() and the words never appear.
+void testAFailedPollIsSaidInTheCaptionAndNotByBlanking()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, visualFilter());
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w, kTabVisual);
+    AetherGateChainVisual* v = visualTab(w);
+    QLabel* caption = label(w, QStringLiteral("gateChainVisualCaption"));
+    DiversityFilterPanel* p = panel(w);
+    CHECK(v != nullptr);
+    CHECK(caption != nullptr);
+    CHECK(p != nullptr);
+    if (!v || !caption || !p)
+        return;
+    const int pointsBefore = p->spectrumPointCount();
+    CHECK(pointsBefore > 0);
+
+    v->setStale(true);
+    settle();
+    CHECK(caption->text().contains(QStringLiteral("NOT ANSWERING")));
+    CHECK(caption->property("live").toBool());
+    // The picture is NOT emptied: staleness is a cue, not a clear().
+    CHECK(p->spectrumPointCount() == pointsBefore);
+
+    v->setStale(false);
+    settle();
+    CHECK(!caption->text().contains(QStringLiteral("NOT ANSWERING")));
+    CHECK(!caption->property("live").toBool());
+}
+
+// Which way a Shift+click's own write is signed. `sideband` is the gate's own
+// answer and `mode` is the adapter's slice mode -- on CW-R, RTTY-R and the
+// digital reverse modes the two disagree, and reading only `mode` put every
+// squeeze on the mirror frequency.
+//
+// MUTATION: read `mode` first in parseSqueeze() and this writes squeeze=1200.
+void testTheSqueezeSignComesFromTheSidebandKeyNotTheMode()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net,
+                withSideband(withSqueeze(visualFilter(), squeezeOffBlock()),
+                             QStringLiteral("lsb"), QStringLiteral("CW-R")));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w, kTabVisual);
+    DiversityFilterPanel* p = panel(w);
+    CHECK(p != nullptr);
+    if (!p)
+        return;
+    const int before = net.log.size();
+    QTest::mouseClick(p, Qt::LeftButton, Qt::ShiftModifier,
+                      QPoint(int(p->xForHz(1200)), p->height() / 2));
+    settle();
+    CHECK(net.log.size() == before + 1);
+    CHECK(net.log.last() == QStringLiteral("/diversity/set?squeeze=-1200"));
+}
+
 // With CHAIN_SQUEEZE_RENDER_PNG set (to anything), a held signal and a held
 // comb are each rendered and written to fixed paths, so B24 can be looked at.
 void testRenderSqueezeWhenAsked()
@@ -538,6 +784,13 @@ int main(int argc, char** argv)
     testCombAndReleaseButtonsWriteExactQueriesAndReleaseTracksHeld();
     testAPlainClickOnTheBracketIsADoorToTheSqueezeStage();
     testEveryB24WidgetHasANameNoLabelWrapsAndNothingScrolls();
+    testTheAxisSpansThePassbandPlusItsMargin();
+    testTheCaptionSaysTheSidebandAndTheMode();
+    testGateAwayTakesTheSqueezeOfferWithIt();
+    testAFailedPollIsSaidInTheCaptionAndNotByBlanking();
+    testTheCursorReadsDbOverTheFloorNotTheAxis();
+    testTheSqueezeSignComesFromTheSidebandKeyNotTheMode();
+    testIdenticalBodiesWithNaNsInThemRebuildNothing();
     testRenderSqueezeWhenAsked();
 
     std::printf("\n%d aether gate chain squeeze test(s) failed\n", g_failed);

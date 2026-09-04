@@ -141,6 +141,13 @@ AetherGateChainWindow* AetherGateApplet::chainWindow() const
     return m_chainWindow.data();
 }
 
+void AetherGateApplet::setAudioEngine(AudioEngine* audio)
+{
+    m_audio = audio;
+    if (m_chainWindow)
+        m_chainWindow->setAudioEngine(audio);
+}
+
 // Built once and then kept, exactly as AetherGateDiversityPanel::toggleWindow()
 // keeps the Diversity window: rebuilding it would throw away the selected
 // stage, and the strip would flash empty every time the operator glanced at it.
@@ -149,6 +156,7 @@ void AetherGateApplet::toggleChainWindow()
     if (!m_chainWindow) {
         m_chainWindow = new AetherGateChainWindow(this);
         m_chainWindow->setPresent(m_present);
+        m_chainWindow->setAudioEngine(m_audio);
         connect(m_chainWindow, &AetherGateChainWindow::requestWrite, this,
                 &AetherGateApplet::onChainRequestWrite);
         // The window redraws from /filter and from nothing else -- the same

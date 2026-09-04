@@ -6652,6 +6652,8 @@ void MainWindow::wireMeters()
         // radio's address); all this side owns is turning its answer into a
         // bar button.
         gate->setRadioModel(&m_radioModel);
+        // The CHAIN window's VISUAL tab draws the RX audio it can hear locally.
+        gate->setAudioEngine(m_audio);
         connect(gate, &AetherGateApplet::gatePresenceChanged, this,
                 [this](bool present) {
                     m_appletPanel->setAetherGateVisible(present);

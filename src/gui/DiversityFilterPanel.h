@@ -15,9 +15,22 @@
 // So the curve is the primary control here, not an illustration of one. The
 // two passband edges are draggable handles on it, a double-click drops a notch
 // where you clicked, and the arrow keys move the focused edge for anybody who
-// cannot or would rather not drag. The spin boxes in the WIDTH column beside
-// it are still there for exact numbers -- this is the instrument, they are the
-// keypad.
+// cannot or would rather not drag. There is no numeric keypad beside it: this
+// widget IS the passband control on the CHAIN window's VISUAL tab, and the
+// exact figures are on the readout line its host draws underneath.
+//
+// THE AXIS IS THE PASSBAND'S, NOT THE PAYLOAD'S. The gate answers a response
+// across the whole audio band (0..3500 Hz, always), which drawn end to end
+// makes a 250 Hz CW filter seven per cent of the plot -- a picture in which
+// the one thing an operator came to look at is too small to point at. So the
+// Hz axis is spanned to the passband plus a margin (see updateSpan()) and the
+// gate's own array is clipped to it on this side. Everything outside the span
+// -- a notch, an ANF tone, the SQUEEZE bracket, a roof edge -- is still drawn,
+// clamped to the gutter it left through by xForHz()'s own clamp, so a mark
+// off the edge is visible as a mark ON the edge rather than absent. The span
+// is re-taken when the gate's edges change and on the RELEASE of a drag,
+// never during one: an axis that rescaled under a moving handle would move
+// the handle away from the pointer holding it.
 //
 // It holds NO transport and NO authority: applyStatus() takes one /filter
 // status object and the widget draws exactly what is in it. The gate is the
@@ -30,8 +43,12 @@
 // Frequencies are AUDIO Hz throughout, always positive, exactly as the gate
 // reports low_hz/high_hz. On LSB the spectrum is inverted at RF and the gate
 // still reports 100..2900; drawing that mirrored would be a truer picture of
-// the RF and a worse picture of what the operator is about to type into a
-// spin box. The sideband is stated in the caption above the widget instead.
+// the RF and a worse picture of what the operator is about to ask for. Which
+// sideband and mode this actually IS -- the one thing an always-positive axis
+// cannot say -- is stated by the host, AetherGateChainVisual, in the caption
+// over the widget ("PASSBAND · LSB · CW-R"); the panel itself reads the
+// gate's own `sideband` key only for the sign a SQUEEZE click goes out with
+// (DiversityFilterPanelSqueeze.cpp).
 //
 // THE SPECTRUM UNDER THE CURVE. The response is what the filter WOULD do to
 // anything arriving; the "spectrum" object is what is actually arriving -- the
@@ -44,11 +61,28 @@
 // The gate reports it in dB BELOW ITS OWN PEAK, so its maximum is always 0.0.
 // Painting that straight onto the 0..-60 axis would put a full-scale slab
 // under the curve on a dead channel, which is the most confident possible
-// picture of nothing. The floor is pinned instead: the gate's own median
+// picture of nothing. The floor is pinned instead: the gate's own floor (its 20th percentile)
 // (floor_db) is drawn at kFloorAxisDb and everything else keeps its distance
 // from it, so a quiet channel is a thin band at the floor tick and a station
 // 30 dB over it rises 30 dB up the axis. The axis is then the filter's, and
 // the area's HEIGHT is signal-over-noise rather than a level.
+//
+// THE SECOND TRACE: WHAT YOU ARE ACTUALLY HEARING. The gate's spectrum is a
+// one-second EMA of what arrives BEFORE the filter, and it is the only thing
+// on the picture that moves -- twice a second, smoothed over a second. So the
+// picture cannot answer the question the operator is really asking, which is
+// whether the chain is doing what the curve says it is. setLocalSpectrum()
+// takes an FFT of the audio this application is playing RIGHT NOW (the host
+// runs it at 25 Hz off AudioEngine's post-chain tap) and draws it as a second
+// line over the gate's area. It is the honest trace: it goes flat when the
+// gate is not sending, and it stops matching the curve the instant HEAR RAW
+// or a bypass takes the chain out, which is exactly the moment worth seeing.
+//
+// Its dB is pinned to the SAME floor tick the gate's area is, using its OWN
+// floor: the two paths have different, unknowable gains, so an absolute
+// level match would be an invented measurement. What the two traces can
+// honestly be compared on is their HEIGHT OVER THEIR OWN FLOOR, and that is
+// what the shared kFloorAxisDb pin makes readable.
 //
 // WHAT IT COSTS TO DRAW. The operator's word for the first build was "a little
 // laggy", and the reason was that a 2 Hz poll repainted everything: axes,
@@ -94,6 +128,9 @@
 #include <QVector>
 #include <QWidget>
 
+#include <cmath>
+#include <vector>
+
 class QJsonObject;
 class QPainter;
 
@@ -116,10 +153,25 @@ public:
     // by the gate.
     void clear();
 
+    // The audio this application is playing, as FFT magnitudes in dB and the
+    // sample rate they were taken at -- see the header comment's "THE SECOND
+    // TRACE". Called at ~25 Hz by the host while the tab is in front, and
+    // never at all when there is no audio engine (tests, offscreen), which is
+    // why the trace is simply absent rather than flat in that case.
+    void setLocalSpectrum(const std::vector<float>& binsDb, double sampleRate);
+    // The trace goes away: the tab went behind, or the audio tap stopped.
+    void clearLocalSpectrum();
+
     // Where a frequency is drawn, and what frequency a column is. Public so a
     // test can put the pointer ON a handle rather than guess at the gutters.
     double xForHz(double hz) const;
     double hzForX(double x) const;
+
+    // The two ends of the Hz axis as it is CURRENTLY drawn -- the passband
+    // plus its margin, not the gate's whole array. Read back by tests the way
+    // spectrumFloorDb() is: a painted axis has no child to ask.
+    double viewMinHz() const { return m_viewMinHz; }
+    double viewMaxHz() const { return m_viewMaxHz; }
 
     // True from the press on a handle OR on a notch mark OR on the roof
     // handle to the release. The page checks it before feeding a poll: see
@@ -142,12 +194,17 @@ public:
     // that a floor moving in the payload moves the picture.
     bool   hasSpectrum() const { return !m_specDb.isEmpty(); }
     int    spectrumPointCount() const { return int(m_specDb.size()); }
-    // The gate's own median, on the gate's dB-below-peak scale. NaN when there
+    // The gate's own floor (20th percentile), on the gate's dB-below-peak scale. NaN when there
     // is no spectrum -- "the floor is zero" is a different claim.
     double spectrumFloorDb() const { return m_specFloorDb; }
     // The dB `index` is actually PLOTTED at on this widget's 0..-60 axis:
     // floor-pinned and clipped. This, not the payload, is the picture.
     double spectrumAxisDbAt(int index) const;
+    // The same three questions for the local trace. Its floor is its own
+    // floor, pinned to the same kFloorAxisDb tick -- see the header comment.
+    bool   hasLocalSpectrum() const { return !m_localAxisDb.isEmpty(); }
+    int    localSpectrumPointCount() const { return int(m_localAxisDb.size()); }
+    double localAxisDbAt(int index) const;
     // Where AUTO has put the edges, or NaN each when AUTO is off. Drawn as
     // their own thin dashed marks so the operator can see what the tracker
     // chose against the energy it chose it from.
@@ -160,12 +217,25 @@ public:
     int    notchCount() const { return int(m_notches.size()); }
     double notchHzAt(int index) const;
 
-    // Hz under the pointer, and the dB the spectrum is PLOTTED at there -- the
-    // number on this widget's own 0..-60 gutter, not the gate's dB-below-peak,
-    // so the corner readout and the axis beside it agree. Both NaN when the
-    // pointer is not over the widget or there is no spectrum.
+    // THE KEY TO THE MARKS, as rich text, generated by the widget that draws
+    // them. Ten families are painted on this plot and none of them was named
+    // anywhere: colour was the only thing telling a manual notch from a tone
+    // the automatic notcher found, and there was no way to learn which was
+    // which except to change something and watch. Built HERE rather than in
+    // the page above so the swatch and the mark cannot drift apart -- both
+    // read the same token out of ThemeManager -- and naming only the families
+    // the CURRENT body actually put on the picture, because a key to ten marks
+    // of which six are absent is a key to nothing.
+    QString legendHtml() const;
+
+    // Hz under the pointer, and how far the arriving spectrum stands OVER THE
+    // GATE'S OWN FLOOR there -- a measurement ("that carrier is 34 dB over the
+    // noise"), not a coordinate on this widget's gutter, which is what the
+    // corner used to read and which told the operator only where their own
+    // pointer was. Both NaN when the pointer is not over the widget or there
+    // is no spectrum.
     double cursorHz() const { return m_cursorHz; }
-    double cursorDb() const;
+    double cursorDbOverFloor() const;
 
     // What the picture has actually cost. paintCount() counts paintEvent()s,
     // staticRebuildCount() counts rebuilds of the two cached layers. They are
@@ -257,9 +327,10 @@ signals:
     // others where they are.
     void notchRemoveRequested(double hz);
 
-    // The pointer moved over the picture, or left it (both NaN). `db` is the
-    // dB the spectrum is PLOTTED at under the pointer -- see cursorDb().
-    void cursorMoved(double hz, double db);
+    // The pointer moved over the picture, or left it (both NaN). `dbOverFloor`
+    // is how far the arriving spectrum stands over the gate's own floor
+    // there -- see cursorDbOverFloor().
+    void cursorMoved(double hz, double dbOverFloor);
 
     // A click on a mark that did not become a drag: the id of the chain stage
     // the mark belongs to. See the header comment.
@@ -303,7 +374,7 @@ private:
     // already is, so a deeper floor would be sixty pixels of nothing.
     static constexpr double kTopDb = 0.0;
     static constexpr double kBottomDb = -60.0;
-    // Where the pre-filter spectrum's own median is pinned on that axis:
+    // Where the pre-filter spectrum's own floor is pinned on that axis:
     // fifteen dB of headroom above it before the curve's 0 dB line and fifteen
     // below it before the axis runs out, so a floor that has crept up is still
     // visibly a floor and a 40 dB station is clipped at the top rather than off
@@ -315,10 +386,21 @@ private:
     static constexpr int kTopMargin = 6;
     static constexpr int kRightMargin = 8;
 
+    // How much air the passband gets either side of itself on the Hz axis:
+    // the greater of six tenths of its own width and 250 Hz, so a 250 Hz CW
+    // filter is drawn across a 750 Hz span (a third of the plot, pointable)
+    // while an SSB passband still shows the whole band its skirts fall in.
+    static constexpr double kSpanMarginFraction = 0.6;
+    static constexpr double kSpanMarginMinHz = 250.0;
+
     // Plot rectangle in widget coordinates -- the widget minus the dB gutter
     // on the left and the Hz axis along the bottom.
     QRectF plotRect() const;
     double yForDb(double db) const;
+    // Re-takes the drawn Hz span from the passband and the response array.
+    // Returns true when it actually moved, which is what tells applyStatus()
+    // that both cached pictures are now drawn on the wrong axis.
+    bool   updateSpan();
     // What is on screen, as bytes: one fingerprint for the filter (everything
     // in the cached layer) and one for the spectrum. applyStatus() takes each
     // either side of its parse and repaints only what actually moved.
@@ -328,6 +410,10 @@ private:
     // the filter, and the only thing painted live: everything else is in the
     // two cached layers this is drawn between.
     void   paintSpectrum(QPainter& p, const QRectF& r);
+    // The second, local trace over it -- what this application is playing,
+    // measured here. Live like the spectrum, and for a stronger reason: it
+    // arrives at 25 Hz.
+    void   paintLocalSpectrum(QPainter& p, const QRectF& r);
     // Rebuilds the cached layer at the current device pixel ratio. The only
     // thing that increments staticRebuildCount().
     void   rebuildLayer();
@@ -388,10 +474,17 @@ private:
 
     QVector<double> m_hz;
     QVector<double> m_db;
+    // The two ends of the gate's own array...
     double m_minHz{0.0};
     double m_maxHz{0.0};
+    // ...and the two ends of the axis actually DRAWN, which is a window onto
+    // it: the passband plus kSpanMarginFraction either side, never wider than
+    // the array itself. Every xForHz()/hzForX() reads these two, so a mark
+    // outside them lands on a gutter rather than off the picture.
+    double m_viewMinHz{0.0};
+    double m_viewMaxHz{0.0};
 
-    // The pre-filter spectrum on the same Hz grid, its own median, and the two
+    // The pre-filter spectrum on the same Hz grid, its own floor, and the two
     // edges AUTO has chosen. Empty / NaN when the gate has sent "spectrum":
     // null, which is what it says before it has heard a block.
     QVector<double> m_specHz;
@@ -399,6 +492,14 @@ private:
     double m_specFloorDb{0.0};
     double m_autoLowHz{0.0};
     double m_autoHighHz{0.0};
+
+    // The local trace, already reduced to what is drawable: one Hz and one
+    // axis-dB per point, decimated to at most kLocalTracePoints across the
+    // drawn span, so a 25 Hz timer does no per-frame arithmetic over 1 025
+    // FFT bins. Empty when there is no audio engine feeding it.
+    static constexpr int kLocalTracePoints = 512;
+    QVector<double> m_localHz;
+    QVector<double> m_localAxisDb;
 
     bool m_available{false};
     int  m_lowHz{0};

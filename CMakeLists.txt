@@ -664,6 +664,13 @@ set(CORE_SOURCES
     src/core/Biquad.cpp
     src/core/StereoBiquad.cpp
     src/core/ClientEq.cpp
+    # Pure DSP with no Qt in it at all, living under src/gui/ only because the
+    # Client EQ editor was its first caller. In the ENGINE library because the
+    # CHAIN window's VISUAL tab now analyses the same RX tap, and every one of
+    # that tab's test binaries links aethercore and none of them links the GUI
+    # source list. Path unchanged: its two existing includers say
+    # #include "ClientEqFftAnalyzer.h" from the same directory.
+    src/gui/ClientEqFftAnalyzer.cpp
     src/core/ClientComp.cpp
     src/core/ClientGate.cpp
     src/core/ClientDeEss.cpp
@@ -1057,7 +1064,6 @@ set(GUI_SOURCES
     src/gui/ClientEqEditor.cpp
     src/gui/ClientEqEditorCanvas.cpp
     src/gui/StripEqPanel.cpp
-    src/gui/ClientEqFftAnalyzer.cpp
     src/gui/ClientEqIconRow.cpp
     src/gui/ClientEqOutputFader.cpp
     src/gui/ClientLevelMeter.cpp
