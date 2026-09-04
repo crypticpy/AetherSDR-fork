@@ -557,6 +557,24 @@ void DiversityFilterPanel::paintEvent(QPaintEvent* ev)
     if (!drawable)
         return;                       // the layer already says why
 
+    // HEAR RAW / gate bypass (setBypassed()): the whole chain is out of
+    // circuit, so this curve is not what the operator is hearing right now.
+    // Redrawn over the cached layer rather than baked into it, so the dim
+    // takes effect (and lifts) the instant the flag flips, with no dependency
+    // on the layer's own fingerprint.
+    if (m_bypassed) {
+        QPolygonF curve;
+        curve.reserve(m_hz.size());
+        for (int i = 0; i < m_hz.size(); ++i)
+            curve << QPointF(xForHz(m_hz[i]), yForDb(m_db[i]));
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(QPen(ThemeManager::instance().color(
+                          this, QStringLiteral("color.accent.dim")),
+                      4));
+        p.drawPolyline(curve);
+        p.setRenderHint(QPainter::Antialiasing, false);
+    }
+
     // The two handles, the focused one heavier so the arrow keys have a visible
     // subject. Live, because they are what moves while the mouse is down.
     const QColor accent =
@@ -586,6 +604,14 @@ void DiversityFilterPanel::paintEvent(QPaintEvent* ev)
         const double x = xForHz(m_notchGhostHz);
         p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()));
     }
+}
+
+void DiversityFilterPanel::setBypassed(bool on)
+{
+    if (m_bypassed == on)
+        return;
+    m_bypassed = on;
+    update();
 }
 
 } // namespace AetherSDR

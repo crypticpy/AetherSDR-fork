@@ -22,6 +22,8 @@
 #include <QApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
+#include <QPixmap>
 #include <QPushButton>
 #include <QTest>
 
@@ -42,6 +44,18 @@ QByteArray filterWithBypass(bool bypassed)
     root.insert(QStringLiteral("bypass"), bypassed);
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
+
+// visualFilter() (AetherGateChainFixture.h) plus the same top-level "bypass"
+// key -- what testVisualMirrorsBypass() needs the VISUAL tab to actually have
+// a curve to grey, unlike kChainFullFilter which carries no response at all.
+QByteArray visualFilterWithBypass(bool bypassed)
+{
+    QJsonObject root = QJsonDocument::fromJson(visualFilter()).object();
+    root.insert(QStringLiteral("bypass"), bypassed);
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+constexpr int kTabVisual = 1;
 
 // So a write this test triggers gets a real reply instead of the FakeGate's
 // default 404 -- the same thing every other write-sending chain test does
@@ -254,6 +268,59 @@ void testFaceTextWhileHeld()
     CHECK(button->text() == QStringLiteral("HEAR RAW"));
 }
 
+// MUTATION (W10a): HEAR RAW's state has to be mirrored on the VISUAL tab's
+// picture, not just on the button -- a caption that stays hidden, or a curve
+// that never dims, while bypass:true is on the wire would leave an operator
+// who is looking at the picture instead of the button with no idea the chain
+// is out of circuit at all. Also stands in for the offscreen-render gate: a
+// grab() taken while bypassed must not crash and must not come back empty.
+void testVisualMirrorsBypass()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, visualFilterWithBypass(false));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    w->resize(1120, 820);
+    w->setCurrentTab(kTabVisual);
+    settle();
+
+    auto* visual = w->findChild<AetherGateChainVisual*>(QStringLiteral("gateChainVisual"));
+    CHECK(visual != nullptr);
+    if (!visual)
+        return;
+    QLabel* caption =
+        w->findChild<QLabel*>(QStringLiteral("gateChainVisualRawCaption"));
+    CHECK(caption != nullptr);
+    if (!caption)
+        return;
+    CHECK(!visual->bypassed());
+    CHECK(!caption->isVisible());
+
+    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
+                                              visualFilterWithBypass(true)};
+    filterTick(applet);
+    CHECK(visual->bypassed());
+    CHECK(caption->isVisible());
+    CHECK(caption->text()
+          == QStringLiteral("HEAR RAW — you are hearing the pair with no filter"));
+    CHECK(!caption->accessibleName().isEmpty());
+
+    const QPixmap grabbed = visual->grab();
+    CHECK(!grabbed.isNull());
+    CHECK(grabbed.width() > 0 && grabbed.height() > 0);
+
+    // Back to bypass:false hides the caption again, on the very next body --
+    // the same "no grace period" rule the button's own visibility keeps.
+    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
+                                              visualFilterWithBypass(false)};
+    filterTick(applet);
+    CHECK(!visual->bypassed());
+    CHECK(!caption->isVisible());
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -267,6 +334,7 @@ int main(int argc, char** argv)
     testGateReportedBypassDisablesButtonWithInWording();
     testOlderGateHidesButton();
     testFaceTextWhileHeld();
+    testVisualMirrorsBypass();
 
     std::printf("\n%d aether gate chain bypass test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

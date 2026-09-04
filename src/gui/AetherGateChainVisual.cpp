@@ -182,6 +182,20 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
                                              QString::fromLatin1(kCursorStyle));
     box->addWidget(m_squeezeLine);
 
+    // HEAR RAW / gate bypass -- see refreshRawCaption().
+    m_rawCaption = new QLabel(this);
+    m_rawCaption->setObjectName(QStringLiteral("gateChainVisualRawCaption"));
+    m_rawCaption->setAccessibleName(tr("The picture is not the filter you are hearing"));
+    m_rawCaption->setWordWrap(false);
+    m_rawCaption->setTextInteractionFlags(Qt::NoTextInteraction);
+    m_rawCaption->setText(
+        tr("HEAR RAW — you are hearing the pair with no filter"));
+    m_rawCaption->setVisible(false);
+    ThemeManager::instance().applyStyleSheet(m_rawCaption,
+                                             QString::fromLatin1(kVisualCaptionStyle));
+    DiversityWidgets::setLive(m_rawCaption, true); // always the warning tone
+    box->addWidget(m_rawCaption);
+
     m_panel = new DiversityFilterPanel(this);
     m_panel->setMinimumHeight(320);
     m_panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -455,6 +469,8 @@ void AetherGateChainVisual::clear()
     m_cursor->setText(QString());
     m_cursor->setAccessibleDescription(QString());
     m_readout->setText(QString());
+    m_bypassed = false;
+    refreshRawCaption();
     refreshCaption();
     refreshSqueezeLine();
     refreshLegend();
@@ -508,6 +524,12 @@ void AetherGateChainVisual::applyFilter(const QJsonObject& filter)
     if (high.isDouble())
         m_gateHighHz = int(std::lround(high.toDouble()));
     m_panel->applyStatus(filter);
+    // HEAR RAW / gate bypass: the same key AetherGateChainHearRawButton reads.
+    const bool bypassed = filter.value(QStringLiteral("bypass")).toBool();
+    if (bypassed != m_bypassed) {
+        m_bypassed = bypassed;
+        refreshRawCaption();
+    }
     refreshCaption();
     refreshReadout();
     refreshSqueezeLine();
@@ -632,6 +654,16 @@ void AetherGateChainVisual::refreshCaption()
                      "answer. ")
                       + captionWalkthrough()
                 : captionWalkthrough());
+}
+
+// HEAR RAW's state, mirrored on the picture: the banner, and the panel's own
+// flag (DiversityFilterPanelPaint.cpp greys the curve while it is set).
+void AetherGateChainVisual::refreshRawCaption()
+{
+    if (m_rawCaption)
+        m_rawCaption->setVisible(m_bypassed);
+    if (m_panel)
+        m_panel->setBypassed(m_bypassed);
 }
 
 // off/armed/held -- told apart the same way DiversityFilterPanel itself

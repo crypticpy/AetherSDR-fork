@@ -149,6 +149,12 @@ public:
     // not running.
     void applyStatus(const QJsonObject& filter);
 
+    // HEAR RAW / gate bypass (AetherGateChainVisual::refreshRawCaption()):
+    // while true the response curve is redrawn in the dim tone, because the
+    // whole chain is out of circuit and this curve is not what is heard.
+    void setBypassed(bool on);
+    bool bypassed() const { return m_bypassed; }
+
     // Gate gone. Same as an unavailable payload, said by the window instead of
     // by the gate.
     void clear();
@@ -502,6 +508,7 @@ private:
     QVector<double> m_localAxisDb;
 
     bool m_available{false};
+    bool m_bypassed{false};
     int  m_lowHz{0};
     int  m_highHz{0};
 

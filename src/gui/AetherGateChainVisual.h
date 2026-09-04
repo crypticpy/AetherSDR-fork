@@ -70,6 +70,13 @@ public:
     // Remembered whether or not the tab is in front; drawn only when it is.
     void applyFilter(const QJsonObject& filter);
 
+    // HEAR RAW / gate bypass (AetherGateChainBypass.h): whether the last body
+    // this tab actually drew said the whole chain is out of circuit. Mirrors
+    // the header button's own read of the same /filter `bypass` key, so the
+    // picture and the button never disagree about which state the receiver is
+    // actually in.
+    bool bypassed() const { return m_bypassed; }
+
     // The window is visible AND this tab is the one on top.
     void setActive(bool active);
     bool active() const { return m_active; }
@@ -143,9 +150,13 @@ private:
     // AetherGateChainVisual.cpp for the exact text each state uses.
     void refreshSqueezeLine();
     QString squeezeLineText() const;
+    // HEAR RAW / gate bypass: shows or hides the one-line caption and tells
+    // the panel to dim what it draws -- see AetherGateChainVisual.cpp.
+    void refreshRawCaption();
 
     DiversityFilterPanel* m_panel{nullptr};
     QLabel*               m_caption{nullptr};
+    QLabel*               m_rawCaption{nullptr};
     QLabel*               m_readout{nullptr};
     QLabel*               m_cursor{nullptr};
     QPushButton*          m_squeezeComb{nullptr};
@@ -176,6 +187,7 @@ private:
     // not care about presence reaches it.
     bool m_present{true};
     bool m_stale{false};
+    bool m_bypassed{false};
 };
 
 } // namespace AetherSDR
