@@ -688,7 +688,7 @@ and how many samples clipped — in the warning tone the instant it
 drops under 3 dB or anything clips. GUARD is the one control the
 card carries: a switch, ON or OFF, and beneath it a floor menu that
 limits how far down the switch is allowed to take the LNA. The
-inspector's GUARD entry names the last thing the guard actually
+pane's GUARD entry names the last thing the guard actually
 did — `stepped 0 → 1 at 11:42, clipping` — rather than repeat the
 card's own on/off sentence. The hint under the card changes to
 `THE REST IS SET ON THE SETUP PAGE` once GUARD is live from here.
@@ -719,7 +719,7 @@ SNR a 15.2 / b 12.9 → 16.4 dB`), and a card that printed it would have
 to cut it off mid-word. So each stage names which of that sentence's
 fields it keeps, and the card drops whole fields and then whole *words*
 until what is left fits. **A card never ends in an ellipsis.** The whole
-sentence is on the hover and in the inspector, always.
+sentence is on the hover and in the pane, always.
 
 **MODE** at the top is `PHONE` / `CW` / `DATA`, and it does two things.
 It decides which stages are drawn — the rest collapse into `STAGES THIS
@@ -813,17 +813,21 @@ from somewhere else always does.
   preset — the add waits for the clear's answer.
 - **Click any mark** — an edge, a notch, an ANF tone, the CONTOUR or
   APF tick, an AUTO edge — and the window turns to the `CHAIN` tab with
-  that stage's card selected, scrolled into view, and its inspector
+  that stage's card selected, scrolled into view, and its pane
   filled. The pointer becomes a hand over a mark that is a door rather
   than a handle. A click on open curve does nothing.
 
-**THIS STAGE**, the pane along the bottom, is the inspector. Click any
-card and it answers four questions in order: what the stage does to what
-you hear, what it is doing now (the card's line spelled out whole), the
-control at full size, and what you would hear with it off. Underneath,
-the levels the gate measured through it — `in -97.4 · out -101.2 dB`,
-with a dash for a leg nothing measures, never a zero. With nothing
-selected it says `Click a stage.`
+**WHAT THIS DOES**, the pane along the bottom, is titled with the selected
+stage's own name — `AUTO WIDTH — what it does` — and answers four
+questions in order: what the stage does to what you hear, what it is
+doing now (the card's line spelled out whole), what you would hear with
+it off (`with it off: ...`), or, on a row nothing here can switch, the
+reason it is fixed, then the levels the gate measured through it —
+`in -97.4 · out -101.2 dB`, with a dash for a leg nothing measures — but
+only when it measured at least one leg; a stage the gate never scores at
+all shows no levels line rather than a dashed `in — · out — dB`. Last,
+the control at full size. With nothing selected the pane's title reads
+`WHAT THIS DOES` and the first line says `Click a stage.`
 
 Arrow keys walk the diagram in signal order and stop at both ends; space
 presses the selected stage's switch.
@@ -832,7 +836,7 @@ Two things about writes are worth knowing. **Nothing is optimistic.** A
 switch moves when the receiver says the stage changed, never when you
 press it, and while a write is out the control is greyed. **A refusal is
 quoted.** When the receiver says no, its own words appear in the
-inspector and on the card that asked, and the row does not move — a
+pane and on the card that asked, and the row does not move — a
 refused value never happened. The status line in the corner says only
 one of three things: `live`, `applying...`, or `no connection`.
 
@@ -862,7 +866,7 @@ gate's `checks[]`, labelled and wired exactly as the gate wrote them; no
 route or query is built in the app. ROOFING · DIGITAL's `PEAK OFFSET` is
 the first. A check greys while its own write is out and moves only on
 read-back, the same as every other control; a refusal is quoted on the
-card and in the inspector.
+card and in the pane.
 
 ## SQUEEZE
 

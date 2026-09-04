@@ -994,6 +994,7 @@ set(GUI_SOURCES
     src/gui/AetherGateChainStrip.cpp
     src/gui/AetherGateChainRows.cpp
     src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateChainDetail.cpp
     src/gui/AetherGateChainBypass.cpp
     src/gui/AetherGateChainWindowTabs.cpp
     src/gui/AetherGateChainNow.cpp

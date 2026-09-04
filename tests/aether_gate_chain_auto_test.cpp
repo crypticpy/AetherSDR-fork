@@ -260,19 +260,22 @@ void testEveryB25WidgetHasANameAndNothingScrollsAtInitialSize()
     }
 
     // auto_clean itself has no tile any more -- see AetherGateChainNow.h --
-    // so this is any other real stage, only to exercise the inspector's own
-    // no-word-wrap widgets below.
+    // so this is any other real stage, only to exercise the pane's own
+    // no-word-wrap lines below. AUTO CLEAN's state and event lines live on
+    // the NOW strip's HISTORY disclosure now, not in the pane.
     strip(w)->selectStage(QStringLiteral("squeeze"));
     settle();
 
-    auto* state = w->findChild<QLabel*>(QStringLiteral("gateChainAutoState"));
-    auto* events_ = w->findChild<QLabel*>(QStringLiteral("gateChainAutoEvents"));
-    CHECK(state != nullptr);
-    CHECK(events_ != nullptr);
-    if (state)
-        CHECK(!state->wordWrap());
-    if (events_)
-        CHECK(!events_->wordWrap());
+    auto* tip = w->findChild<QLabel*>(QStringLiteral("gateChainDetailTip"));
+    auto* off = w->findChild<QLabel*>(QStringLiteral("gateChainDetailOff"));
+    CHECK(tip != nullptr);
+    CHECK(off != nullptr);
+    if (tip)
+        CHECK(!tip->wordWrap());
+    if (off)
+        CHECK(!off->wordWrap());
+    CHECK(w->findChild<QLabel*>(QStringLiteral("gateChainAutoState")) == nullptr);
+    CHECK(w->findChild<QLabel*>(QStringLiteral("gateChainAutoEvents")) == nullptr);
 
     auto* scroll = w->findChild<QScrollArea*>(QStringLiteral("gateChainScroll"));
     CHECK(scroll != nullptr);

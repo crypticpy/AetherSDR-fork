@@ -40,12 +40,16 @@
 //     switched from here), PAIR, PASSBAND, OUT. Every live stage is a card
 //     with its NAME big and bright, ONE measured line that always fits, and
 //     one control. See AetherGateChainStrip.h.
-//   * the INSPECTOR -- the selected stage's name, one sentence of what it
+//   * WHAT THIS DOES -- the pane along the bottom, titled with the selected
+//     stage's own name ("<NAME> -- what it does"). One sentence of what it
 //     does to the sound, what it is doing now spelled out in full, its
 //     control at full size, one line of what you would hear with it off, and
-//     the levels the gate measured. It never repeats the card verbatim, and
-//     when the receiver refuses a write it is where the receiver's own words
-//     are printed.
+//     the levels the gate measured -- hidden rather than dashed when it
+//     measured neither leg. It never repeats the card verbatim, and when the
+//     receiver refuses a write it is where the receiver's own words are
+//     printed. Built in AetherGateChainDetail.cpp. AUTO CLEAN's own state
+//     and event history live on the NOW strip's HISTORY disclosure instead
+//     (AetherGateChainNow.h) -- there is no card to select for it here.
 //
 // IT OWNS NO TRANSPORT. AetherGateApplet is still the one place a gate request
 // is built: /filter arrives here through the applet's DiversityBandPoller (the
@@ -180,6 +184,10 @@ private:
     void jumpToStage(const QString& id);
 
     void buildModeRow(QVBoxLayout* root);
+    // AetherGateChainDetail.cpp: the WHAT THIS DOES pane and the selection
+    // handler that fills it. Split out for the same reason buildTabs() was:
+    // AGENTS.md's 800-line budget, and both moves being the surfaces that
+    // do not touch a tile directly and still reach the tile's write path.
     void buildInspector(QVBoxLayout* hostBox, QWidget* host);
     void showStage(const QString& id);
     // The status line says one of exactly three things -- live, applying,
@@ -246,17 +254,17 @@ private:
     AetherGateChainHearRawButton* m_hearRaw{nullptr};
     // The NOW strip, above the tabs -- see AetherGateChainNow.h.
     AetherGateChainNow*     m_now{nullptr};
-    QLabel*                 m_detailName{nullptr};
+    // The pane's own box caption -- "<NAME> -- what it does", or "WHAT THIS
+    // DOES" with nothing selected. makeGroupBox() already styles it in the
+    // same {{color.accent.bright}} token the selected tile's frame carries,
+    // so this alone is the "box title" design §2.4 item 1 asks for; there is
+    // no second title line inside the body. See AetherGateChainDetail.cpp.
+    QLabel*                 m_detailCaption{nullptr};
     QLabel*                 m_detailText{nullptr};   // what it is doing now
     QLabel*                 m_detailTip{nullptr};    // what it does to the sound
     QLabel*                 m_detailOff{nullptr};    // what you would hear without it
     QLabel*                 m_detailNote{nullptr};   // the receiver's refusal
     QLabel*                 m_detailLevels{nullptr};
-    // AUTO CLEAN's own inspector -- state+why, then its event history --
-    // shown only while the auto_clean card is selected. See
-    // gui/AetherGateChainAuto.h.
-    QLabel*                 m_detailAutoState{nullptr};
-    QLabel*                 m_autoEvents{nullptr};
     QVBoxLayout*            m_detailControlBox{nullptr};
     AetherGateChainControl* m_detailControl{nullptr};
     QLabel*                 m_status{nullptr};

@@ -616,7 +616,7 @@ void testClickingAMarkTurnsToThatStageOnTheChainTab()
     settle();
     CHECK(w->currentTab() == kTabChain);
     CHECK(strip(w)->selectedId() == QStringLiteral("anf"));
-    CHECK(labelText(w, "gateChainDetailName") == QStringLiteral("ANF · DNF"));
+    CHECK(labelText(w, "gateChainDetailCaption") == QStringLiteral("ANF · DNF — what it does"));
 
     // The contour tick, along the bottom of the plot.
     bringUp(w, kTabVisual);

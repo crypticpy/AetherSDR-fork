@@ -10,7 +10,6 @@
 #include "gui/DiversityWindowPanels.h"
 
 #include <QFontMetrics>
-#include <QFrame>
 #include <QHBoxLayout>
 #include <QJsonObject>
 #include <QLabel>
@@ -23,7 +22,7 @@ namespace {
 
 // The frame. The initial size is the one the whole layout is arithmetic for:
 // the four groups measure 1094 px across (236 + 196 + 400 + 196, plus three
-// 22 px arrow gutters) and the diagram plus the inspector clear 820 px of
+// 22 px arrow gutters) and the diagram plus the pane clear 820 px of
 // height, so NOTHING scrolls when the window first opens. The minimum is
 // smaller on purpose -- below the initial size the scroll area is what keeps
 // every stage reachable.
@@ -32,7 +31,7 @@ constexpr int kMinHeight = 560;
 constexpr int kInitialWidth = 1120;
 constexpr int kInitialHeight = 820;
 
-// The inspector's sentence fields. Fixed, because a label that grew with its
+// The pane's sentence fields. Fixed, because a label that grew with its
 // text would move the control under it every time the selection changed, and
 // wide enough that the sentences in AetherGateChainModes.cpp fit whole.
 constexpr int kTipWidth = 1020;
@@ -77,35 +76,10 @@ const char* kWindowStyle =
     "QTabBar::tab:hover:!selected { color: {{color.text.primary}};"
     " background: {{color.background.1}}; }";
 
-// The one line that says what you would hear WITHOUT the selected stage. Dim,
-// because it describes something that is not happening.
-const char* kOffStyle =
-    "QLabel { color: {{color.text.secondary}}; font-size: 11px;"
-    " background: transparent; }";
-
-// The receiver's own words when it refuses. The only warning-coloured thing in
-// the inspector, and hidden entirely when there is nothing to refuse.
-const char* kNoteStyle =
-    "QLabel { color: {{color.accent.warning}}; font-size: 11px;"
-    " background: transparent; }";
-
 const char* kStatusStyle =
     "QLabel { color: {{color.text.secondary}}; font-size: 10px;"
     " background: transparent; }"
     "QLabel[live=\"false\"] { color: {{color.text.disabled}}; }";
-
-// "SELECTED: SHAPE", in the same token as the selected tile's 2 px frame. The
-// shared colour is the whole point (design §0.3 item 7): the pane and the tile
-// say they are about the same stage without either of them having to spell it
-// out.
-const char* kSelectedTitleStyle =
-    "QLabel { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold;"
-    " background: transparent; }";
-
-QString emDash()
-{
-    return QStringLiteral("—");
-}
 
 void setElided(QLabel* label, const QString& text, int width)
 {
@@ -194,107 +168,6 @@ AetherGateChainWindow::AetherGateChainWindow(QWidget* parent)
 
     setLink(ChainLink::Gone);
     showStage(QString());
-}
-
-// The bottom pane. It answers four questions in the order an operator asks
-// them: what is this, what is it doing, can I change it, and what would I hear
-// without it. It never repeats the card's one line verbatim -- the card has
-// the short form, this has the whole of it.
-void AetherGateChainWindow::buildInspector(QVBoxLayout* hostBox, QWidget* host)
-{
-    QVBoxLayout* detailBody = nullptr;
-    QFrame* detailFrame = DiversityWidgets::makeGroupBox(
-        tr("THIS STAGE"), QStringLiteral("gateChainDetail"), detailBody, host);
-    auto* pane = new QWidget(detailFrame);
-    pane->setObjectName(QStringLiteral("gateChainDetailPane"));
-    pane->setAccessibleName(tr("The selected stage"));
-    auto* paneBox = new QVBoxLayout(pane);
-    paneBox->setContentsMargins(0, 0, 0, 0);
-    paneBox->setSpacing(4);
-
-    m_detailName = new QLabel(emDash(), pane);
-    m_detailName->setObjectName(QStringLiteral("gateChainDetailName"));
-    m_detailName->setAccessibleName(tr("Selected stage"));
-    m_detailName->setWordWrap(false);
-    m_detailName->setToolTip(tr("The stage the diagram has selected. Its card "
-                                "carries a frame in this same colour."));
-    m_detailName->setAccessibleDescription(m_detailName->toolTip());
-    ThemeManager::instance().applyStyleSheet(m_detailName,
-                                             QString::fromLatin1(kSelectedTitleStyle));
-    paneBox->addWidget(m_detailName);
-
-    // 1. What it is, in terms of the sound.
-    m_detailTip = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainDetailTip"), QString(),
-        tr("What this stage does to what you hear."), pane);
-    m_detailTip->setAccessibleName(tr("What this stage does"));
-    m_detailTip->setFixedWidth(kTipWidth);
-    paneBox->addWidget(m_detailTip);
-
-    // 2. What it is doing now -- the card's line, spelled out whole.
-    m_detailText = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainDetailText"), QString(),
-        tr("What this stage is set to, in full."), pane);
-    m_detailText->setAccessibleDescription(
-        tr("What this stage is set to right now, in full; the card shows the short form."));
-    m_detailText->setAccessibleName(tr("Selected stage now"));
-    m_detailText->setFixedWidth(kDetailTextWidth);
-    paneBox->addWidget(m_detailText);
-
-    // AUTO CLEAN's own two lines: state and why, then recent moves newest
-    // first. Hidden for every other stage -- see AetherGateChainAuto.h.
-    m_detailAutoState = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainAutoState"), QString(),
-        tr("What AUTO CLEAN is doing right now, and why."), pane);
-    m_detailAutoState->setFixedWidth(kDetailTextWidth);
-    m_detailAutoState->setVisible(false);
-    paneBox->addWidget(m_detailAutoState);
-
-    m_autoEvents = new QLabel(pane);
-    m_autoEvents->setObjectName(QStringLiteral("gateChainAutoEvents"));
-    m_autoEvents->setAccessibleName(tr("AUTO CLEAN's recent moves"));
-    m_autoEvents->setWordWrap(false);
-    m_autoEvents->setFixedWidth(kDetailTextWidth);
-    m_autoEvents->setVisible(false);
-    ThemeManager::instance().applyStyleSheet(m_autoEvents, QString::fromLatin1(kOffStyle));
-    paneBox->addWidget(m_autoEvents);
-
-    // 3. The control, at full size.
-    m_detailControlBox = new QVBoxLayout;
-    m_detailControlBox->setContentsMargins(0, 0, 0, 0);
-    m_detailControlBox->setSpacing(4);
-    paneBox->addLayout(m_detailControlBox);
-
-    // 4. What you would hear without it.
-    m_detailOff = new QLabel(pane);
-    m_detailOff->setObjectName(QStringLiteral("gateChainDetailOff"));
-    m_detailOff->setAccessibleName(tr("With this stage off"));
-    m_detailOff->setWordWrap(false);
-    m_detailOff->setFixedWidth(kDetailTextWidth);
-    ThemeManager::instance().applyStyleSheet(m_detailOff, QString::fromLatin1(kOffStyle));
-    paneBox->addWidget(m_detailOff);
-
-    m_detailLevels = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainDetailLevels"), chainLevelWorstCase(),
-        tr("What the receiver measured in and out of this stage."), pane);
-    m_detailLevels->setAccessibleDescription(
-        tr("What the receiver measured in and out; a dash is a leg nothing measures."));
-    m_detailLevels->setAccessibleName(tr("Selected stage levels"));
-    paneBox->addWidget(m_detailLevels);
-
-    // The receiver's own words when it says no. Hidden until there are any.
-    m_detailNote = new QLabel(pane);
-    m_detailNote->setObjectName(QStringLiteral("gateChainDetailNote"));
-    m_detailNote->setAccessibleName(tr("What the receiver said"));
-    m_detailNote->setWordWrap(false);
-    m_detailNote->setFixedWidth(kDetailTextWidth);
-    m_detailNote->setVisible(false);
-    ThemeManager::instance().applyStyleSheet(m_detailNote,
-                                             QString::fromLatin1(kNoteStyle));
-    paneBox->addWidget(m_detailNote);
-
-    detailBody->addWidget(pane);
-    hostBox->addWidget(detailFrame);
 }
 
 void AetherGateChainWindow::setMode(ChainMode mode)
@@ -611,7 +484,7 @@ QList<ChainStage> AetherGateChainWindow::mergedStages()
 }
 
 // The strip half of the merge above: hands mergedStages() to the strip and
-// the inspector. applyDevice() always calls this (a /device poll is not the
+// the pane. applyDevice() always calls this (a /device poll is not the
 // 2 Hz one); applyFilter() only calls it once the CHAIN-tab/dragging gates
 // in its own comment have passed.
 QList<ChainStage> AetherGateChainWindow::refreshStrip()
@@ -666,98 +539,9 @@ void AetherGateChainWindow::setPresent(bool present)
     setLink(ChainLink::Gone);
 }
 
-// The inspector, in the order the questions get asked: what is this, what is
-// it doing, can I change it, what would I hear without it. The "doing" line is
-// the WHOLE of what the card shortened, which is why the two never read as a
-// repetition.
-void AetherGateChainWindow::showStage(const QString& id)
-{
-    const AetherGateChainTile* tile = id.isEmpty() ? nullptr : m_strip->tile(id);
-    if (m_detailControl) {
-        m_detailControl->deleteLater();
-        m_detailControl = nullptr;
-    }
-    if (!tile) {
-        m_detailName->setText(emDash());
-        setElided(m_detailTip, tr("Click a stage."), kTipWidth);
-        setElided(m_detailText, QString(), kDetailTextWidth);
-        setElided(m_detailLevels, QString(), kDetailTextWidth);
-        m_detailOff->setVisible(false);
-        m_detailAutoState->setVisible(false);
-        m_autoEvents->setVisible(false);
-        return;
-    }
-
-    const ChainStage& stage = tile->stage();
-    m_detailName->setText(stage.name);
-    m_detailName->setAccessibleDescription(stage.name);
-
-    // What it does to the sound. The app's own sentence when it knows the
-    // stage; the row's own words when a newer receiver sent one the app has
-    // never heard of.
-    QString sound = chainSoundSentence(stage.id);
-    if (sound.isEmpty())
-        sound = stage.tip.isEmpty() ? stage.why : stage.tip;
-    setElided(m_detailTip, sound.isEmpty() ? emDash() : sound, kTipWidth);
-
-    // What it is doing NOW. The card shows the short form of this line; here
-    // it is whole, prefixed so the two cannot be mistaken for each other.
-    // GUARD is the one row where "now" is not the card's own detail line --
-    // the card says on/off and the floor, the inspector says the last thing
-    // the guard actually DID, which is a sentence built from /device's own
-    // events[] rather than anything chainFromFilter() ever produces.
-    QString now = stage.detail;
-    if (stage.id == QLatin1String("frontend_guard")) {
-        const QString eventSentence = chainFrontendEventSentence(m_frontend);
-        if (!eventSentence.isEmpty())
-            now = eventSentence;
-    }
-    if (now.isEmpty())
-        now = emDash();
-    setElided(m_detailText, tr("now: %1").arg(now), kDetailTextWidth);
-
-    m_detailControl = new AetherGateChainControl(stage, QStringLiteral("gateChainDetail"),
-                                                 /*large=*/true, nullptr);
-    connect(m_detailControl, &AetherGateChainControl::requestWrite, this,
-            &AetherGateChainWindow::onWriteRequested);
-    auto it = m_pending.constFind(stage.id);
-    m_detailControl->setBusy(it != m_pending.constEnd() && !it->confirmed);
-    m_detailControlBox->addWidget(m_detailControl, 0, Qt::AlignLeft);
-
-    // One dim line, and which of two things it says depends on whether the
-    // stage can move at all. A switchable stage gets "what you would hear
-    // without it"; a stage nothing here can change gets the reason, which the
-    // card no longer prints on a FRONT END row. Never both, because for any
-    // one stage only one of them is true.
-    QString aside = stage.actionable() ? chainOffSentence(stage.id) : QString();
-    if (aside.isEmpty() && !stage.actionable())
-        aside = stage.why;
-    // GUARD's own caveat -- a guard-moved LNA state breaks the gate's dBm
-    // calibration -- belongs here rather than an "off" sentence nothing
-    // asked for.
-    if (stage.id == QLatin1String("frontend_guard") && !m_frontend.dbmCalibrated)
-        aside = chainFrontendCalNoteText(m_frontend);
-    m_detailOff->setVisible(!aside.isEmpty());
-    if (!aside.isEmpty())
-        setElided(m_detailOff, aside, kDetailTextWidth);
-
-    setElided(m_detailLevels, chainLevelText(stage), kDetailTextWidth);
-
-    // AUTO CLEAN's own inspector: the state+why line under its own detail
-    // above, then its event history -- built by AetherGateChainAuto.cpp from
-    // the governor block applyFilter() parsed off this same /filter body.
-    const bool isAutoClean = stage.id == QLatin1String("auto_clean");
-    m_detailAutoState->setVisible(isAutoClean);
-    m_autoEvents->setVisible(isAutoClean);
-    if (isAutoClean) {
-        setElided(m_detailAutoState, chainAutoStateLine(m_governor), kDetailTextWidth);
-        m_autoEvents->setText(chainAutoEventLines(m_governor).join(QLatin1Char('\n')));
-    }
-}
-
 // Three states, and only three. The first build put refusals, set progress
 // and connection on one line and the operator read none of it; a refusal now
-// goes to the inspector and a set narrates itself under the mode row.
+// goes to the pane and a set narrates itself under the mode row.
 void AetherGateChainWindow::setLink(ChainLink link)
 {
     m_link = link;

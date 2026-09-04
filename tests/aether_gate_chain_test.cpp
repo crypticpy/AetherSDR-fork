@@ -12,12 +12,19 @@
 // until the reply; a select appends its value to a query ending in "="; the
 // free entry refuses a width there is no filter to design; a fixed row has no
 // control and says why on its own face; an absent `measured` is an em dash and
-// never a zero; a chain-less gate still gets thirteen honest rows; selecting a
-// tile fills the detail area; nothing scrolls at the initial size; every widget
-// the window builds has a name the automation bridge can address it by.
+// never a zero, and a row measured on neither leg hides the line entirely
+// (design §2.4 item 5) while one measured on both keeps it; a chain-less gate
+// still gets thirteen honest rows; selecting a tile fills the WHAT THIS DOES
+// pane and titles it "<NAME> — what it does" (design §2.4 item 1); the "with
+// it off" line has exactly one source, never two; no gateChainAutoState or
+// gateChainAutoEvents label exists any more -- that history moved to the NOW
+// strip's HISTORY disclosure; nothing scrolls at the initial size; every
+// widget the window builds has a name the automation bridge can address it by.
 //
 // The eight things the operator asked for after the first build are the other
-// file: tests/aether_gate_chain_ux_test.cpp.
+// file: tests/aether_gate_chain_ux_test.cpp. The WHAT THIS DOES pane itself is
+// built in src/gui/AetherGateChainDetail.cpp, split out of
+// AetherGateChainWindow.cpp for AGENTS.md's 800-line budget.
 #include "AetherGateChainFixture.h"
 
 #include <QApplication>
@@ -229,26 +236,54 @@ void testAnAbsentMeasurementIsADashAndNeverAZero()
     if (!w)
         return;
 
-    // The levels moved off the card and into the inspector: a card has room
+    // The levels moved off the card and into the pane: a card has room
     // for ONE measured line and the setting is the one an operator reads.
     CHECK(w->findChild<QLabel*>(QStringLiteral("gateChainLevels_roof_rf")) == nullptr);
 
-    // roof_rf's in_db is null and its out_db is -97.4: one dash, one number.
+    // roof_rf's in_db is null and its out_db is -97.4: one dash, one number,
+    // and the line stays up because SOMETHING was measured.
     QTest::mouseClick(strip(w)->tile(QStringLiteral("roof_rf")), Qt::LeftButton);
     settle();
     QLabel* levels = label(w, QStringLiteral("gateChainDetailLevels"));
     CHECK(levels != nullptr);
     if (levels) {
+        CHECK(levels->isVisibleTo(w));
         CHECK(levels->toolTip().contains(QStringLiteral("—")));
         CHECK(levels->toolTip().contains(QStringLiteral("-97.4")));
         CHECK(!levels->toolTip().contains(QStringLiteral("0.0 · out")));
     }
-    // A row with no `measured` at all shows dashes rather than a plausible zero.
+    // A row with no `measured` at all hides the line entirely (design §2.4
+    // item 5) rather than printing a dashed "in — · out — dB" nobody can act
+    // on.
     QTest::mouseClick(strip(w)->tile(QStringLiteral("steer")), Qt::LeftButton);
     settle();
+    if (levels)
+        CHECK(!levels->isVisibleTo(w));
+}
+
+// design §2.4 item 5, the other half of the case above: a row the gate
+// measured on BOTH legs keeps the line, and it reads both numbers rather
+// than one number and a dash.
+void testLevelsLineVisibleWhenBothLegsAreMeasured()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kChainFilter);
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    // roof_digital carries both in_db (-97.4) and out_db (-101.2).
+    QTest::mouseClick(strip(w)->tile(QStringLiteral("roof_digital")), Qt::LeftButton);
+    settle();
+    QLabel* levels = label(w, QStringLiteral("gateChainDetailLevels"));
+    CHECK(levels != nullptr);
     if (levels) {
-        CHECK(levels->toolTip().contains(QStringLiteral("—")));
-        CHECK(!levels->toolTip().contains(QStringLiteral("0.0")));
+        CHECK(levels->isVisibleTo(w));
+        CHECK(levels->toolTip().contains(QStringLiteral("-97.4")));
+        CHECK(levels->toolTip().contains(QStringLiteral("-101.2")));
+        CHECK(!levels->toolTip().contains(QStringLiteral("—")));
     }
 }
 
@@ -311,14 +346,15 @@ void testSelectingATileFillsTheDetailAreaAndSharesItsAccent()
     QTest::mouseClick(tile, Qt::LeftButton);
     settle();
 
-    // The pane's title names the stage (design §0.3 item 7) and the tile it
-    // names is the one wearing the accent frame.
-    CHECK(labelText(w, "gateChainDetailName") == QStringLiteral("AGC"));
+    // The pane's own box title names the stage (design §2.4 item 1), in the
+    // same colour token the tile's selected frame carries, and the tile it
+    // names is the one wearing that frame.
+    CHECK(labelText(w, "gateChainDetailCaption") == QStringLiteral("AGC — what it does"));
     CHECK(tile->isSelected());
     CHECK(tile->property("selected").toBool());
     CHECK(!strip(w)->tile(QStringLiteral("nb"))->property("selected").toBool());
 
-    // The inspector answers four questions in order: what it does to the
+    // The pane answers four questions in order: what it does to the
     // SOUND, what it is doing now, the control, and what you would hear
     // without it. None of them repeats the card verbatim.
     auto* tip = w->findChild<QLabel*>(QStringLiteral("gateChainDetailTip"));
@@ -329,18 +365,75 @@ void testSelectingATileFillsTheDetailAreaAndSharesItsAccent()
     }
     CHECK(labelText(w, "gateChainDetailText").startsWith(QStringLiteral("now: med")));
     CHECK(w->findChild<QComboBox*>(QStringLiteral("gateChainDetailSelect_agc")) != nullptr);
+    // "with it off: ..." (design §2.4 item 4) -- AGC is switchable, so the
+    // off sentence is the one of the three sources this row shows.
     QLabel* off = label(w, QStringLiteral("gateChainDetailOff"));
     CHECK(off != nullptr);
     if (off) {
         CHECK(off->isVisibleTo(w));
-        CHECK(off->text().startsWith(QStringLiteral("off:")));
+        CHECK(off->text().startsWith(QStringLiteral("with it off:")));
     }
 
     // Nothing selected: the pane asks for a click rather than showing a dash
-    // where a sentence goes.
+    // where a sentence goes, and the box title falls back to its own name.
     strip(w)->selectStage(QString());
     settle();
     CHECK(labelText(w, "gateChainDetailTip") == QStringLiteral("Click a stage."));
+    CHECK(labelText(w, "gateChainDetailCaption") == QStringLiteral("WHAT THIS DOES"));
+}
+
+// design §2.4 item 4: exactly one of three sources ever fills the "with it
+// off" line -- the switchable-off sentence, or the reason a fixed row cannot
+// move at all. (GUARD's own calibration caveat is the third source and is
+// covered by aether_gate_chain_frontend_test.cpp, which owns the frontend
+// guard fixture.) Never two of them for the same row.
+void testWithItOffLineHasExactlyOneSource()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kChainFilter);
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    // nb is switchable: the off sentence, prefixed "with it ".
+    QTest::mouseClick(strip(w)->tile(QStringLiteral("nb")), Qt::LeftButton);
+    settle();
+    QLabel* off = label(w, QStringLiteral("gateChainDetailOff"));
+    CHECK(off != nullptr);
+    if (off) {
+        CHECK(off->isVisibleTo(w));
+        CHECK(off->text().startsWith(QStringLiteral("with it off:")));
+    }
+
+    // lna is fixed: the reason it cannot move, never an "off" sentence for a
+    // stage that has no way of being switched off from here.
+    QTest::mouseClick(strip(w)->tile(QStringLiteral("lna")), Qt::LeftButton);
+    settle();
+    if (off) {
+        CHECK(off->isVisibleTo(w));
+        CHECK(off->text() == QStringLiteral("set on the setup page"));
+        CHECK(!off->text().startsWith(QStringLiteral("with it")));
+    }
+}
+
+// The AUTO CLEAN state line and its event history left this window for the
+// NOW strip's HISTORY disclosure (design §2.1 item 4, §2.4): nothing built
+// by AetherGateChainWindow carries either of the two object names any more,
+// on any stage.
+void testNoAutoCleanLabelsInsideTheWindow()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kChainlessFilter);
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    CHECK(w->findChild<QLabel*>(QStringLiteral("gateChainAutoState")) == nullptr);
+    CHECK(w->findChild<QLabel*>(QStringLiteral("gateChainAutoEvents")) == nullptr);
 }
 
 void testNothingScrollsOnTheChainWindowAtTheInitialSize()
@@ -581,8 +674,11 @@ int main(int argc, char** argv)
     testFreeEntryRefusesAWidthThereIsNoFilterFor();
     testAFixedRowCarriesNoControlAndSaysWhyOnItsOwnFace();
     testAnAbsentMeasurementIsADashAndNeverAZero();
+    testLevelsLineVisibleWhenBothLegsAreMeasured();
     testAChainlessGateStillGetsThirteenHonestRows();
     testSelectingATileFillsTheDetailAreaAndSharesItsAccent();
+    testWithItOffLineHasExactlyOneSource();
+    testNoAutoCleanLabelsInsideTheWindow();
     testNothingScrollsOnTheChainWindowAtTheInitialSize();
     testEveryWidgetTheWindowBuildsHasAName();
     testEveryStagesTooltipIsShortAndSaysWhatItIsFor();

@@ -248,7 +248,7 @@ void testInspectorTextForTheGuardRow()
     strip(w)->selectStage(QStringLiteral("frontend_guard"));
     settle();
 
-    CHECK(labelText(w, "gateChainDetailName") == QStringLiteral("GUARD"));
+    CHECK(labelText(w, "gateChainDetailCaption") == QStringLiteral("GUARD — what it does"));
     // 1. What it does.
     const QString tip = labelText(w, "gateChainDetailTip");
     CHECK(tip.contains(QStringLiteral("LNA")));
