@@ -4,7 +4,7 @@
 // same governor block, read off /diversity and /filter, has to say the same
 // thing on the sidebar's own switch (gui/AetherGateDiversityPanel.cpp), the
 // Diversity window's NEXT strip switch (gui/DiversityNextStrip.cpp) and
-// the CHAIN window's read-only header (gui/AetherGateChainWindowTabs.cpp),
+// the CHAIN window's NOW strip (gui/AetherGateChainNow.cpp),
 // plus DIG STOP, which the strip hosts at the end of its own row but does
 // not build itself (gui/DiversityWindowFilter.cpp's buildDigControls()). It
 // does NOT retest chainAutoNoteForStage()
@@ -110,7 +110,7 @@ QJsonObject heldDig(const QString& why)
 
 // Both routes at once, independently governed -- the 3-arg connectGate()
 // AetherGateChainFixture.h already has fixes /diversity to kDiversityFull
-// with no governor, which cannot show the sidebar and the CHAIN banner
+// with no governor, which cannot show the sidebar and the CHAIN NOW strip
 // disagreeing about it.
 void connectGateBoth(AetherGateApplet& a, FakeGate& net, const QByteArray& diversity,
                      const QByteArray& filter)
@@ -330,18 +330,20 @@ void testNextStripIndicatorAndToggle()
 }
 
 // --------------------------------------------------------------------------
-// (3) The CHAIN window's read-only header banner
+// (3) The CHAIN window's NOW strip -- the banner's replacement. No switch of
+// its own: the one write it offers is whatever the governor's state calls
+// for, and the line says what AUTO CLEAN is doing rather than repeating the
+// FLOW line's face.
 // --------------------------------------------------------------------------
 
-void testChainWindowBannerIsReadOnly()
+void testChainWindowNowStripSaysWhatAutoCleanIsDoing()
 {
     FakeGate net;
     AetherGateApplet a(nullptr, &net);
     connectGateBoth(a, net, kDiversityFull,
                     withGovernor(kChainFullFilter,
                                  governor(true, QStringLiteral("settling"),
-                                          QStringLiteral("mains/squeeze backing off until 12:46"),
-                                          {}, QStringLiteral("trying a null on the mains hum"))));
+                                          QStringLiteral("mains/squeeze backing off until 12:46"))));
     AetherGateChainWindow* w = openChain(a);
     CHECK(w != nullptr);
     if (!w)
@@ -350,31 +352,37 @@ void testChainWindowBannerIsReadOnly()
     w->setCurrentTab(kTabChain);
     settle();
 
-    auto* timer = w->findChild<QTimer*>(QStringLiteral("gateChainAutoCleanBannerTimer"));
-    CHECK(timer != nullptr);
-    fire(timer);
-    settle();
-    QLabel* banner = w->findChild<QLabel*>(QStringLiteral("gateChainAutoCleanBanner"));
-    CHECK(banner != nullptr);
-    if (!banner)
+    QWidget* strip = w->findChild<QWidget*>(QStringLiteral("gateChainNowStrip"));
+    QLabel* line = w->findChild<QLabel*>(QStringLiteral("gateChainNowLine"));
+    QPushButton* action = w->findChild<QPushButton*>(QStringLiteral("gateChainNowAction"));
+    CHECK(strip != nullptr);
+    CHECK(line != nullptr);
+    CHECK(action != nullptr);
+    if (!strip || !line || !action)
         return;
-    CHECK(banner->isVisible());
-    // The header has the room: the label AND the sentence (U1).
-    CHECK_EQ(banner->text(),
-             QStringLiteral("AUTO CLEAN ON · trying a null on the mains hum · "
-                            "mains/squeeze backing off until 12:46"));
+    CHECK(strip->isVisible());
+    // On, nothing held, nothing pending, nothing ruled out: listening. The
+    // governor's `why` is HISTORY's business, not the line's.
+    CHECK_EQ(line->text(), QStringLiteral("AUTO CLEAN ON · listening"));
+    CHECK(!action->isVisible());
 
-    // MUTATION: auto goes off -- the banner disappears rather than reading
-    // "AUTO CLEAN" (there is no switch here to collapse to; a read-only
-    // header with nothing to say says nothing).
+    // MUTATION: auto goes off -- the strip does not disappear the way the
+    // banner did; it now has the one thing worth saying (how to turn it on)
+    // and the one write that does it.
     net.routes[QStringLiteral("/filter")] = {
         QNetworkReply::NoError,
         withGovernor(kChainFullFilter,
                      governor(false, QStringLiteral("idle"), QStringLiteral("")))};
     filterTick(a);
-    fire(timer);
     settle();
-    CHECK(!banner->isVisible());
+    CHECK(strip->isVisible());
+    CHECK(line->text().startsWith(QStringLiteral("AUTO CLEAN is off")));
+    CHECK(action->isVisible());
+    CHECK_EQ(action->text(), QStringLiteral("AUTO CLEAN ON"));
+    action->click();
+    settle();
+    CHECK_EQ(lastRequestFor(net, QStringLiteral("/diversity/set")),
+             QStringLiteral("/diversity/set?auto=on"));
 }
 
 // --------------------------------------------------------------------------
@@ -521,14 +529,13 @@ void testNameHygiene()
     AetherGateChainWindow* cw = openChain(a);
     CHECK(cw != nullptr);
     if (cw) {
-        QLabel* banner = cw->findChild<QLabel*>(QStringLiteral("gateChainAutoCleanBanner"));
-        CHECK(banner != nullptr);
-        if (banner) {
-            QWidget* parent = banner->parentWidget();
-            CHECK(parent != nullptr);
-            CHECK(parent
-                  && parent->findChild<QLabel*>(banner->objectName(), Qt::FindDirectChildrenOnly)
-                         == banner);
+        // The NOW strip is the CHAIN window's counterpart of the FLOW strip
+        // above: every direct child it builds is named, for the same reason.
+        QWidget* now = cw->findChild<QWidget*>(QStringLiteral("gateChainNowStrip"));
+        CHECK(now != nullptr);
+        if (now) {
+            for (QWidget* kid : now->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly))
+                CHECK(!kid->objectName().isEmpty());
         }
     }
 }
@@ -574,8 +581,6 @@ void testNoHorizontalScrollbarAtInitialSize()
         cw->resize(1120, 820);
         cw->setCurrentTab(kTabChain);
         settle();
-        fire(cw->findChild<QTimer*>(QStringLiteral("gateChainAutoCleanBannerTimer")));
-        settle();
         cw->grab();
         CHECK(cw->minimumSizeHint().width() <= 1120);
         auto* scroll = cw->findChild<QScrollArea*>(QStringLiteral("gateChainScroll"));
@@ -585,7 +590,7 @@ void testNoHorizontalScrollbarAtInitialSize()
 
 // --------------------------------------------------------------------------
 // (8) With AUTO_VIS_RENDER_PREFIX=/tmp/auto-vis set, all three surfaces are
-// rendered to <prefix>-sidebar.png / -flow.png / -chain.png, so the banner
+// rendered to <prefix>-sidebar.png / -flow.png / -chain.png, so the strips
 // can be looked at rather than only asserted about.
 // --------------------------------------------------------------------------
 
@@ -627,8 +632,6 @@ void testRenderWhenAsked()
         cw->resize(1120, 820);
         cw->setCurrentTab(kTabChain);
         settle();
-        fire(cw->findChild<QTimer*>(QStringLiteral("gateChainAutoCleanBannerTimer")));
-        settle();
         CHECK(cw->grab().save(prefix + QStringLiteral("-chain.png")));
     }
     a.hide();
@@ -643,7 +646,7 @@ int main(int argc, char** argv)
 
     testSidebarIndicatorAndToggle();
     testNextStripIndicatorAndToggle();
-    testChainWindowBannerIsReadOnly();
+    testChainWindowNowStripSaysWhatAutoCleanIsDoing();
     testDigStopButtonWritesCancel();
     testDigNarratesWhoStartedIt();
     testNameHygiene();
