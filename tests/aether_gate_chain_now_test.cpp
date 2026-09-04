@@ -176,9 +176,13 @@ void testCase4HoldingShowsAgeAndDeltaAndWritesAutoOff()
 {
     FakeGate net;
     AetherGateApplet applet(nullptr, &net);
-    const double since = QDateTime::currentDateTime().toSecsSinceEpoch() - 240.0;   // 4 min
+    // `since` is uptime -- a small number that, read as epoch, would print
+    // as decades -- and `since_wall` is the epoch stamp 4 min back; the age
+    // below is right only if the line reads the wall one.
+    const double sinceWall = QDateTime::currentDateTime().toSecsSinceEpoch() - 240.0;
     const QJsonArray holding = {held(QStringLiteral("squeeze"), QStringLiteral("carrier"),
-                                     QStringLiteral("strongest first"), since, true, 1.8)};
+                                     QStringLiteral("strongest first"), 100.0, true, 1.8,
+                                     sinceWall)};
     connectGate(applet, net,
                withAutoCleanChain(true, governor(true, QStringLiteral("settling"),
                                                  QStringLiteral("holding squeeze"), holding)));
@@ -207,6 +211,34 @@ void testCase4HoldingShowsAgeAndDeltaAndWritesAutoOff()
     settle();
     CHECK(net.log.size() == writes + 1);
     CHECK(net.log.last() == QStringLiteral("/diversity/set?auto=off"));
+}
+
+// Case 4, older gate -- a held row with `since` but no `since_wall`: the
+// line has no age clause at all rather than the decades that `since` read
+// as epoch used to print ("20671 d" on the live window).
+void testCase4HoldingWithoutSinceWallPrintsNoAge()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    const QJsonArray holding = {held(QStringLiteral("squeeze"), QStringLiteral("carrier"),
+                                     QStringLiteral("strongest first"), 2503640.1, true, 1.8)};
+    connectGate(applet, net,
+               withAutoCleanChain(true, governor(true, QStringLiteral("settling"),
+                                                 QStringLiteral("holding squeeze"), holding)));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w);
+
+    auto* line = nowLine(w);
+    CHECK(line != nullptr);
+    if (line) {
+        CHECK(line->text().contains(QStringLiteral("holding")));
+        CHECK(line->text().endsWith(QStringLiteral("+1.8 dB")));
+        CHECK(!line->text().contains(QStringLiteral("min")));
+        CHECK(!line->text().contains(QStringLiteral("just now")));
+    }
 }
 
 // Case 5 -- off: AUTO CLEAN ON writes auto=on. This is the off->on half of
@@ -382,6 +414,7 @@ int main(int argc, char** argv)
     testCase2ErrorOffersTryAgainAndLightsTheErroringRow();
     testCase3PendingOffersHandItBack();
     testCase4HoldingShowsAgeAndDeltaAndWritesAutoOff();
+    testCase4HoldingWithoutSinceWallPrintsNoAge();
     testCase5OffOffersAutoCleanOnAndWritesAutoOn();
     testCase6RuledOutNamesWhyAndHasNoButton();
     testCase7ListeningIsBareAndHasNoButton();

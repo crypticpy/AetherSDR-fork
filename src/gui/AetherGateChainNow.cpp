@@ -270,8 +270,14 @@ void AetherGateChainNow::refresh(const ChainStage& autoCleanRow, const ChainAuto
             tr_("AUTO CLEAN is holding %1 on %2").arg(h.kind, toolRowName(h.tool));
         if (h.hasDelta)
             text += tr_(", %1 dB").arg(signedDb(h.deltaDb));
-        const qint64 now = QDateTime::currentSecsSinceEpoch();
-        text += tr_(", %1").arg(ageFromSecs(now - qint64(h.since)));
+        // The age reads from since_wall only: `since` is the governor's
+        // uptime, and read as epoch it drew a held null as "20671 d" old on
+        // the live window. A gate too old to send since_wall gets no age
+        // clause rather than a wrong one.
+        if (h.hasSinceWall) {
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            text += tr_(", %1").arg(ageFromSecs(now - qint64(h.sinceWall)));
+        }
         line = text;
         actionText = tr_("HAND IT BACK");
         actionTip = tr_("Stops AUTO CLEAN and leaves the chain exactly where it is now.");

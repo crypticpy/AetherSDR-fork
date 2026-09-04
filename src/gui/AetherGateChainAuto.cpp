@@ -28,6 +28,9 @@ ChainAutoHeld parseHeld(const QJsonObject& h)
     out.kind = h.value(QStringLiteral("kind")).toString();
     out.why = h.value(QStringLiteral("why")).toString();
     out.since = num(h.value(QStringLiteral("since")));
+    const QJsonValue sinceWall = h.value(QStringLiteral("since_wall"));
+    out.hasSinceWall = sinceWall.isDouble();
+    out.sinceWall = out.hasSinceWall ? sinceWall.toDouble() : 0.0;
     const QJsonValue delta = h.value(QStringLiteral("delta_db"));
     out.hasDelta = delta.isDouble();
     out.deltaDb = out.hasDelta ? delta.toDouble() : 0.0;

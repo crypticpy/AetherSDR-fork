@@ -20,7 +20,7 @@
 //    "settle_s", "margin_db", "spread_db", "objective_source" ("snr" or
 //    "none" -- there is no talker to score against right now, so a kept
 //    move was scored by its tool's own proxy instead),
-//    "holding": [{"tool", "params", "kind", "why", "since", "delta_db"}],
+//    "holding": [{"tool", "params", "kind", "why", "since", "since_wall", "delta_db"}],
 //    "pending": one row of the same shape, or null,
 //    "events": [{"t", "wall", "tool", "kind", "params", "undo", "why",
 //                "before", "result": pending|kept|undone|released|error,
@@ -71,6 +71,12 @@ struct ChainAutoHeld {
     QString kind;
     QString why;
     double  since{0.0};
+    // `since` is the governor's own uptime clock and means nothing to a wall
+    // clock; `since_wall` (gate d093574, the same R9 trade events make with
+    // `wall` beside `t`) is the epoch stamp an age can be read from. Absent
+    // on an older gate -- then there is no age to print, not a wrong one.
+    bool    hasSinceWall{false};
+    double  sinceWall{0.0};
     bool    hasDelta{false};
     double  deltaDb{0.0};
     // Optional, present only on a held "dig" (DIG has no row of its own -- see

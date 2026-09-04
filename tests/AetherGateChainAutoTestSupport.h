@@ -109,14 +109,20 @@ QByteArray withAutoCleanChain(bool autoOn, const QJsonObject& governor = QJsonOb
 // One row of governor.holding[]/pending -- {tool, kind, why, since, delta_db}.
 // `hasDelta` false omits delta_db (JSON null), the "measuring, no score yet"
 // case chainAutoNoteForStage() must not print a "0.0 dB" for.
+// `since` is the governor's uptime stamp; `sinceWall` (epoch seconds) is
+// the companion gate d093574 sends beside it and the only one an age is read
+// from -- negative leaves it out, the way an older gate does.
 QJsonObject held(const QString& tool, const QString& kind, const QString& why,
-                 double since, bool hasDelta, double deltaDb = 0.0)
+                 double since, bool hasDelta, double deltaDb = 0.0,
+                 double sinceWall = -1.0)
 {
     QJsonObject h;
     h.insert(QStringLiteral("tool"), tool);
     h.insert(QStringLiteral("kind"), kind);
     h.insert(QStringLiteral("why"), why);
     h.insert(QStringLiteral("since"), since);
+    if (sinceWall >= 0.0)
+        h.insert(QStringLiteral("since_wall"), sinceWall);
     h.insert(QStringLiteral("delta_db"), hasDelta ? QJsonValue(deltaDb) : QJsonValue());
     return h;
 }
