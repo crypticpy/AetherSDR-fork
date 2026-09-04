@@ -41,6 +41,12 @@
         <file alias="understanding-noise-cancellation.md">help/understanding-noise-cancellation.md</file>
         <file alias="understanding-data-modes.md">help/understanding-data-modes.md</file>
         <file alias="contributing-to-aethersdr.md">help/contributing-to-aethersdr.md</file>
+        <file alias="diversity-session.md">help/diversity-session.md</file>
+        <file alias="diversity-slice.md">help/diversity-slice.md</file>
+        <file alias="diversity-band.md">help/diversity-band.md</file>
+        <file alias="diversity-site.md">help/diversity-site.md</file>
+        <file alias="diversity-filter.md">help/diversity-filter.md</file>
+        <file alias="diversity-chain.md">help/diversity-chain.md</file>
     </qresource>
     <!-- Bundled DSEG fonts (SIL OFL 1.1 — third_party/dseg/DSEG-LICENSE.txt).
          Modern variant of 7-segment + 14-segment families (all six weights)

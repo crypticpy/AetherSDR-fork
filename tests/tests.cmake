@@ -5873,6 +5873,57 @@ if (NOT _aether_ggml_baseline_str STREQUAL "")
 endif()
 add_test(NAME system_inventory_test COMMAND system_inventory_test)
 
+# DiversitySessionModel (Phase 3a WP-A): the Diversity window's step model --
+# RECEIVER, SITE NOISE, BAND, STATION, LISTEN -- headless, no widgets, no
+# transport, no timers. Compiles the model and its text unit as plain
+# sources, the same way diversity_flow_test.cpp compiles the FLOW strip it
+# replaces; DiversitySessionFixture.h is header-only, so nothing else is
+# needed on the source list.
+add_executable(diversity_session_model_test
+    tests/diversity_session_model_test.cpp
+    src/gui/DiversitySessionModel.cpp
+    src/gui/DiversitySessionText.cpp
+)
+target_include_directories(diversity_session_model_test PRIVATE src tests)
+target_link_libraries(diversity_session_model_test PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Test
+)
+add_test(NAME diversity_session_model_test COMMAND diversity_session_model_test)
+
+# DiversityHelp (Phase 3a WP-A): the "i" button factory and its topic ->
+# resource mapping. Needs QApplication + Widgets (button() builds a real
+# QPushButton) and resources.qrc linked in so the resource-resolution check
+# is real rather than a string comparison -- same shape as help_dialog_test
+# just above, plus the six diversity-*.md resources.
+qt_add_resources(DIVERSITY_HELP_TEST_RESOURCES resources/resources.qrc)
+add_executable(diversity_help_test
+    tests/diversity_help_test.cpp
+    src/gui/DiversityHelp.cpp
+    src/gui/HelpDialog.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+    src/core/ThemeManager.cpp
+    src/core/ThemeSeedGenerated.cpp
+    ${AETHER_SETTINGS_SOURCES}
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
+    ${DIVERSITY_HELP_TEST_RESOURCES}
+)
+target_include_directories(diversity_help_test PRIVATE src tests)
+target_link_libraries(diversity_help_test PRIVATE
+    Qt6::Core Qt6::Widgets Qt6::Test
+)
+# This block runs after the AETHER_SETTINGS_CONSUMERS foreach above (this
+# target does not exist yet when that loop's if(TARGET ...) checks run), so
+# the vendored SQLite engine ${AETHER_SETTINGS_SOURCES} needs is linked
+# directly here instead.
+target_link_libraries(diversity_help_test PRIVATE aether_sqlite3)
+set_target_properties(diversity_help_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_help_test COMMAND diversity_help_test)
+set_tests_properties(diversity_help_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 
 # The isolation TU, compiled once and linked into every test target below. An
 # OBJECT library rather than STATIC on purpose: its only content is a
