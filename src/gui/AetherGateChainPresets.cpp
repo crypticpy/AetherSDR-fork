@@ -311,9 +311,13 @@ AetherGateChainPresetBar::AetherGateChainPresetBar(QWidget* parent) : QWidget(pa
     m_pick = new QComboBox(this);
     m_pick->setObjectName(QStringLiteral("gateChainPresetPick"));
     m_pick->setAccessibleName(tr("Saved settings"));
-    m_pick->setToolTip(tr("The settings you have saved. Each one says which "
-                          "listening mode it was saved for."));
-    m_pick->setAccessibleDescription(m_pick->toolTip());
+    m_pick->setToolTip(tr("Your saved chains. Picking one writes every stage "
+                          "back to how you left it."));
+    m_pick->setAccessibleDescription(
+        tr("Each preset is the whole chain as you saved it, applied by the "
+           "same one-write-at-a-time machinery the mode sets use. The line "
+           "beside it says which one is in force and how many stages have "
+           "drifted from it since."));
     m_pick->setFixedWidth(kPickWidth);
     m_pick->setFixedHeight(24);
     ThemeManager::instance().applyStyleSheet(m_pick, QString::fromLatin1(kPickStyle));
@@ -370,15 +374,18 @@ AetherGateChainPresetBar::AetherGateChainPresetBar(QWidget* parent) : QWidget(pa
                         tr("Puts these settings back into the receiver, one "
                            "stage at a time, waiting for it after each one."));
     m_save = makeButton(tr("SAVE AS..."), QStringLiteral("gateChainPresetSave"),
-                        tr("Saves every stage the receiver is set to right now "
-                           "under a name of your own."),
-                        tr("Saves every stage the receiver is set to right now "
-                           "under a name of your own."));
+                        tr("Saves every stage exactly as it is now, under a "
+                           "name you choose."),
+                        tr("Writes one JSON file under the application's data "
+                           "folder. It records what the gate reported, not "
+                           "what was asked for, so a preset can never contain "
+                           "a setting the receiver refused."));
     m_delete = makeButton(tr("DELETE"), QStringLiteral("gateChainPresetDelete"),
-                          tr("Throws these settings away. You get eight seconds "
-                             "to change your mind."),
-                          tr("Throws these settings away. You get eight seconds "
-                             "to change your mind."));
+                          tr("Removes the selected saved chain. You get a few "
+                             "seconds to undo it."),
+                          tr("Deletes the preset file. The UNDO button beside "
+                             "the notice restores it for eight seconds "
+                             "afterwards."));
     connect(m_load, &QPushButton::clicked, this, &AetherGateChainPresetBar::doLoad);
     connect(m_save, &QPushButton::clicked, this,
             &AetherGateChainPresetBar::beginSaveAs);
@@ -389,9 +396,11 @@ AetherGateChainPresetBar::AetherGateChainPresetBar(QWidget* parent) : QWidget(pa
     m_notice->setObjectName(QStringLiteral("gateChainPresetNotice"));
     m_notice->setAccessibleName(tr("Undo the delete"));
     m_notice->setToolTip(
-        tr("Bring the deleted preset back; it's still recoverable for a few "
+        tr("Brings the deleted chain back; it is still recoverable for a few "
            "seconds."));
-    m_notice->setAccessibleDescription(m_notice->toolTip());
+    m_notice->setAccessibleDescription(
+        tr("Restores the preset file deleted a moment ago. After the notice "
+           "clears, the file is gone."));
     m_notice->setCursor(Qt::PointingHandCursor);
     m_notice->setFlat(true);
     m_notice->setVisible(false);

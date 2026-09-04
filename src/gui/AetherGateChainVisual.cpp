@@ -117,7 +117,8 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
         caption, QString::fromLatin1(kVisualCaptionStyle));
     caption->setAccessibleName(tr("What this picture is"));
     caption->setToolTip(
-        tr("The filter drawn over the band it filters - to see what it is doing."));
+        tr("The filter drawn live - drag an edge, double-click to notch, "
+           "Shift+click to squeeze."));
     caption->setAccessibleDescription(captionWalkthrough());
 
     // SQUEEZE (B24): the operator's own null or notch, asked for either by
@@ -139,11 +140,12 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
     m_squeezeComb->setObjectName(QStringLiteral("gateChainSqueezeComb"));
     m_squeezeComb->setAccessibleName(tr("Squeeze a comb of carriers"));
     m_squeezeComb->setToolTip(
-        tr("Narrow notches onto a whole comb of evenly spaced carriers at once, "
-           "to kill them."));
+        tr("Narrows notches onto a whole comb of evenly spaced carriers at once."));
     m_squeezeComb->setAccessibleDescription(
-        tr("Ask the gate to find and squeeze a comb of evenly spaced carriers "
-           "in this passband, rather than the one signal a click would pick."));
+        tr("Asks the gate to find a comb of evenly spaced carriers across this "
+           "passband — a switching supply, a multi-tone jammer — and "
+           "place a tight null or notch on every tooth at once, instead of the "
+           "one signal a Shift+click would target."));
     m_squeezeComb->setFixedHeight(22);
     applyToggleButtonStyle(m_squeezeComb, ToggleTribe::Warning);
     connect(m_squeezeComb, &QPushButton::clicked, this, [this]() {
@@ -156,10 +158,10 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
     m_squeezeRelease = new QPushButton(tr("RELEASE"), this);
     m_squeezeRelease->setObjectName(QStringLiteral("gateChainSqueezeRelease"));
     m_squeezeRelease->setAccessibleName(tr("Let the SQUEEZE go"));
-    m_squeezeRelease->setToolTip(tr("Undo SQUEEZE and give the full passband back."));
+    m_squeezeRelease->setToolTip(tr("Undoes SQUEEZE and gives the full passband back."));
     m_squeezeRelease->setAccessibleDescription(
-        tr("Take away whatever SQUEEZE is armed or holding -- one signal or a "
-           "comb -- and give the passband back."));
+        tr("Takes away whatever SQUEEZE is armed or holding, one signal or a "
+           "whole comb, and returns the passband to its normal width."));
     m_squeezeRelease->setFixedHeight(22);
     m_squeezeRelease->setEnabled(false);
     applyToggleButtonStyle(m_squeezeRelease, ToggleTribe::Warning);

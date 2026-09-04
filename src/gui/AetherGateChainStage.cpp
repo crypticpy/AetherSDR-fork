@@ -241,13 +241,18 @@ void AetherGateChainControl::buildFloor(const QString& prefix, bool large)
     ThemeManager::instance().applyStyleSheet(m_floor, QString::fromLatin1(kSelectStyle));
     for (const ChainOption& opt : m_stage.floorOptions)
         m_floor->addItem(opt.label, opt.value);
-    const QString tip = tr("Floor for GUARD's auto LNA step-down - the "
-                           "weakest attenuation it may use.");
-    const QString longTip = tr("The lowest LNA state the guard will step down to. "
-                               "It steps the gain back up on its own; it never "
-                               "goes below this floor.");
+    // Same hover rule as the toggle above: WHAT + WHAT FOR on the tooltip,
+    // the step-back-up mechanics on the accessible description. No stage
+    // field carries a floor-specific shortTip (it is a second control on the
+    // GUARD row, not a row of its own), so the tooltip is the §2.7 GUARD
+    // floor line, written here rather than borrowed from `m_stage.shortTip`
+    // (which is the switch's own text, not the floor's).
+    const QString tip = tr("How far down GUARD may take the LNA - stops it "
+                           "deafening you on a quiet band.");
+    const QString mechanics = tr("It steps the gain back up on its own; it "
+                                 "never goes below this floor.");
     m_floor->setToolTip(tip);
-    m_floor->setAccessibleDescription(longTip);
+    m_floor->setAccessibleDescription(tip + QLatin1Char(' ') + mechanics);
     connect(m_floor, &QComboBox::activated, this, [this](int index) {
         const QString wire = m_floor->itemData(index).toString();
         if (wire.isEmpty() || m_busy) {
@@ -293,7 +298,14 @@ void AetherGateChainControl::buildChecks(const QString& prefix, bool large)
         box->setFixedHeight(large ? kLargeRowHeight : kRowHeight);
         ThemeManager::instance().applyStyleSheet(box, QString::fromLatin1(kCheckStyle));
         const QString label = check.label.isEmpty() ? check.key : check.label;
-        const QString tip = tr("Turns %1 on or off for %2.").arg(label, m_stage.name);
+        // No per-check shortTip field exists (ChainCheck carries only what
+        // the gate sends to draw and wire the box), so the known checks get
+        // their §2.7 line here; anything a future gate adds falls back to
+        // the generic "turns X on or off" sentence rather than nothing.
+        const QString tip = check.key == QStringLiteral("roof_offset")
+                                ? tr("Shifts the digital roof off centre to "
+                                     "keep a strong neighbour outside it.")
+                                : tr("Turns %1 on or off for %2.").arg(label, m_stage.name);
         const QString mechanics =
             tr("The box moves only when the receiver says the check actually "
                "changed.");
@@ -397,13 +409,17 @@ void AetherGateChainControl::buildSelect(const QString& prefix, bool large)
     else
         m_free->setFixedWidth(kMenuWidth);
     ThemeManager::instance().applyStyleSheet(m_free, QString::fromLatin1(kFreeStyle));
-    const QString freeTip = tr("Any width from %1 Hz to %2 Hz, typed. Outside that "
-                               "range nothing is sent: there is no filter to "
-                               "design either side of it.")
-                                .arg(kFreeEntryMinHz)
-                                .arg(kFreeEntryMaxHz);
+    // Same short-tip/long-AD split as the rest of this factory -- the old
+    // single sentence here ran past the 90-char rule.
+    const QString freeTip = tr("Custom passband width in Hz, typed when no "
+                               "listed width fits.");
+    const QString freeLongTip = tr("Any width from %1 Hz to %2 Hz, typed. Outside "
+                                   "that range nothing is sent: there is no "
+                                   "filter to design either side of it.")
+                                    .arg(kFreeEntryMinHz)
+                                    .arg(kFreeEntryMaxHz);
     m_free->setToolTip(freeTip);
-    m_free->setAccessibleDescription(freeTip);
+    m_free->setAccessibleDescription(freeLongTip);
     connect(m_free, &QLineEdit::returnPressed, this, [this] {
         if (!m_free->hasAcceptableInput() || !m_stage.actionable() || m_busy)
             return;
@@ -429,12 +445,17 @@ void AetherGateChainControl::buildAction(const QString& prefix, bool large)
         m_action->setFixedWidth(kMenuWidth);
     m_action->setCursor(Qt::PointingHandCursor);
     applyToggleButtonStyle(m_action);
-    const QString tip = tr("%1 now; the card waits for the receiver to confirm "
-                           "it landed.").arg(m_action->text());
-    const QString longTip = tr("%1. The card does not move until the receiver says "
-                               "something changed.").arg(m_action->text());
+    // Same rule as the toggle and select paths above: the hover names the
+    // action itself (the row's own shortTip, e.g. ALIGN's), the wait-for-
+    // confirmation sentence goes on the accessible description only.
+    const QString mechanics = tr("The card does not move until the receiver "
+                                 "says something changed.");
+    const QString tip = m_stage.shortTip.isEmpty()
+                            ? tr("%1 now.").arg(m_action->text())
+                            : m_stage.shortTip;
     m_action->setToolTip(tip);
-    m_action->setAccessibleDescription(longTip);
+    m_action->setAccessibleDescription(
+        (m_stage.tip.isEmpty() ? tip : m_stage.tip) + QLatin1Char(' ') + mechanics);
     connect(m_action, &QPushButton::clicked, this, [this] {
         if (!m_stage.actionable() || m_busy)
             return;

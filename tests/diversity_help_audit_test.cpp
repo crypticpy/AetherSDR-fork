@@ -30,10 +30,12 @@
 
 #include <QApplication>
 #include <QByteArray>
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLabel>
+#include <QPair>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QString>
@@ -169,6 +171,217 @@ QStringList overLongLiteralTooltipsInSource(const QString& path)
         }
     }
     return out;
+}
+
+// --- CHAIN-window ratchet: the H1 90-char rule PLUS the mechanics blocklist,
+// read straight off setToolTip()'s own argument. The CHAIN window's generic
+// control factory (AetherGateChainStage.cpp) never passes a literal to
+// setToolTip() directly -- it builds a local `tip` a few lines above and
+// passes that -- so this scan traces a bare-identifier argument back to its
+// own initializer before reading the tr()/translate() message(s) in it,
+// rather than requiring the whole call to be one literal the way
+// overLongLiteralTooltipsInSource() above does for the two DiversityWindow
+// files it reads. Anything the trace cannot resolve (a member, a helper
+// function's return value, a gate-reported string) is out of a static
+// scan's reach and is reviewed by hand, the same carve-out that function
+// already documents.
+
+// The depth-matched substring between `afterOpen` (the index right after an
+// opening paren already consumed by the caller) and its own closing paren.
+QString chainMatchedParens(const QString& text, int afterOpen)
+{
+    int depth = 1;
+    int i = afterOpen;
+    while (i < text.size() && depth > 0) {
+        if (text.at(i) == QLatin1Char('('))
+            ++depth;
+        else if (text.at(i) == QLatin1Char(')'))
+            --depth;
+        ++i;
+    }
+    return text.mid(afterOpen, i - 1 - afterOpen);
+}
+
+// The last top-level (paren-depth 0, outside any string literal) comma-
+// separated argument in `argText`, with its own adjacent string literals
+// joined: `tr("a" "b")` is one message; `translate("Ctx", "a" "b")` is the
+// same shape once its context argument is skipped. A `.arg()` placeholder
+// is never part of `argText` at all -- chainMatchedParens above already
+// stopped at the tr()/translate() call's own closing paren -- so a
+// placeholder is counted exactly as it reads on the page, `%1` and all.
+QString chainLastTopLevelArgLiteral(const QString& argText)
+{
+    QVector<int> splits;
+    int depth = 0;
+    bool inStr = false;
+    for (int i = 0; i < argText.size(); ++i) {
+        const QChar c = argText.at(i);
+        if (inStr) {
+            if (c == QLatin1Char('\\'))
+                ++i;
+            else if (c == QLatin1Char('"'))
+                inStr = false;
+            continue;
+        }
+        if (c == QLatin1Char('"')) {
+            inStr = true;
+        } else if (c == QLatin1Char('(') || c == QLatin1Char('[')) {
+            ++depth;
+        } else if (c == QLatin1Char(')') || c == QLatin1Char(']')) {
+            --depth;
+        } else if (c == QLatin1Char(',') && depth == 0) {
+            splits << i;
+        }
+    }
+    const int start = splits.isEmpty() ? 0 : splits.last() + 1;
+    static const QRegularExpression strLit(QStringLiteral("\"((?:[^\"\\\\]|\\\\.)*)\""));
+    QString joined;
+    QRegularExpressionMatchIterator it = strLit.globalMatch(argText.mid(start));
+    while (it.hasNext())
+        joined += it.next().captured(1);
+    return joined;
+}
+
+// Every tr()/QCoreApplication::translate() call's own message inside
+// `snippet`, one entry per call -- the generic factory's
+// "actionable ? tr(A) : tr(B)" shape has to check A and B separately, not
+// run together as if they were one string.
+QStringList chainMessagesInSnippet(const QString& snippet)
+{
+    static const QRegularExpression callStart(
+        QStringLiteral("\\b(?:tr|QCoreApplication::translate)\\("));
+    QStringList out;
+    int pos = 0;
+    while (true) {
+        const QRegularExpressionMatch m = callStart.match(snippet, pos);
+        if (!m.hasMatch())
+            break;
+        const QString arg = chainMatchedParens(snippet, int(m.capturedEnd()));
+        pos = int(m.capturedEnd()) + arg.length() + 1;
+        const QString msg = chainLastTopLevelArgLiteral(arg);
+        if (!msg.isEmpty())
+            out << msg;
+    }
+    return out;
+}
+
+// One entry per setToolTip() call in `text`: (line, message). A literal (or
+// `.arg()`-placeholder) argument is read straight off the call; a bare local
+// identifier is traced back to the nearest earlier `QString NAME = ...;` (or
+// `const QString NAME = ...;`) declaration and read from there instead.
+QVector<QPair<int, QString>> chainToolTipMessages(const QString& text)
+{
+    static const QRegularExpression callStart(QStringLiteral("setToolTip\\("));
+    static const QRegularExpression identOnly(QStringLiteral("^\\s*(\\w+)\\s*$"));
+    QVector<QPair<int, QString>> out;
+    int pos = 0;
+    while (true) {
+        const QRegularExpressionMatch m = callStart.match(text, pos);
+        if (!m.hasMatch())
+            break;
+        const int callStartIdx = m.capturedStart();
+        const QString arg = chainMatchedParens(text, int(m.capturedEnd()));
+        pos = int(m.capturedEnd()) + arg.length() + 1;
+        const int line = int(text.left(callStartIdx).count(QLatin1Char('\n'))) + 1;
+
+        const QRegularExpressionMatch ident = identOnly.match(arg);
+        if (!ident.hasMatch()) {
+            for (const QString& msg : chainMessagesInSnippet(arg))
+                out << qMakePair(line, msg);
+            continue;
+        }
+
+        const QString name = ident.captured(1);
+        const QRegularExpression decl(
+            QStringLiteral("(?:const\\s+)?QString\\s+") + QRegularExpression::escape(name)
+            + QStringLiteral("\\s*=\\s*"));
+        int declEnd = -1;
+        int searchFrom = 0;
+        while (true) {
+            const QRegularExpressionMatch d = decl.match(text, searchFrom);
+            if (!d.hasMatch() || d.capturedStart() >= callStartIdx)
+                break;
+            declEnd = int(d.capturedEnd());
+            searchFrom = declEnd;
+        }
+        if (declEnd < 0)
+            continue; // assigned some other way -- out of a static scan's reach
+
+        int depth = 0;
+        bool inStr = false;
+        int i = declEnd;
+        for (; i < text.size(); ++i) {
+            const QChar c = text.at(i);
+            if (inStr) {
+                if (c == QLatin1Char('\\')) { ++i; continue; }
+                if (c == QLatin1Char('"')) inStr = false;
+                continue;
+            }
+            if (c == QLatin1Char('"')) inStr = true;
+            else if (c == QLatin1Char('(')) ++depth;
+            else if (c == QLatin1Char(')')) --depth;
+            else if (c == QLatin1Char(';') && depth == 0) break;
+        }
+        const QString init = text.mid(declEnd, i - declEnd);
+        for (const QString& msg : chainMessagesInSnippet(init))
+            out << qMakePair(line, msg);
+    }
+    return out;
+}
+
+// MUTATION GUARD: a `setToolTip()` literal in the CHAIN window's own files
+// creeping past 90 chars, or the write-confirmation mechanics ("stays where
+// you leave it", "does not move until the receiver says", ...) creeping back
+// onto a hover instead of staying in accessibleDescription where design 3d
+// put it. Every `src/gui/AetherGateChain*.cpp` plus AetherGateChainStagePrivate.h,
+// found by glob rather than a fixed list, so a new file in this window is
+// covered without this test needing an update.
+void everyChainWindowSetToolTipObeysTheHoverRule()
+{
+    static const QStringList kMechanicsBlocklist = {
+        QStringLiteral("stays where you"),
+        QStringLiteral("does not move until"),
+        QStringLiteral("the receiver says"),
+        QStringLiteral("until the gate"),
+    };
+
+    const QDir dir(QStringLiteral(AETHER_SOURCE_DIR "/src/gui"));
+    QStringList names = dir.entryList(QStringList{QStringLiteral("AetherGateChain*.cpp")},
+                                      QDir::Files, QDir::Name);
+    names << QStringLiteral("AetherGateChainStagePrivate.h");
+
+    QStringList violations;
+    for (const QString& name : names) {
+        const QString path = dir.filePath(name);
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            violations << QStringLiteral("could not open %1").arg(path);
+            continue;
+        }
+        const QString text = QString::fromUtf8(file.readAll());
+        const QVector<QPair<int, QString>> messages = chainToolTipMessages(text);
+        for (const auto& entry : messages) {
+            const int line = entry.first;
+            const QString& msg = entry.second;
+            if (msg.length() > 90) {
+                violations << QStringLiteral("%1:%2: %3 chars: \"%4\"")
+                                  .arg(name).arg(line).arg(msg.length()).arg(msg);
+                continue;
+            }
+            for (const QString& banned : kMechanicsBlocklist) {
+                if (msg.contains(banned, Qt::CaseInsensitive)) {
+                    violations << QStringLiteral("%1:%2: mechanics (\"%3\") in tooltip: "
+                                                 "\"%4\"")
+                                      .arg(name).arg(line).arg(banned, msg);
+                    break;
+                }
+            }
+        }
+    }
+    printViolations(violations);
+    report("every CHAIN-window setToolTip() literal is <=90 chars and free of "
+           "write-confirmation mechanics",
+           violations.isEmpty());
 }
 
 // A minimal /diversity/finder answer: one voice candidate, so
@@ -454,6 +667,7 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
 
     everyVisibleTooltipInTheChainWindowIsAtMostNinetyChars();
+    everyChainWindowSetToolTipObeysTheHoverRule();
     everyVisibleTooltipInTheSidebarIsAtMostNinetyChars();
     everyPanelTooltipIsAtMostNinetyChars();
     everyGateAppletTooltipIsAtMostNinetyChars();
