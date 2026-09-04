@@ -231,18 +231,15 @@ AetherGateDiversityPanel::AetherGateDiversityPanel(QWidget* parent)
     m_autoCleanButton = new QPushButton(tr("AUTO CLEAN"), this);
     m_autoCleanButton->setObjectName(QStringLiteral("gateDiversityAutoCleanButton"));
     m_autoCleanButton->setAccessibleName(tr("AUTO CLEAN switch"));
-    m_autoCleanButton->setToolTip(
-        tr("The chain's own governor: it measures the noise profile and moves "
-           "one tool at a time, putting a move back if the audio got worse. "
-           "Off by default; off, it holds nothing."));
     m_autoCleanButton->setCheckable(true);
     m_autoCleanButton->setCursor(Qt::PointingHandCursor);
     // The same emphasised ON tone every other switch in this sidebar wears
     // (U1: the warning gold read as an alarm, and AUTO CLEAN is not one).
     applyToggleButtonStyle(m_autoCleanButton);
-    // The gate's own `state_label` has no true worst case -- same Ignored
-    // treatment m_statusLine above already carries, so a long one elides
-    // rather than pushing this ~250px sidebar column wider.
+    // Same Ignored treatment m_statusLine above already carries. The face
+    // text is now a fixed short string ("AUTO CLEAN" / "AUTO CLEAN ON" --
+    // see chainAutoSetButtonIndicator()), so nothing here ever needs to
+    // elide, but the policy costs nothing to keep.
     m_autoCleanButton->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     m_autoCleanButton->setMinimumWidth(0);
     m_autoCleanButton->setVisible(false);   // shown once a governor block arrives
@@ -402,7 +399,7 @@ void AetherGateDiversityPanel::applyDiversity(const QJsonObject& d, bool isJson)
         const QSignalBlocker block(m_autoCleanButton);
         m_autoCleanButton->setChecked(gov.autoOn);
         chainAutoSetButtonIndicator(m_autoCleanButton, chainAutoIndicatorLine(gov),
-                                    chainAutoIndicatorSentence(gov));
+                                    chainAutoStateWord(gov));
     }
 
     // Written from a poll only when the combo is neither focused nor has its

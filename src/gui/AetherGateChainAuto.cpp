@@ -276,39 +276,33 @@ QString chainAutoIndicatorLine(const ChainAutoGovernor& gov)
 {
     if (!gov.available || !gov.autoOn)
         return QString();
-    return QStringLiteral("AUTO CLEAN ON · %1").arg(chainAutoStateWord(gov));
+    return QStringLiteral("AUTO CLEAN ON");
 }
 
 QString chainAutoIndicatorSentence(const ChainAutoGovernor& gov)
 {
-    const QString line = chainAutoIndicatorLine(gov);
-    if (line.isEmpty() || gov.why.isEmpty())
-        return line;
-    return line + QStringLiteral(" · ") + gov.why;
+    if (!gov.available || !gov.autoOn)
+        return QString();
+    QString line = QStringLiteral("AUTO CLEAN ON · %1").arg(chainAutoStateWord(gov));
+    if (!gov.why.isEmpty())
+        line += QStringLiteral(" · ") + gov.why;
+    return line;
 }
 
 void chainAutoSetButtonIndicator(QPushButton* button, const QString& indicator,
-                                 const QString& sentence)
+                                 const QString& stateWord)
 {
-    static const char* const kBaseTip = "chainAutoBaseToolTip";
-    if (!button->property(kBaseTip).isValid())
-        button->setProperty(kBaseTip, button->toolTip());
-    const QString base = button->property(kBaseTip).toString();
     if (indicator.isEmpty()) {
         button->setText(QObject::tr("AUTO CLEAN"));
         button->setAccessibleDescription(QString());
-        button->setToolTip(base);
+        button->setToolTip(QObject::tr("Let the chain adjust itself. Click to turn it on."));
         return;
     }
-    // 16 px for the button's own padding; never below "AUTO CLEAN ON" plus
-    // the ellipsis, so a width of zero at construction time still opens
-    // with the state rather than a truncated label.
-    const int avail = qMax(button->width() - 16,
-                           button->fontMetrics().horizontalAdvance(QObject::tr("AUTO CLEAN ON")) + 24);
-    button->setText(button->fontMetrics().elidedText(indicator, Qt::ElideRight, avail));
-    const QString whole = sentence.isEmpty() ? indicator : sentence;
-    button->setAccessibleDescription(whole);
-    button->setToolTip(base.isEmpty() ? whole : whole + QStringLiteral("\n\n") + base);
+    button->setText(indicator);
+    button->setAccessibleDescription(stateWord.isEmpty()
+                                          ? indicator
+                                          : indicator + QStringLiteral(" · ") + stateWord);
+    button->setToolTip(QObject::tr("The chain is adjusting itself. Click to turn it off."));
 }
 
 bool chainAutoDigStartedByAuto(const ChainAutoGovernor& gov)

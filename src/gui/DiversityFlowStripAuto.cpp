@@ -8,8 +8,11 @@
 // The operator's own words: "Auto clean should be an option somewhere that
 // we can turn on and off but it should be really visible when we turn that
 // on." A checkable QPushButton is both halves of that at once -- pressed IS
-// on, and the text carries the state+why the moment it is. Off, it collapses
-// to the bare label per the header's own contract on chainAutoIndicatorLine().
+// on, and the face reads "AUTO CLEAN ON" the moment it is; the state and why
+// ride in the tooltip and accessible description instead (the operator's own
+// follow-up: no long status message on the face, no paragraph in the
+// tooltip). Off, it collapses to the bare label per the header's own
+// contract on chainAutoIndicatorLine().
 //
 // Not optimistic: a click here never toggles the button itself. It emits
 // requestAutoCleanToggle(), the window turns that into GET
@@ -34,35 +37,25 @@ void DiversityFlowStrip::updateAutoCleanBanner()
         m_autoCleanButton->setObjectName(
             QStringLiteral("diversityWindowFlowAutoCleanButton"));
         m_autoCleanButton->setAccessibleName(tr("AUTO CLEAN switch"));
-        m_autoCleanButton->setToolTip(
-            tr("The chain's own governor: it measures the noise profile and "
-               "moves one tool at a time, putting a move back if the audio "
-               "got worse. Off by default; off, it holds nothing."));
         m_autoCleanButton->setCheckable(true);
         m_autoCleanButton->setCursor(Qt::PointingHandCursor);
         // The same emphasised ON tone the sidebar's switch wears (U1: not
         // the warning gold, which read as an alarm).
         applyToggleButtonStyle(m_autoCleanButton);
-        // The gate's own `state_label` is a few words of its choosing --
-        // unlike every other fixed-shape readout in this window, this one
-        // has no true worst case. Ignored, the same treatment m_line already
-        // carries, so a long one elides instead of dragging the window's
-        // minimum width past the 1120 it opens at.
-        //
         // Unlike m_line, this widget sits in the same QHBoxLayout WITHOUT a
         // stretch factor, next to m_line's stretch of 1 -- a bare
         // setMinimumWidth(0) here made it a zero-width, invisible button
         // whenever that sibling was present, because a stretch-0 Ignored
         // item's whole contribution collapses to its minimum once any
-        // sibling declares stretch. Floor it at the compact label's own
-        // width instead, so it always renders as a real button; the long
-        // indicator sentence is elided to that floor rather than clipped
-        // inside a nonexistent one; the floor is wide enough for the short
-        // labels, so "AUTO CLEAN ON · listening" always reads whole.
+        // sibling declares stretch. Floor it at the face text's own width
+        // instead, so it always renders as a real button -- the face is a
+        // fixed short string now ("AUTO CLEAN" or "AUTO CLEAN ON", see
+        // chainAutoSetButtonIndicator()), not a state word or sentence, so
+        // the floor only has to fit that.
         m_autoCleanButton->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         m_autoCleanButton->setMinimumWidth(
             m_autoCleanButton->fontMetrics().horizontalAdvance(
-                QStringLiteral("AUTO CLEAN ON \u00b7 listening \u00b7 ")) + 40);
+                QStringLiteral("AUTO CLEAN ON")) + 40);
         connect(m_autoCleanButton, &QPushButton::clicked, this, [this](bool checked) {
             emit requestAutoCleanToggle(checked);
         });
@@ -77,7 +70,7 @@ void DiversityFlowStrip::updateAutoCleanBanner()
     const QSignalBlocker block(m_autoCleanButton);
     m_autoCleanButton->setChecked(m_governor.available && m_governor.autoOn);
     chainAutoSetButtonIndicator(m_autoCleanButton, chainAutoIndicatorLine(m_governor),
-                                chainAutoIndicatorSentence(m_governor));
+                                chainAutoStateWord(m_governor));
 }
 
 } // namespace AetherSDR

@@ -214,9 +214,10 @@ void testSidebarIndicatorAndToggle()
     CHECK(!button->isChecked());
     CHECK_EQ(button->text(), QStringLiteral("AUTO CLEAN"));
 
-    // MUTATION: turned on -- the governor's own plain words on the button's
-    // face, never the sentence (U1); the sentence rides in the tooltip and
-    // the accessible description.
+    // MUTATION: turned on -- the face is the bare "AUTO CLEAN ON" and
+    // nothing more (the operator's own words: no status message on a
+    // switch); the state label rides, short, in the accessible description,
+    // and the tooltip is one fixed short line. Neither carries the sentence.
     net.routes[QStringLiteral("/diversity")] = {
         QNetworkReply::NoError,
         withGovernor(kDiversityFull,
@@ -225,27 +226,25 @@ void testSidebarIndicatorAndToggle()
                               {}, QStringLiteral("trying a null on the mains hum")))};
     tick(a);
     CHECK(button->isChecked());
+    CHECK_EQ(button->text(), QStringLiteral("AUTO CLEAN ON"));
     CHECK_EQ(button->accessibleDescription(),
-             QStringLiteral("AUTO CLEAN ON · trying a null on the mains hum · "
-                            "mains/squeeze backing off until 12:46"));
-    CHECK(button->text().startsWith(QStringLiteral("AUTO CLEAN ON · trying")));
-    CHECK(!button->text().contains(QStringLiteral("backing off")));
-    CHECK(!button->text().contains(QStringLiteral("settling")));
-    CHECK(button->toolTip().startsWith(
-        QStringLiteral("AUTO CLEAN ON · trying a null on the mains hum · mains/squeeze")));
+             QStringLiteral("AUTO CLEAN ON · trying a null on the mains hum"));
+    CHECK(!button->accessibleDescription().contains(QStringLiteral("backing off")));
+    CHECK_EQ(button->toolTip(),
+             QStringLiteral("The chain is adjusting itself. Click to turn it off."));
+    CHECK(!button->toolTip().contains(QStringLiteral("backing off")));
 
     // MUTATION: a gate too old to send state_label falls back to the raw
-    // state on the face, sentence still off it.
+    // state in the accessible description; the face stays the bare
+    // "AUTO CLEAN ON" either way.
     net.routes[QStringLiteral("/diversity")] = {
         QNetworkReply::NoError,
         withGovernor(kDiversityFull,
                      governor(true, QStringLiteral("settling"),
                               QStringLiteral("mains/squeeze backing off until 12:46")))};
     tick(a);
-    CHECK_EQ(button->text(), QStringLiteral("AUTO CLEAN ON · settling"));
-    CHECK_EQ(button->accessibleDescription(),
-             QStringLiteral("AUTO CLEAN ON · settling · "
-                            "mains/squeeze backing off until 12:46"));
+    CHECK_EQ(button->text(), QStringLiteral("AUTO CLEAN ON"));
+    CHECK_EQ(button->accessibleDescription(), QStringLiteral("AUTO CLEAN ON · settling"));
 
     // Pressing it while ON writes auto=off, exactly.
     button->click();
@@ -299,9 +298,15 @@ void testFlowStripIndicatorAndToggle()
     tick(a);
     CHECK(button->isVisible());
     CHECK(button->isChecked());
-    CHECK_EQ(button->accessibleDescription(),
-             QStringLiteral("AUTO CLEAN ON · listening · sampling the noise floor"));
-    CHECK_EQ(button->text(), QStringLiteral("AUTO CLEAN ON · listening"));
+    // MUTATION: the face is the bare "AUTO CLEAN ON", the state label rides
+    // short in the accessible description, and the tooltip is one fixed
+    // short line -- neither carries the why sentence.
+    CHECK_EQ(button->text(), QStringLiteral("AUTO CLEAN ON"));
+    CHECK_EQ(button->accessibleDescription(), QStringLiteral("AUTO CLEAN ON · listening"));
+    CHECK(!button->accessibleDescription().contains(QStringLiteral("sampling")));
+    CHECK_EQ(button->toolTip(),
+             QStringLiteral("The chain is adjusting itself. Click to turn it off."));
+    CHECK(!button->toolTip().contains(QStringLiteral("sampling")));
 
     button->click();
     settle();

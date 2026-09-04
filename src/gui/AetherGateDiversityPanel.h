@@ -226,8 +226,9 @@ private:
     // B25's own switch and indicator, folded into one control per the
     // operator's own words ("Auto clean should be an option somewhere that
     // we can turn on and off but it should be really visible when we turn
-    // that on"): checked+labelled "AUTO CLEAN ON · <state> · <why>" while
-    // governor.auto holds, a bare "AUTO CLEAN" toggle otherwise. See
+    // that on"): checked+labelled "AUTO CLEAN ON" while governor.auto
+    // holds, a bare "AUTO CLEAN" toggle otherwise; the state word lives in
+    // the accessible description, not the face. See
     // gui/AetherGateChainAuto.h's chainAutoIndicatorLine(). Hidden entirely
     // while the governor block has never arrived (an older gate).
     QPushButton* m_autoCleanButton{nullptr};

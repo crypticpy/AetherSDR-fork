@@ -893,19 +893,22 @@ emphasised ON tone every other switch in the sidebar wears (not the
 warning gold: AUTO CLEAN on is not an alarm). The sidebar's own **AUTO
 CLEAN** button (a checkable switch, press it to send `auto=on` or
 `auto=off`) and the Diversity window's FLOW strip switch, above the
-checklist, say `AUTO CLEAN ON · <state_label>` and nothing more:
+checklist, say `AUTO CLEAN ON` and nothing more — no state word, no
+sentence, the operator's own words being that a switch should not carry
+a status message. The switch's tooltip is one short fixed line ("The
+chain is adjusting itself. Click to turn it off." / "Let the chain
+adjust itself. Click to turn it on."), and its accessible description
+carries a short `AUTO CLEAN ON · <state_label>` for screen readers.
 `state_label` is the governor's own few plain words — `listening`,
 `trying a null on the mains hum`, `trying the blanker`, `kept`, `put
 back`, `holding the blanker`, `DIG OUT running`, `waiting for the
-stream` — so the switch never reads as the machine narrating itself.
-The sentence (`why`) rides in the switch's tooltip and accessible
-description, on the AUTO CLEAN card's inspector, and on the CHAIN
-window's read-only header, which has the room for `AUTO CLEAN ON ·
-<state_label> · <why>` and no write path of its own. A gate too old to
-send `state_label` puts the raw `state` word on the face instead. Off,
-or on a gate with no governor block at all, the sidebar and FLOW
-switches collapse to a bare `AUTO CLEAN` toggle and the CHAIN header
-disappears.
+stream` — and, with the sentence (`why`), it lives in full on the AUTO
+CLEAN card's inspector and on the CHAIN window's read-only header, which
+has the room for `AUTO CLEAN ON · <state_label> · <why>` and no write
+path of its own. A gate too old to send `state_label` falls back to the
+raw `state` word there instead. Off, or on a gate with no governor block
+at all, the sidebar and FLOW switches collapse to a bare `AUTO CLEAN`
+toggle and the CHAIN header disappears.
 
 ### DIG STOP, on the line itself
 
