@@ -25,10 +25,12 @@
 #include "core/AppSettings.h"
 #include "gui/AetherGateApplet.h"
 #include "gui/AetherGateDiversityPanel.h"
+#include "gui/DiversityAge.h"
 #include "gui/DiversityBandPoller.h"
 #include "gui/DiversityWindow.h"
 
 #include <QApplication>
+#include <QDateTime>
 #include <QLabel>
 #include <QListWidget>
 #include <QNetworkReply>
@@ -42,6 +44,7 @@
 using AetherSDR::AetherGateApplet;
 using AetherSDR::AetherGateDiversityPanel;
 using AetherSDR::AppSettings;
+using AetherSDR::diversityAgeSince;
 using AetherSDR::DiversityBandPoller;
 using AetherSDR::DiversityWindow;
 
@@ -236,6 +239,59 @@ void testTalkersTableShowsTheRememberedFilter()
     closedToStart();
 }
 
+// (a2) The same Filter column, plus "learned N ago" when the gate says when
+// it learned the filter (AGENTS.md, "Keep what the station learned"): the
+// filter is a stored measurement like any other remembered value in this
+// window, so it carries its own age. #4's filter is null and #7 carries no
+// learned_at at all -- both must read exactly as they did before this clause
+// existed, since an older gate sends neither key.
+void testTalkersTableFilterColumnShowsWhenItWasLearned()
+{
+    closedToStart();
+    // Built at test-run time, 125 s back, rather than frozen into a literal
+    // that would drift into a different AGE band on a later run.
+    const qint64 learnedAt = QDateTime::currentSecsSinceEpoch() - 125;
+    QByteArray status = kDiversityStatusTalkerFilters;
+    status.replace("\"shape\": \"soft\", \"auto\": true,\n"
+                   "                    \"auto_eq\": false, \"contour\": false, "
+                   "\"threshold_db\": 20.0,\n"
+                   "                    \"live\": true}},",
+                   "\"shape\": \"soft\", \"auto\": true,\n"
+                   "                    \"auto_eq\": false, \"contour\": false, "
+                   "\"threshold_db\": 20.0,\n"
+                   "                    \"live\": true, \"learned_at\": "
+                       + QByteArray::number(learnedAt) + "}},");
+    CHECK(status != kDiversityStatusTalkerFilters);
+
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityFilterTalkerAuto, status);
+    DiversityWindow* w = openWindow(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+
+    auto* t = child<QTableWidget>(w, "diversityWindowTalkersTable");
+    CHECK(t != nullptr);
+    if (!t)
+        return;
+    const int filterCol = t->columnCount() - 2;
+
+    const QString age =
+        diversityAgeSince(learnedAt, QDateTime::currentSecsSinceEpoch());
+    // #3 (Ted): the same cell as before, plus the age clause on the end.
+    CHECK(cell(t, 0, filterCol)
+          == QStringLiteral("● 300–2700 soft auto · learned ") + age);
+    // #4: no filter at all, still a dash.
+    CHECK(cell(t, 1, filterCol) == kDash);
+    // #7: a filter, but no learned_at -- exactly the pre-existing wording.
+    CHECK(cell(t, 2, filterCol) == QStringLiteral("200–3000 sharp eq contour"));
+
+    w->close();
+    settle();
+    closedToStart();
+}
+
 // (b) The voice split, said out loud. It is the one talker change the operator
 // cannot hear happening -- nobody stopped talking and the frequency did not
 // move -- so the only evidence is the gate's counter going up.
@@ -318,6 +374,7 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
 
     testTalkersTableShowsTheRememberedFilter();
+    testTalkersTableFilterColumnShowsWhenItWasLearned();
     testVoiceSplitIsLogged();
     testFinderShowsTheSnappedFrequencyAndTheEstimate();
 

@@ -12,7 +12,8 @@
 
 #include "gui/DiversitySessionModel.h"
 
-#include <QCoreApplication>
+#include "gui/DiversityAge.h"
+
 #include <QJsonArray>
 #include <QJsonValue>
 
@@ -42,17 +43,11 @@ QString signedDb(double v)
     return QStringLiteral("+%1").arg(v, 0, 'f', 1);
 }
 
-// "4 min ago" under an hour, "3 h ago" at or past it -- beaconsStalePrints
-// TheAge only needs the clause to exist, but a "127 min ago" beacon result
-// is exactly the kind of number that is easier to read rounded.
+// "4 min ago" / "3 h ago" -- DiversityAge.h's own wording now, shared with
+// every other remembered measurement in this window.
 QString ageText(double seconds)
 {
-    const double s = std::max(0.0, seconds);
-    if (s < 3600.0)
-        return QCoreApplication::translate("DiversitySessionModel", "%1 min ago")
-            .arg(qint64(std::llround(s / 60.0)));
-    return QCoreApplication::translate("DiversitySessionModel", "%1 h ago")
-        .arg(qint64(std::llround(s / 3600.0)));
+    return diversityAgeText(qint64(std::max(0.0, seconds)));
 }
 
 // The amateur bands this model needs to tell apart, 160 m through 10 m.

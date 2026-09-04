@@ -1,6 +1,7 @@
 #include "gui/DiversityWindowEvents.h"
 
 #include "core/ThemeManager.h"
+#include "gui/DiversityAge.h"
 #include "gui/DiversityHelp.h"
 #include "gui/DiversityWindow.h"
 #include "gui/DiversityWindowPanels.h"
@@ -134,10 +135,21 @@ QString filterSummary(const QJsonValue& value)
         parts << QCoreApplication::translate("DiversityWindow", "contour");
     if (parts.isEmpty())
         return QStringLiteral("—");
-    const QString text = parts.join(QChar(' '));
-    return f.value(QStringLiteral("live")).toBool()
-               ? QStringLiteral("● %1").arg(text)
-               : text;
+    QString text = parts.join(QChar(' '));
+    if (f.value(QStringLiteral("live")).toBool())
+        text = QStringLiteral("● %1").arg(text);
+    // "learned N ago" (AGENTS.md, "Keep what the station learned"): the
+    // filter itself is a stored measurement like any other, so it is drawn
+    // with its age too when the gate says when it was learned. An older
+    // gate that sends no learned_at leaves the cell exactly as it read
+    // before this clause existed.
+    const QJsonValue learnedAt = f.value(QStringLiteral("learned_at"));
+    if (learnedAt.isDouble()) {
+        text += QCoreApplication::translate("DiversityWindow", " · learned %1")
+                    .arg(diversityAgeSince(qint64(learnedAt.toDouble()),
+                                          QDateTime::currentSecsSinceEpoch()));
+    }
+    return text;
 }
 
 bool memberNumber(const QJsonObject& obj, const char* key, double* out)

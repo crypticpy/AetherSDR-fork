@@ -1,6 +1,7 @@
 #include "gui/DiversityBeaconPanel.h"
 
 #include "core/ThemeManager.h"
+#include "gui/DiversityAge.h"
 #include "gui/DiversityBeaconPattern.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
@@ -157,30 +158,16 @@ QString signedNumber(const QJsonObject& obj, const char* key, int decimals)
     return QString::asprintf("%+.*f", decimals, v.toDouble());
 }
 
-// "2 min ago" from an absolute epoch stamp. Beacons come round every three
-// minutes, so a result older than a couple of cycles is history rather than
-// news and the units say which. Split out of ageText() so the header's
-// "checked N ago" (which has an epoch but no result object to hand it) reads
-// the same clock rather than a second copy of it.
-QString ageSince(double atEpoch)
-{
-    const qint64 age = QDateTime::currentSecsSinceEpoch() - qint64(atEpoch);
-    if (age < 0)
-        return QCoreApplication::translate("DiversityBeaconPanel", "now");
-    if (age < 60)
-        return QCoreApplication::translate("DiversityBeaconPanel", "%1 s ago").arg(age);
-    if (age < 3600)
-        return QCoreApplication::translate("DiversityBeaconPanel", "%1 min ago")
-            .arg(age / 60);
-    return QCoreApplication::translate("DiversityBeaconPanel", "%1 h ago").arg(age / 3600);
-}
-
+// "2 min ago" from a result's own "at" stamp -- the formatting itself is
+// DiversityAge.h's, shared with every other remembered measurement in this
+// window (AGENTS.md, "Keep what the station learned"); this only pulls the
+// epoch out of the JSON.
 QString ageText(const QJsonObject& result)
 {
     const QJsonValue v = result.value(QStringLiteral("at"));
     if (!v.isDouble())
         return emDash();
-    return ageSince(v.toDouble());
+    return diversityAgeSince(qint64(v.toDouble()), QDateTime::currentSecsSinceEpoch());
 }
 
 // "●●○○": the power ladder, lit from the top down. The lowest lit step is the
@@ -502,7 +489,10 @@ void DiversityBeaconPanel::applyBeacons(const QJsonObject& beacons)
         m_header->setText(m_shownBandHz > 0.0
                               ? tr("showing %1 · checked %2 · no beacon "
                                    "frequency in the span — tune %3")
-                                    .arg(bandName(m_shownBandHz), ageSince(checkedAt), kTuneHint)
+                                    .arg(bandName(m_shownBandHz),
+                                         diversityAgeSince(qint64(checkedAt),
+                                                          QDateTime::currentSecsSinceEpoch()),
+                                         kTuneHint)
                               : tr("no beacon frequency in the span — tune %1")
                                     .arg(kTuneHint));
         renderRows();

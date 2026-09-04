@@ -19,6 +19,7 @@
 #include "gui/DiversityBeaconPanel.h"
 
 #include "core/ThemeManager.h"
+#include "gui/DiversityAge.h"
 #include "gui/DiversityBeaconPattern.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
@@ -119,20 +120,12 @@ QString bandName(double hz)
         .arg(hz / 1.0e6, 0, 'f', 3);
 }
 
-// "4 min ago" from an absolute epoch stamp. Same units as the Age column, for
-// the same reason: the rota turns every three minutes, so minutes is the unit
-// in which "is this current?" has an answer.
+// "4 min ago" from an absolute epoch stamp -- DiversityAge.h's own wording,
+// same as the Age column and every other remembered measurement in this
+// window.
 QString sinceText(double epochSeconds)
 {
-    const qint64 age = QDateTime::currentSecsSinceEpoch() - qint64(epochSeconds);
-    if (age < 0)
-        return QCoreApplication::translate("DiversityBeaconPanel", "now");
-    if (age < 60)
-        return QCoreApplication::translate("DiversityBeaconPanel", "%1 s ago").arg(age);
-    if (age < 3600)
-        return QCoreApplication::translate("DiversityBeaconPanel", "%1 min ago")
-            .arg(age / 60);
-    return QCoreApplication::translate("DiversityBeaconPanel", "%1 h ago").arg(age / 3600);
+    return diversityAgeSince(qint64(epochSeconds), QDateTime::currentSecsSinceEpoch());
 }
 
 // "-3.3" with a real minus sign rather than a hyphen: this is a number in a

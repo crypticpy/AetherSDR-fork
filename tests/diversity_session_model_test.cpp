@@ -11,6 +11,7 @@
 // own convention.
 
 #include "DiversitySessionFixture.h"
+#include "gui/DiversityAge.h"
 #include "gui/DiversitySessionModel.h"
 
 #include <QCoreApplication>
@@ -634,6 +635,49 @@ void digDoneOmitsObjectiveArrowWhenAbsent()
     CHECK(!summary.contains(QStringLiteral("→")));
 }
 
+// DiversityAge.h -- the shared "how long ago" wording every remembered
+// measurement on this window now uses (replacing the three private copies
+// DiversityBeaconPanel.cpp, DiversityBeaconControls.cpp and this model's own
+// buildBand() used to keep). The four bands, and the exact seconds where
+// each one turns into the next.
+// MUTATION GUARD: rounding instead of flooring at any of the three
+// boundaries -- 59/3599/86399 would read one band early.
+void diversityAgeTextCoversTheFourBands()
+{
+    CHECK(diversityAgeText(0) == QStringLiteral("just now"));
+    CHECK(diversityAgeText(30) == QStringLiteral("just now"));
+    CHECK(diversityAgeText(90) == QStringLiteral("1 min ago"));
+    CHECK(diversityAgeText(7 * 60) == QStringLiteral("7 min ago"));
+    CHECK(diversityAgeText(2 * 3600) == QStringLiteral("2 h ago"));
+    CHECK(diversityAgeText(5 * 86400) == QStringLiteral("5 d ago"));
+    // A future stamp (clock skew) reads as "just now", not a negative number.
+    CHECK(diversityAgeText(-30) == QStringLiteral("just now"));
+}
+
+void diversityAgeTextHoldsTheThreeBoundaries()
+{
+    CHECK(diversityAgeText(59) == QStringLiteral("just now"));
+    CHECK(diversityAgeText(60) == QStringLiteral("1 min ago"));
+    CHECK(diversityAgeText(3599) == QStringLiteral("59 min ago"));
+    CHECK(diversityAgeText(3600) == QStringLiteral("1 h ago"));
+    CHECK(diversityAgeText(86399) == QStringLiteral("23 h ago"));
+    CHECK(diversityAgeText(86400) == QStringLiteral("1 d ago"));
+}
+
+// diversityAgeSince() is diversityAgeText() over the gap between two wall
+// stamps -- the form every payload's own epoch field (kinds[].since,
+// filter.learned_at, propagation[].updated) is read through.
+// MUTATION GUARD: subtracting the stamps the wrong way round, which would
+// read every real age as "just now" via the future-stamp clamp.
+void diversityAgeSinceReadsTheGapBetweenTwoStamps()
+{
+    CHECK(diversityAgeSince(1'700'000'000 - 300, 1'700'000'000)
+          == QStringLiteral("5 min ago"));
+    CHECK(diversityAgeSince(1'700'000'000 - 3600, 1'700'000'000)
+          == QStringLiteral("1 h ago"));
+    CHECK(diversityAgeSince(1'700'000'000, 1'700'000'000) == QStringLiteral("just now"));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -668,6 +712,9 @@ int main(int argc, char** argv)
     digRunningShowsRemainingSecondsAndTrials();
     digDoneShowsObjectiveBeforeAfterAndVerdict();
     digDoneOmitsObjectiveArrowWhenAbsent();
+    diversityAgeTextCoversTheFourBands();
+    diversityAgeTextHoldsTheThreeBoundaries();
+    diversityAgeSinceReadsTheGapBetweenTwoStamps();
 
     std::printf("\n%d test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

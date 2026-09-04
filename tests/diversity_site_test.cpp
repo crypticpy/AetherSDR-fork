@@ -20,6 +20,7 @@
 #include "core/AppSettings.h"
 #include "gui/AetherGateApplet.h"
 #include "gui/AetherGateDiversityPanel.h"
+#include "gui/DiversityAge.h"
 #include "gui/DiversityBandPoller.h"
 #include "gui/DiversityWindow.h"
 
@@ -44,6 +45,7 @@
 using AetherSDR::AetherGateApplet;
 using AetherSDR::AetherGateDiversityPanel;
 using AetherSDR::AppSettings;
+using AetherSDR::diversityAgeSince;
 using AetherSDR::DiversityBandPoller;
 using AetherSDR::DiversityWindow;
 
@@ -76,10 +78,25 @@ void closedToStart()
 // that needs beacons of known bearing on two bands -- so the with-bearing and
 // phase-only forms below are both ordinary, and the page has to say which it
 // has rather than printing a direction nothing measured.
-const QByteArray kCompassBearing = R"({"available": true,
+//
+// "since" is built at test-run time, 125 s back, rather than frozen into a
+// literal: a fixed epoch reads "2 min ago" today and "N d ago" on any later
+// run, which is exactly the AGE band this fixture is not testing.
+qint64 compassSinceEpoch()
+{
+    return QDateTime::currentSecsSinceEpoch() - 125;
+}
+
+QByteArray compassBearingPayload()
+{
+    return QByteArray(R"({"available": true,
     "noise": {"available": true, "kind": "hum", "phase_deg": 106.5,
               "coherence": 0.415, "bearing_deg": 212.0, "mirror_deg": 32.0,
-              "bins": 147, "since": 1756867200, "reason": ""}})";
+              "bins": 147, "since": )")
+        + QByteArray::number(compassSinceEpoch()) + QByteArray(R"(, "reason": ""}})");
+}
+
+const QByteArray kCompassBearing = compassBearingPayload();
 
 const QByteArray kCompassPhaseOnly = R"({"available": true,
     "noise": {"available": true, "kind": "hum", "phase_deg": 106.5,
@@ -708,11 +725,14 @@ void testNoiseBearingSaysWhichOfItsThreeStatesItIsIn()
 
     // (1) A fit. Both the bearing and its reflection about the two loops'
     // baseline, because two elements in a line cannot tell them apart and
-    // printing one would be a coin toss.
-    const QString clock =
-        QDateTime::fromSecsSinceEpoch(1756867200).toString(QStringLiteral("HH:mm"));
+    // printing one would be a coin toss. The AGE clause reads "N min ago" --
+    // DiversityAge.h's own wording, shared with every other remembered
+    // measurement in this window (AGENTS.md, "Keep what the station learned")
+    // -- not the clock time the page used to print.
+    const QString age =
+        diversityAgeSince(compassSinceEpoch(), QDateTime::currentSecsSinceEpoch());
     CHECK(line->text()
-          == QStringLiteral("hum from 212° (or 32°) · coh 0.41 · since ") + clock);
+          == QStringLiteral("hum from 212° (or 32°) · coh 0.41 · ") + age);
     // It is one line and it stays one width: a page that re-laid itself out
     // every time a number changed would be unreadable at a glance.
     CHECK(!line->wordWrap());

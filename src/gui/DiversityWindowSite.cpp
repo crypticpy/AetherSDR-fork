@@ -31,6 +31,7 @@
 #include "gui/DiversityWindow.h"
 
 #include "core/ThemeManager.h"
+#include "gui/DiversityAge.h"
 #include "gui/DiversityBeaconPanel.h"
 #include "gui/DiversityHelp.h"
 #include "gui/DiversityNoiseProfilePanel.h"
@@ -382,11 +383,16 @@ void DiversityWindow::applyCompass(const QJsonObject& compass)
     const QJsonValue coherence = noise.value(QStringLiteral("coherence"));
     if (coherence.isDouble())
         text += tr(" · coh %1").arg(coherence.toDouble(), 0, 'f', 2);
+    // "N min ago" rather than a clock time (§3.4): a stored measurement is
+    // drawn with its age everywhere else in this window, not a stamp the
+    // operator has to do the subtraction on themselves. Bare, no "updated":
+    // the line's minimum width is its worst case, and the SITE page has no
+    // room for the extra word at the window's opening size.
     const QJsonValue since = noise.value(QStringLiteral("since"));
     if (since.isDouble()) {
-        text += tr(" · since %1")
-                    .arg(QDateTime::fromSecsSinceEpoch(qint64(since.toDouble()))
-                             .toString(QStringLiteral("HH:mm")));
+        text += tr(" · %1")
+                    .arg(diversityAgeSince(qint64(since.toDouble()),
+                                          QDateTime::currentSecsSinceEpoch()));
     }
     m_noiseProfile->setBearing(text, reason);
 }

@@ -6,11 +6,13 @@
 // same class; see that file's header comment for the split boundary.
 
 #include "core/ThemeManager.h"
+#include "gui/DiversityAge.h"
 #include "gui/DiversityWindowPanels.h"
 
 #include <QAbstractItemView>
 #include <QColor>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QJsonArray>
@@ -65,12 +67,14 @@ constexpr int kMaxPeriodicLines = 3;
 constexpr int kTransientMs = 5000;
 
 // Kind, what it is, the detail the gate wrote, the window it was measured over,
-// its size, and the Do column -- the one action button, or the action button
-// plus a small DISMISS, or "dismissed" plus UNDO. Do's width grew from 88 to
-// 108 for the DISMISS/UNDO pairing; Detail gave up the 20 px (the gate's
-// sentence is always fully available on the cell's own hover regardless of
-// where it gets cut).
-constexpr int kKindColumnWidths[] = {70, 178, 280, 62, 52, 108};
+// its size, the Do column -- the one action button, or the action button
+// plus a small DISMISS, or "dismissed" plus UNDO -- and Age, how long since
+// the gate first saw this finding. Do's width grew from 88 to 108 for the
+// DISMISS/UNDO pairing; Detail gave up 20 px for that and 58 more for Age,
+// so the table is no wider than before (the gate's sentence is
+// always fully available on the cell's own hover regardless of where it gets
+// cut). Age is last, same position the beacon table's own Age column holds.
+constexpr int kKindColumnWidths[] = {70, 178, 222, 62, 52, 108, 58};
 constexpr int kKindColumnCount = int(sizeof(kKindColumnWidths) / sizeof(kKindColumnWidths[0]));
 // The Do column's own index is DiversityNoiseProfileDismiss.cpp's
 // kKindActionColumn now that rebuildKindsTable() lives there.
@@ -351,15 +355,15 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
     // about the same noise the two lines beside it describe.
     m_bearing = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowSiteNoiseBearing"),
-        tr("impulse from 212° (or 32°) · coh 0.42 · since 03:14"),
+        tr("impulse from 212° (or 32°) · coh 0.42 · 59 min ago"),
         tr("Which way the noise this profile is about is arriving from. It "
            "needs the beacon compass to have fitted the two loops' geometry "
            "first -- until then the phase between them is a number, not a "
            "direction, and this line says so rather than printing one. Two "
            "elements in a line cannot tell a bearing from its reflection about "
            "the baseline, so when there is a fit you get both and break the tie "
-           "by turning something off. \"since\" is when this direction first "
-           "held."),
+           "by turning something off. The age on the end is how long ago "
+           "this direction was last confirmed."),
         this);
     m_bearing->setAccessibleName(tr("Noise bearing"));
     // The long form makeReadoutLine() set stays the accessibleDescription
@@ -378,7 +382,7 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
     m_kinds->setObjectName(QStringLiteral("diversityWindowNoiseKindsTable"));
     m_kinds->setAccessibleName(tr("Noise findings"));
     m_kinds->setHorizontalHeaderLabels({tr("Kind"), tr("What"), tr("Detail"),
-                                        tr("Window"), tr("dB"), tr("Do")});
+                                        tr("Window"), tr("dB"), tr("Do"), tr("Age")});
     ThemeManager::instance().applyStyleSheet(m_kinds,
                                              QString::fromLatin1(kKindTableStyle));
     // shortTip is the <=90-char tooltip; tip is the full explanation, kept on
@@ -413,6 +417,11 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
                        "action already in force -- press it again to undo it. "
                        "A dashed one means the gate has looked and there is "
                        "nothing to do; its hover says why.")},
+        {6, QT_TR_NOOP("How long since the gate first saw this finding."),
+         QT_TR_NOOP("How long since the gate first saw this finding -- a "
+                       "stored measurement, kept and shown with its age "
+                       "rather than blanked. A dash means the gate is too "
+                       "old to say.")},
     };
     for (const auto& entry : kHeaderTips) {
         if (QTableWidgetItem* header = m_kinds->horizontalHeaderItem(entry.column)) {
@@ -577,7 +586,14 @@ void DiversityNoiseProfilePanel::applyKinds(const QJsonValue& kinds)
         const QJsonObject row = v.toObject();
         const QJsonObject action = row.value(QStringLiteral("action")).toObject();
         double db = 0.0;
-        packed << QStringLiteral("%1\x1f%2\x1f%3\x1f%4\x1f%5\x1f%6\x1f%7\x1f%8\x1f%9")
+        // "since" is a gate ask this window may not get an answer to yet
+        // (§3.4): an older gate sends no key at all, and that reads as a
+        // dash rather than as a measurement of zero age.
+        const QJsonValue since = row.value(QStringLiteral("since"));
+        const QString age = since.isDouble()
+            ? diversityAgeSince(qint64(since.toDouble()), QDateTime::currentSecsSinceEpoch())
+            : emDash();
+        packed << QStringLiteral("%1\x1f%2\x1f%3\x1f%4\x1f%5\x1f%6\x1f%7\x1f%8\x1f%9\x1f%10")
                       .arg(row.value(QStringLiteral("kind")).toString().toUpper(),
                            row.value(QStringLiteral("label")).toString(),
                            row.value(QStringLiteral("detail")).toString(),
@@ -589,7 +605,8 @@ void DiversityNoiseProfilePanel::applyKinds(const QJsonValue& kinds)
                            action.value(QStringLiteral("query")).toString(),
                            row.value(QStringLiteral("active")).toBool()
                                ? QStringLiteral("1")
-                               : QStringLiteral("0"));
+                               : QStringLiteral("0"),
+                           age);
         keep.push_back(row);
     }
     // Kept regardless of whether packed changed: a DISMISS/UNDO click needs

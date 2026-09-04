@@ -48,11 +48,12 @@ constexpr char kDismissedFieldSeparator = '|';
 
 constexpr int kActionButtonHeight = 18;
 
-// The Do column is the last of DiversityNoiseProfilePanel.cpp's six --
-// kept as a literal here rather than duplicating that file's whole
-// column-width table, which is presentation-only and belongs with the
-// other five columns.
+// The Do column is second-to-last of DiversityNoiseProfilePanel.cpp's
+// seven, Age (built separately below) the very last -- kept as a literal
+// here rather than duplicating that file's whole column-width table, which
+// is presentation-only and belongs with the other six columns.
 constexpr int kKindActionColumn = 5;
+constexpr int kKindAgeColumn = 6;
 
 // The same status-line dressing DiversityNoiseProfilePanel.cpp uses for
 // m_status, duplicated rather than shared -- this codebase's own convention
@@ -310,6 +311,15 @@ void DiversityNoiseProfilePanel::rebuildKindsTable()
             }
         }
         m_kinds->setCellWidget(row, kKindActionColumn, cell);
+
+        // Age -- how long since the gate first saw this finding (§3.4: "a
+        // stored value is drawn in the ordinary tone with its age"). Packed
+        // after the Do column's own four fields, so its index does not move
+        // if this row ever grows another action field.
+        auto* ageItem = new QTableWidgetItem(cells.size() > 9 ? cells.at(9) : QString());
+        ageItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        ageItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_kinds->setItem(row, kKindAgeColumn, ageItem);
     }
 }
 
