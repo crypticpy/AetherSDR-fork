@@ -31,6 +31,7 @@
 // DiversityWindow.cpp stays inside the file-size budget -- the same reason
 // this file exists at all.
 
+#include "gui/DiversityHelp.h"
 #include <QString>
 #include <QWidget>
 
@@ -84,6 +85,16 @@ namespace DiversityWidgets {
 // `body` is set to that layout.
 QFrame* makeGroupBox(const QString& caption, const QString& objectName,
                      QVBoxLayout*& body, QWidget* parent);
+
+// Puts a DiversityHelp button at the right-hand end of a makeGroupBox()
+// frame's caption row, where it costs the box no width -- a help button
+// dropped into a body row widens that row by 24px, and the SLICE page's
+// three-column budget has no 24px to give. Opt-in per box rather than part
+// of makeGroupBox(): not every group box on every page wants one.
+// `helpObjectName`, when given, renames the button so two boxes sharing a
+// Topic on one page stay distinguishable.
+void addHelpBesideCaption(QFrame* frame, DiversityHelp::Topic topic,
+                          const QString& helpObjectName = QString());
 
 // A small all-caps caption over a group of controls ("MODE", "HEAR", "PAN").
 QLabel* makeCaption(const QString& text, QWidget* parent);

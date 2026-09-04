@@ -163,6 +163,13 @@ QWidget* DiversityWindow::buildTalkersPanel()
            "one of them comes back on the air the gate recalls its weight "
            "instead of solving from scratch, so the first syllable is already "
            "combined. The row that is lit is whoever is talking right now."));
+    // TALKERS' tooltip lost its longer explanation to the H1 90-char rule
+    // (see frame->setToolTip() above); the HELP button is where that
+    // explanation lives now that a mouse -- rather than a screen reader --
+    // has to ask for it. On the caption row, not the button row below: the
+    // SLICE page's three columns fit 1120px with 3px to spare, and a button
+    // beside the count label would cost 24 of them.
+    DiversityWidgets::addHelpBesideCaption(frame, DiversityHelp::Topic::Slice);
 
     m_talkersCount = DiversityWidgets::makeFieldLabel(tr("0 talkers remembered"), frame);
     m_talkersCount->setObjectName(QStringLiteral("diversityWindowTalkersCountLabel"));
@@ -324,10 +331,6 @@ QWidget* DiversityWindow::buildTalkersPanel()
     header->addWidget(m_talkersCount, 1);
     header->addWidget(m_lockButton);
     header->addWidget(m_memoryClearButton);
-    // TALKERS' tooltip lost its longer explanation to the H1 90-char rule
-    // (see frame->setToolTip() above); this is where that explanation lives
-    // now that a mouse -- rather than a screen reader -- has to ask for it.
-    header->addWidget(DiversityHelp::button(frame, DiversityHelp::Topic::Slice));
     body->addLayout(header);
     body->addWidget(m_focusLine);
     body->addWidget(m_talkers, 1);

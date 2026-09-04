@@ -748,6 +748,8 @@ void testNothingScrollsAtTheInitialSize()
     if (!w)
         return;
     w->resize(1120, 860);
+    // START is the first page now; the budget under test is SLICE's.
+    w->findChild<QAbstractButton*>(QStringLiteral("diversityWindowPageSlice"))->click();
     settle();
     w->grab();   // forces a full layout pass on an offscreen platform
 

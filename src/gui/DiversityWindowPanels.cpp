@@ -5,6 +5,7 @@
 #include "core/ThemeManager.h"
 #include "gui/AetherGateDiversityFormat.h"
 #include "gui/ClientCompKnob.h"
+#include "gui/DiversityHelp.h"
 #include "gui/DiversityMapStrip.h"
 #include "gui/Theme.h"
 
@@ -261,6 +262,40 @@ QFrame* makeGroupBox(const QString& caption, const QString& objectName,
     body->setSpacing(6);
     outer->addWidget(content, 1);
     return frame;
+}
+
+void addHelpBesideCaption(QFrame* frame, DiversityHelp::Topic topic,
+                          const QString& helpObjectName)
+{
+    // makeGroupBox() puts the caption QLabel directly into the frame's own
+    // QVBoxLayout; it is the only direct-child QLabel there, so a caller
+    // error surfaces as a missing button instead of a captionless header.
+    auto* outer = qobject_cast<QVBoxLayout*>(frame->layout());
+    const QList<QLabel*> captions =
+        frame->findChildren<QLabel*>(QString(), Qt::FindDirectChildrenOnly);
+    if (!outer || captions.isEmpty())
+        return;
+    QLabel* caption = captions.first();
+    outer->removeWidget(caption);
+
+    auto* row = new QHBoxLayout;
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(6);
+    row->addWidget(caption);
+    row->addStretch(1);
+    auto* help = DiversityHelp::button(frame, topic);
+    if (!helpObjectName.isEmpty())
+        help->setObjectName(helpObjectName);
+    row->addWidget(help);
+    outer->insertLayout(0, row);
+
+    // DiversityHelp::button() is a fixed 18px square, taller than the
+    // caption label's own 13px sizeHint -- stretching the row to fit it
+    // costs 5px this box did not have in its budget before. `outer` is this
+    // one frame's own QVBoxLayout (makeGroupBox() makes a fresh one per
+    // call), so trimming its single caption-to-content gap here does not
+    // touch any other page's group boxes.
+    outer->setSpacing(1);
 }
 
 QLabel* makeCaption(const QString& text, QWidget* parent)

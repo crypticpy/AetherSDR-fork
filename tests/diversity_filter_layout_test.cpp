@@ -187,9 +187,9 @@ void testPairStagesBoxCarriesBothCaptions()
     closedToStart();
 }
 
-// (d) The V2 and MRC tooltips carry the plain-words explanation an operator
-// asked for -- not just any prose, but specifically what tells them WHEN to
-// reach for each one.
+// (d) The V2 and MRC hovers say WHEN to reach for each one, in one line;
+// the longer plain-words explanation an operator asked for is the accessible
+// description, where a screen reader still gets all of it.
 void testTooltipsSayWhenToReachForEachStage()
 {
     closedToStart();
@@ -207,10 +207,13 @@ void testTooltipsSayWhenToReachForEachStage()
     if (!v2 || !mrc)
         return;
 
-    CHECK(v2->toolTip().contains(QStringLiteral("faint SSB")));
-    CHECK(v2->toolTip().contains(QStringLiteral("noise between words")));
-    CHECK(mrc->toolTip().contains(QStringLiteral("small gain")));
-    CHECK(mrc->toolTip().contains(QStringLiteral("lab switch")));
+    CHECK(v2->toolTip().contains(QStringLiteral("hissy SSB")));
+    CHECK(v2->toolTip().length() <= 90);
+    CHECK(v2->accessibleDescription().contains(QStringLiteral("faint SSB")));
+    CHECK(v2->accessibleDescription().contains(QStringLiteral("noise between words")));
+    CHECK(mrc->toolTip().length() <= 90);
+    CHECK(mrc->accessibleDescription().contains(QStringLiteral("small gain")));
+    CHECK(mrc->accessibleDescription().contains(QStringLiteral("lab switch")));
     closedToStart();
 }
 

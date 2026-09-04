@@ -279,7 +279,7 @@ void helpButtonsSitBesideTalkersFinderAndVisual()
            eventsSource.open(QIODevice::ReadOnly | QIODevice::Text));
     const QByteArray eventsText = eventsSource.readAll();
     report("TALKERS gets a Slice help button",
-           eventsText.contains("DiversityHelp::button(frame, DiversityHelp::Topic::Slice)"));
+           eventsText.contains("addHelpBesideCaption(frame, DiversityHelp::Topic::Slice)"));
 
     DiversityFinderPanel finder;
     report("FINDER gets a Band help button",

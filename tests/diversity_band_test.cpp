@@ -697,10 +697,17 @@ void testTheKindColumnNamesWhatTheGateFound()
     // The rank is still the gate's: naming a row does not reorder it.
     CHECK(cell(table, 0, 2) == QStringLiteral("0.82"));
 
-    // The hover says what the verdict was made of and how sure the gate is.
+    // The hover is one line: the word and how sure the gate is. The full
+    // explanation of what the verdict was made of is the accessible
+    // description, so a screen reader still gets it.
     const QString tip = cellTip(table, 1, 1);
-    CHECK(tip.contains(QStringLiteral("keyed hard on and off")));
+    CHECK(tip.contains(QStringLiteral("CW")));
     CHECK(tip.contains(QStringLiteral("0.64")));
+    CHECK(tip.length() <= 90);
+    const QString longTip =
+        table->item(1, 1)->data(Qt::AccessibleDescriptionRole).toString();
+    CHECK(longTip.contains(QStringLiteral("keyed hard on and off")));
+    CHECK(longTip.contains(QStringLiteral("0.64")));
     // Every other cell keeps the frequency hover it always had.
     CHECK(cellTip(table, 1, 2).isEmpty());
 

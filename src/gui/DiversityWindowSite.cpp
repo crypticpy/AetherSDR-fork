@@ -90,45 +90,6 @@ QString degreesText(double deg)
 {
     return QString::number(qint64(std::llround(deg)));
 }
-
-// Moves a group box's caption label into a row with a HELP button beside it.
-// makeGroupBox() (DiversityWindowPanels.cpp) puts the caption QLabel directly
-// into the frame's own QVBoxLayout, found here by the objectName it assigns
-// rather than by index, so a caller error surfaces as a missing button
-// instead of a captionless header. Kept local to this file rather than
-// folded into makeGroupBox() itself: not every group box on every Diversity
-// page wants a help button, only the two on this one -- and DiversityHelp::
-// button() assigns the same objectName for every call with the same Topic,
-// so the caller renames it to keep NOISE PROFILE's and BEACONS' buttons
-// distinguishable.
-void addHelpButtonBesideTitle(QFrame* frame, const QString& captionObjectName,
-                              const QString& helpObjectName)
-{
-    auto* outer = qobject_cast<QVBoxLayout*>(frame->layout());
-    auto* caption = frame->findChild<QLabel*>(captionObjectName, Qt::FindDirectChildrenOnly);
-    if (!outer || !caption)
-        return;
-    outer->removeWidget(caption);
-
-    auto* row = new QHBoxLayout;
-    row->setContentsMargins(0, 0, 0, 0);
-    row->setSpacing(6);
-    row->addWidget(caption);
-    row->addStretch(1);
-    auto* help = DiversityHelp::button(frame, DiversityHelp::Topic::Site);
-    help->setObjectName(helpObjectName);
-    row->addWidget(help);
-    outer->insertLayout(0, row);
-
-    // DiversityHelp::button() is a fixed 18px square, taller than the
-    // caption label's own 13px sizeHint -- stretching the row to fit it
-    // costs 5px this box did not have in its budget before. `outer` is this
-    // one frame's own QVBoxLayout (makeGroupBox() makes a fresh one per
-    // call), so trimming its single caption-to-content gap here does not
-    // touch any other page's group boxes.
-    outer->setSpacing(1);
-}
-
 } // namespace
 
 QWidget* DiversityWindow::buildSubbandRow(QWidget* parent)
@@ -265,8 +226,8 @@ QWidget* DiversityWindow::buildSitePage()
            "-- because the shape is what tells you which appliance to go and "
            "unplug."));
     noiseFrame->setToolTip(tr("What KIND of noise this site makes, not just how much."));
-    addHelpButtonBesideTitle(noiseFrame, QStringLiteral("diversityWindowNoiseProfileBoxCaption"),
-                             QStringLiteral("diversityHelpButtonSiteNoise"));
+    DiversityWidgets::addHelpBesideCaption(noiseFrame, DiversityHelp::Topic::Site,
+                                           QStringLiteral("diversityHelpButtonSiteNoise"));
     m_noiseProfile = new DiversityNoiseProfilePanel(noiseFrame);
     // The row buttons quote the gate's own route and query back at it. Nothing
     // between here and the wire inspects either -- a gate that grows a new kind
@@ -275,6 +236,12 @@ QWidget* DiversityWindow::buildSitePage()
             [this](const QString& route, const QUrlQuery& query) {
                 emit requestSite(route, query);
             });
+    // The session model hides a dismissed finding's step until it expires
+    // (DiversityNoiseProfileDismiss.cpp owns the rule and the AppSettings
+    // key); this window only ever forwards the current set, verbatim.
+    connect(m_noiseProfile, &DiversityNoiseProfilePanel::dismissedKindsChanged, this,
+            &DiversityWindow::setDismissedNoiseKinds);
+    setDismissedNoiseKinds(m_noiseProfile->dismissedKinds());
     noiseBody->addWidget(m_noiseProfile);
     root->addWidget(noiseFrame);
 
@@ -289,8 +256,8 @@ QWidget* DiversityWindow::buildSitePage()
            "noise floor -- rather than a report about somebody else's."));
     beaconFrame->setToolTip(
         tr("NCDXF/IARU beacons: a known-good measurement of your own antennas."));
-    addHelpButtonBesideTitle(beaconFrame, QStringLiteral("diversityWindowBeaconBoxCaption"),
-                             QStringLiteral("diversityHelpButtonSiteBeacons"));
+    DiversityWidgets::addHelpBesideCaption(beaconFrame, DiversityHelp::Topic::Site,
+                                           QStringLiteral("diversityHelpButtonSiteBeacons"));
     m_beacons = new DiversityBeaconPanel(beaconFrame);
     // The antenna note sits beside the station locator, on the locator's own
     // row: both are facts about THIS station that the operator tells the gate,
