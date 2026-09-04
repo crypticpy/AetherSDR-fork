@@ -62,11 +62,24 @@ void AetherGateApplet::pollDiversity()
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             m_diversityPanel->applyDiversity({}, false);
+            m_diversityAvailable = false;
+            updateBandPoll();
             return;
         }
         QJsonObject obj;
         const bool json = GateApplet::parseObject(reply->readAll(), &obj);
         m_diversityPanel->applyDiversity(obj, json);
+        // The BAND page's background poll (DiversityBandPoller::
+        // setBandAvailable()) reads this straight off the wire rather than
+        // off the panel: the panel's own notion of "available" also folds in
+        // whether it has anything to show, and this one has to keep polling
+        // (once the window has been opened at least once and so exists to
+        // apply a spatial/finder reply to -- AetherGateDiversityPanel::
+        // applySpatial()/applyFinder() are no-ops before that) whether or
+        // not the operator is looking at the window right now.
+        m_diversityAvailable =
+            json && obj.value(QStringLiteral("available")).toBool();
+        updateBandPoll();
 
         // /diversity/map is heavier than the rest of this section, so it is
         // fetched on its own coarser cadence (kDiversityMapRefreshPolls)
@@ -96,10 +109,17 @@ void AetherGateApplet::pollDiversity()
     });
 }
 
-// The BAND page's poller runs only while that page is on screen and the gate
-// is answering: a closed window, an open one on SLICE, or a gate that has gone
-// away all cost zero requests. Called from setPresent()/setRadioAddress() and
-// from the panel's bandPollChanged(), so a page switch starts it at once
+// The BAND page's FOREGROUND poll (4 Hz) runs only while that page is on
+// screen: an open window showing SLICE, SITE or FILTER costs zero of it. The
+// BACKGROUND poll (1 Hz, see the call to setBandAvailable() below) is looser
+// on purpose -- it runs whenever the gate is present, dual-tuner, and the
+// window has been opened at least once (so there is a waterfall and a FINDER
+// table for it to feed; before that first open, m_diversityPanel->window() is
+// null and every reply setBandAvailable() would provoke has nowhere to go) --
+// whether or not the window is showing BAND, or showing anything at all right
+// now. Called from setPresent()/setRadioAddress(), from the panel's
+// bandPollChanged() (also emitted the moment the window is first built), and
+// from pollDiversity() on every /diversity poll, so both rates react at once
 // rather than up to a second later.
 void AetherGateApplet::updateBandPoll()
 {
@@ -112,6 +132,8 @@ void AetherGateApplet::updateBandPoll()
     m_bandPoller->setPages(m_present && m_diversityPanel->wantsBandPoll(),
                            m_present && m_diversityPanel->wantsSitePoll(),
                            m_present && wantFilter);
+    m_bandPoller->setBandAvailable(m_present && m_diversityAvailable
+                                   && m_diversityPanel->window() != nullptr);
 }
 
 AetherGateChainWindow* AetherGateApplet::chainWindow() const

@@ -124,9 +124,9 @@ void testOpenButtonBuildsTheWindowAndPersistsItsVisibility()
     CHECK(AppSettings::instance()
               .value(QStringLiteral("DiversityWindowVisible"))
               .toString() == QStringLiteral("True"));
-    // Building and showing it must not have talked to the gate: the window
-    // owns no transport, only the applet does.
-    CHECK(net.log.size() == requestsBefore);
+    // Only the applet's OWN background timer (priming BAND/SITE) may follow.
+    for (int i = requestsBefore; i < net.log.size(); ++i)
+        CHECK(net.log.at(i).startsWith(QStringLiteral("/diversity/")));
 
     button->click();
     settle();

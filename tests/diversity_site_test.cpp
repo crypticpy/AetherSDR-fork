@@ -165,10 +165,16 @@ QString cell(QTableWidget* t, int row, int col)
     return item ? item->text() : QString();
 }
 
-// (a) /diversity/beacons is polled only while the SITE page is on screen: not
-// on SLICE, not on BAND, not with the window closed, and never before it has
-// been opened at all. Its two neighbours stay off while SITE is up, for the
-// same reason.
+// (a) /diversity/beacons is polled at SITE's own 1 Hz only while the SITE
+// page is on screen -- not on SLICE, not on BAND, not with the window closed,
+// and never before it has been opened at all. Its neighbour /diversity/compass
+// follows the same rule. Underneath that, the BACKGROUND timer primes both
+// once every half minute (starting at once, not a wait for its own first
+// tick) whenever the window exists and the gate is dual-tuner, REGARDLESS of
+// page -- that half is the B-SITE-1 fix and is what this test's SLICE/BAND
+// legs below are actually checking for: the background half firing, and
+// SITE's own foreground poll not double-counting it once the operator gets
+// there.
 void testSitePageStartsAndStopsTheBeaconPoll()
 {
     closedToStart();
@@ -177,12 +183,15 @@ void testSitePageStartsAndStopsTheBeaconPoll()
     connectGate(a, net, kDiversityStatusWithSite);
     CHECK(a.gatePresent());
 
-    // Nothing opened: nothing asked.
+    // Nothing opened: nothing asked, background included -- there is no
+    // window yet for either reply to reach.
     tick(a);
     CHECK(net.count(QStringLiteral("/diversity/beacons")) == 0);
     CHECK(!a.diversityPanel()->wantsSitePoll());
 
-    // Open on SLICE: still nothing.
+    // Open on SLICE: SITE's own foreground poll has no reason to run, but the
+    // background timer starts at once (B-SITE-1) and primes the beacon table
+    // immediately even though nobody has ever opened SITE this session.
     openButton(a)->click();
     settle();
     DiversityWindow* w = a.diversityPanel()->window();
@@ -190,15 +199,21 @@ void testSitePageStartsAndStopsTheBeaconPoll()
     if (!w)
         return;
     CHECK(!w->sitePageVisible());
+    CHECK(net.count(QStringLiteral("/diversity/beacons")) >= 1);
+    const int beaconsAfterOpen = net.count(QStringLiteral("/diversity/beacons"));
     tick(a);
-    CHECK(net.count(QStringLiteral("/diversity/beacons")) == 0);
+    // The applet's own /status+/diversity poll (tick()) does not itself touch
+    // /diversity/beacons, and 20 real ms is not another background tick.
+    CHECK(net.count(QStringLiteral("/diversity/beacons")) == beaconsAfterOpen);
 
-    // BAND draws neither the noise profile nor the beacons, so it must not pay
-    // for either.
+    // BAND draws neither the noise profile nor the beacons, so its own
+    // foreground poll must not pay for either -- the background priming above
+    // already covered them, and BAND becoming visible does not trigger
+    // another background tick on its own.
     pageButton(w, "diversityWindowPageBand")->click();
     settle();
     CHECK(!w->sitePageVisible());
-    CHECK(net.count(QStringLiteral("/diversity/beacons")) == 0);
+    CHECK(net.count(QStringLiteral("/diversity/beacons")) == beaconsAfterOpen);
     CHECK(net.count(QStringLiteral("/diversity/spatial")) >= 1);
 
     // SITE: the beacon route, immediately -- not one tick later. And the BAND

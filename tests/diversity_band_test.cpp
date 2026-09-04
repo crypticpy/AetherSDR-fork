@@ -165,9 +165,15 @@ const QByteArray kDiversityFinderKinds = R"({"available": true,
       {"hz": 14101900.0, "score": 0.31, "kind": "carrier"}
     ]})";
 
-// (a) The two BAND routes are polled only while the page is on screen: not on
-// SLICE, not with the window closed, and never before it has been opened at
-// all. This is the whole reason a 4 Hz route is affordable.
+// (a) The two BAND routes run at 4 Hz only while the page is on screen, and
+// never before the window has been opened at least once (there is nowhere for
+// a reply to go: AetherGateDiversityPanel::applySpatial()/applyFinder() are
+// no-ops on a null window). Once the window exists AND the gate reports a
+// dual-tuner pair, both routes keep going in the BACKGROUND at 1 Hz on every
+// OTHER page and while the window is hidden -- see
+// tests/diversity_band_background_test.cpp for the cases that are really
+// about that half of the contract; this one stays focused on the foreground
+// rate stepping up and back down.
 void testBandPageStartsAndStopsTheTwoPolls()
 {
     closedToStart();
@@ -176,13 +182,18 @@ void testBandPageStartsAndStopsTheTwoPolls()
     connectGate(a, net, kDiversityFull);
     CHECK(a.gatePresent());
 
-    // Nothing opened: nothing asked.
+    // Nothing opened: nothing asked, background included -- there is no
+    // window yet for either route's reply to reach.
     tick(a);
     CHECK(net.count(QStringLiteral("/diversity/spatial")) == 0);
     CHECK(net.count(QStringLiteral("/diversity/finder")) == 0);
     CHECK(!a.diversityPanel()->wantsBandPoll());
 
-    // Open on SLICE: still nothing. The SLICE page has no use for either.
+    // Open on SLICE: the FOREGROUND timer has no use for BAND, SITE or
+    // FILTER, so it stays stopped. The window now exists and the gate is
+    // dual-tuner, though, so the independent BACKGROUND timer starts at
+    // once -- with one immediate fetch of each route, not a wait for its own
+    // first second.
     openButton(a)->click();
     settle();
     DiversityWindow* w = a.diversityPanel()->window();
@@ -190,20 +201,35 @@ void testBandPageStartsAndStopsTheTwoPolls()
     if (!w)
         return;
     CHECK(!w->bandPageVisible());
+    auto* bandTimer = a.findChild<QTimer*>(QStringLiteral("gateDiversityBandTimer"));
+    auto* backgroundTimer =
+        a.findChild<QTimer*>(QStringLiteral("gateDiversityBackgroundTimer"));
+    CHECK(bandTimer != nullptr && !bandTimer->isActive());
+    CHECK(backgroundTimer != nullptr && backgroundTimer->isActive());
+    CHECK(backgroundTimer->interval() == 1000);
+    const int spatialOnSlice = net.count(QStringLiteral("/diversity/spatial"));
+    CHECK(spatialOnSlice >= 1);
+    CHECK(net.count(QStringLiteral("/diversity/finder")) >= 1);
     tick(a);
-    CHECK(net.count(QStringLiteral("/diversity/spatial")) == 0);
+    settle();
+    // The applet's own /status+/diversity poll (tick()) does not itself touch
+    // either BAND route, and 20 real ms is not a background tick either.
+    CHECK(net.count(QStringLiteral("/diversity/spatial")) == spatialOnSlice);
 
-    // BAND: both routes, immediately -- not one tick later.
+    // BAND: the foreground timer starts at 4 Hz immediately -- not one tick
+    // later, and not waiting on the background timer's own schedule.
     pageButton(w, "diversityWindowPageBand")->click();
     settle();
     CHECK(w->bandPageVisible());
     CHECK(a.diversityPanel()->wantsBandPoll());
-    CHECK(net.count(QStringLiteral("/diversity/spatial")) >= 1);
-    CHECK(net.count(QStringLiteral("/diversity/finder")) >= 1);
-    auto* timer = a.findChild<QTimer*>(QStringLiteral("gateDiversityBandTimer"));
-    CHECK(timer != nullptr && timer->isActive());
+    CHECK(bandTimer->isActive());
+    CHECK(bandTimer->interval() == 250);
 
-    // Four ticks: spatial every tick, finder every fourth.
+    // Four ticks: spatial every tick, finder every fourth -- driven by the
+    // foreground timer alone. The background timer keeps running underneath
+    // it but skips spatial/finder entirely while BAND is the page on screen
+    // (see DiversityBandPoller::backgroundPoll()), so it cannot double either
+    // count here.
     const int spatialBefore = net.count(QStringLiteral("/diversity/spatial"));
     const int finderBefore = net.count(QStringLiteral("/diversity/finder"));
     for (int i = 0; i < 4; ++i)
@@ -211,28 +237,26 @@ void testBandPageStartsAndStopsTheTwoPolls()
     CHECK(net.count(QStringLiteral("/diversity/spatial")) == spatialBefore + 4);
     CHECK(net.count(QStringLiteral("/diversity/finder")) == finderBefore + 1);
 
-    // Back to SLICE: the timer stops and nothing more is asked.
+    // Back to SLICE: the foreground timer stops rather than dropping to a
+    // slower rate -- BAND is the only page it ever serves. The background
+    // timer is unaffected: the connection that justifies it has not changed,
+    // only which page (if any) is on screen.
     pageButton(w, "diversityWindowPageSlice")->click();
     settle();
-    CHECK(timer != nullptr && !timer->isActive());
-    const int spatialOnSlice = net.count(QStringLiteral("/diversity/spatial"));
-    tick(a);
-    settle();
-    CHECK(net.count(QStringLiteral("/diversity/spatial")) == spatialOnSlice);
+    CHECK(!bandTimer->isActive());
+    CHECK(backgroundTimer->isActive());
 
-    // Back to BAND, then hide the whole window: same again. A hidden window is
-    // not looking at anything, whichever page it was left on.
+    // Back to BAND, then hide the whole window: the foreground timer stops
+    // again and the background one keeps running -- hiding did not close the
+    // window, and the pair is still dual-tuner.
     pageButton(w, "diversityWindowPageBand")->click();
     settle();
-    CHECK(timer->isActive());
+    CHECK(bandTimer->isActive());
     w->hide();
     settle();
-    CHECK(!timer->isActive());
+    CHECK(!bandTimer->isActive());
+    CHECK(backgroundTimer->isActive());
     CHECK(!a.diversityPanel()->wantsBandPoll());
-    const int spatialHidden = net.count(QStringLiteral("/diversity/spatial"));
-    tick(a);
-    settle();
-    CHECK(net.count(QStringLiteral("/diversity/spatial")) == spatialHidden);
     closedToStart();
 }
 
@@ -255,7 +279,15 @@ void testSpatialPayloadPaintsARowAndPhaseDrivesHue()
         return;
 
     CHECK(waterfall->available());
-    CHECK(waterfall->rowCount() == 1);
+    // openOnBand() opens onto SLICE before switching to BAND, and by then the
+    // background timer has already fired its own immediate fetch of the same
+    // route (see testBandPageStartsAndStopsTheTwoPolls()) -- so the row count
+    // here is a baseline, not a bare 1: one row from that background fetch,
+    // one from BAND's own immediate foreground fetch on becoming visible,
+    // both of the same canned payload. Everything below reads the NEWEST row,
+    // which is unaffected by there being two identical ones under it.
+    const int rowsOnOpen = waterfall->rowCount();
+    CHECK(rowsOnOpen >= 1);
     CHECK(waterfall->points() == 8);
     CHECK(qFuzzyCompare(waterfall->startHz(), 14100000.0));
     CHECK(qFuzzyCompare(waterfall->stepHz(), 250.0));
@@ -278,9 +310,9 @@ void testSpatialPayloadPaintsARowAndPhaseDrivesHue()
 
     // Each poll appends exactly one row.
     bandTick(a);
-    CHECK(waterfall->rowCount() == 2);
+    CHECK(waterfall->rowCount() == rowsOnOpen + 1);
     bandTick(a);
-    CHECK(waterfall->rowCount() == 3);
+    CHECK(waterfall->rowCount() == rowsOnOpen + 2);
 
     // Clicking a column asks to tune to that column's CENTRE.
     QSignalSpy tunes(a.diversityPanel(), &AetherGateDiversityPanel::requestTune);
@@ -373,10 +405,15 @@ void testTheHoverReadoutQuotesTheRowUnderThePointer()
     if (!waterfall)
         return;
 
+    // openOnBand() already leaves more than one row behind it (see
+    // testSpatialPayloadPaintsARowAndPhaseDrivesHue()'s comment) -- what this
+    // test needs is only that the newest row is the second poll's and the one
+    // right under it is still the first poll's, not a bare row count.
+    const int rowsBeforeSecondPoll = waterfall->rowCount();
     net.routes[QStringLiteral("/diversity/spatial")] = {QNetworkReply::NoError,
                                                         kDiversitySpatialSecondPoll};
     bandTick(a);
-    CHECK(waterfall->rowCount() == 2);
+    CHECK(waterfall->rowCount() == rowsBeforeSecondPoll + 1);
 
     waterfall->resize(800, 300);
     const int column = 2;

@@ -75,23 +75,44 @@ QString emDash()
     return QStringLiteral("—");
 }
 
-// The five verdicts the gate can send, each on a token this theme already
-// owns. Nothing here invents a colour: a user theme that recolours the accent
-// recolours the finder's voice bars with it, and a kind this build has never
-// heard of gets no colour rather than a guessed one.
+// Every verdict the gate can send, each on a token this theme already owns.
+// Nothing here invents a colour: a user theme that recolours the accent
+// recolours the finder's voice bars with it.
+//
+// The gate's kind list grew past the five this build used to know by name --
+// RTTY, FT8, FT4 and PSK31 are now named from the band plan instead of
+// folding into plain "data", and "signal" means "something is here and the
+// gate will not guess what" (docs/DIVERSITY.md, "FINDER"). Before this an
+// unnamed kind fell through to an EMPTY token, and the strip's own fallback
+// for an empty token is the accent -- the same colour "voice" uses. On a
+// gate sending any of those newer words that read as "everything is blue":
+// every row that was not plainly voice, CW, carrier or noise painted as if
+// it were voice. So the fallback here is never empty: a kind this build has
+// still never met (truly unknown, not just newly documented) gets the same
+// token "signal" does -- CW's amber, not the accent -- because both are
+// "the gate found something and is not calling it a conversation", and
+// neither should be mistaken for one. Only a kind that did not arrive at all
+// (an older gate with no verdict to give) stays uncoloured: there is no
+// colour to be honest about yet.
 QString kindToken(const QString& kind)
 {
+    if (kind.isEmpty())
+        return QString();
     if (kind == QLatin1String("voice"))
         return QStringLiteral("color.accent.bright");
     if (kind == QLatin1String("cw"))
         return QStringLiteral("color.accent.warning");
-    if (kind == QLatin1String("data"))
+    if (kind == QLatin1String("data") || kind == QLatin1String("rtty")
+        || kind == QLatin1String("ft8") || kind == QLatin1String("ft4")
+        || kind == QLatin1String("psk31"))
         return QStringLiteral("color.accent.success");
     if (kind == QLatin1String("carrier"))
         return QStringLiteral("color.accent.danger");
     if (kind == QLatin1String("noise"))
         return QStringLiteral("color.text.secondary");
-    return QString();
+    // "signal", and anything this build has never met: see the function
+    // comment above for why this is CW's token rather than the accent.
+    return QStringLiteral("color.accent.warning");
 }
 
 // Every token kindToken() can return, for declareWidgetTokens(): a widget
@@ -106,9 +127,11 @@ QStringList kindTokens()
     };
 }
 
-// "cw" is CW on the air and in every logbook; the rest read as the gate sends
-// them. A word this build does not know is shown verbatim rather than as a
-// dash -- the gate saying something new is news, not a missing measurement.
+// "cw" is CW on the air and in every logbook; RTTY/FT8/FT4/PSK31 are their
+// band-plan names rather than the lower case the gate sends them in; the rest
+// read as the gate sends them. A word this build does not know at all is
+// shown verbatim rather than as a dash -- the gate saying something new is
+// news, not a missing measurement.
 QString kindLabel(const QString& kind)
 {
     if (kind == QLatin1String("voice"))
@@ -117,10 +140,20 @@ QString kindLabel(const QString& kind)
         return QCoreApplication::translate("DiversityFinderPanel", "CW");
     if (kind == QLatin1String("data"))
         return QCoreApplication::translate("DiversityFinderPanel", "data");
+    if (kind == QLatin1String("rtty"))
+        return QCoreApplication::translate("DiversityFinderPanel", "RTTY");
+    if (kind == QLatin1String("ft8"))
+        return QCoreApplication::translate("DiversityFinderPanel", "FT8");
+    if (kind == QLatin1String("ft4"))
+        return QCoreApplication::translate("DiversityFinderPanel", "FT4");
+    if (kind == QLatin1String("psk31"))
+        return QCoreApplication::translate("DiversityFinderPanel", "PSK31");
     if (kind == QLatin1String("carrier"))
         return QCoreApplication::translate("DiversityFinderPanel", "carrier");
     if (kind == QLatin1String("noise"))
         return QCoreApplication::translate("DiversityFinderPanel", "noise");
+    if (kind == QLatin1String("signal"))
+        return QCoreApplication::translate("DiversityFinderPanel", "signal");
     return kind;
 }
 
@@ -143,8 +176,33 @@ QString kindExplanation(const QString& kind)
     if (kind == QLatin1String("data"))
         return QCoreApplication::translate(
             "DiversityFinderPanel",
-            "Data: a fixed width and a level envelope -- PSK, RTTY, FT8 and "
-            "their relatives.");
+            "Data: a fixed width and a level envelope, in a part of the band "
+            "the gate does not have a name for.");
+    if (kind == QLatin1String("rtty"))
+        return QCoreApplication::translate(
+            "DiversityFinderPanel",
+            "RTTY: a fixed-width digital signal in RTTY's part of the band "
+            "plan -- named from where it is, not from its shape.");
+    if (kind == QLatin1String("ft8"))
+        return QCoreApplication::translate(
+            "DiversityFinderPanel",
+            "FT8: a fixed-width digital signal in FT8's part of the band "
+            "plan -- named from where it is, not from its shape.");
+    if (kind == QLatin1String("ft4"))
+        return QCoreApplication::translate(
+            "DiversityFinderPanel",
+            "FT4: a fixed-width digital signal in FT4's part of the band "
+            "plan -- named from where it is, not from its shape.");
+    if (kind == QLatin1String("psk31"))
+        return QCoreApplication::translate(
+            "DiversityFinderPanel",
+            "PSK31: a fixed-width digital signal in PSK31's part of the band "
+            "plan -- named from where it is, not from its shape.");
+    if (kind == QLatin1String("signal"))
+        return QCoreApplication::translate(
+            "DiversityFinderPanel",
+            "Signal: something stands here above the noise, and the gate is "
+            "not guessing which of the others it is.");
     if (kind == QLatin1String("carrier"))
         return QCoreApplication::translate(
             "DiversityFinderPanel",
@@ -333,11 +391,13 @@ DiversityFinderPanel::DiversityFinderPanel(QWidget* parent) : QWidget(parent)
     static const struct { int column; const char* tip; } kHeaderTips[] = {
         {0, QT_TR_NOOP("Centre frequency of the conversation, in kilohertz. "
                        "Tune here and the receiver goes to this frequency.")},
-        {1, QT_TR_NOOP("What the gate thinks is there -- voice, CW, data, a "
-                       "bare carrier or noise -- and how sure it is, from 0 to "
-                       "1. The colour is the same one the strip above uses for "
-                       "this stretch of the band. Hover a row for what the "
-                       "verdict was made of.")},
+        {1, QT_TR_NOOP("What the gate thinks is there -- voice, CW, data (or "
+                       "RTTY/FT8/FT4/PSK31 by name, off the band plan), a "
+                       "bare carrier, noise, or plain \"signal\" when the gate "
+                       "will not guess further -- and how sure it is, from 0 "
+                       "to 1. The colour is the same one the strip above uses "
+                       "for this stretch of the band. Hover a row for what "
+                       "the verdict was made of.")},
         {2, QT_TR_NOOP("How confident the gate is that this is a conversation "
                        "worth your time: voice shape, strength and how long it "
                        "has been going, combined. The table is sorted by it.")},
@@ -408,8 +468,8 @@ DiversityFinderPanel::DiversityFinderPanel(QWidget* parent) : QWidget(parent)
 
 QString DiversityFinderPanel::legendText()
 {
-    return tr("voice / CW / data / carrier / noise, with how sure the gate is;\n"
-              "gain is the diversity gain the pair can earn there");
+    return tr("voice / CW / data / RTTY / carrier / noise / FT8 / FT4 / PSK31 / signal,\n"
+              "with how sure the gate is; gain is the diversity gain the pair can earn there");
 }
 
 void DiversityFinderPanel::clear()
@@ -602,9 +662,11 @@ void DiversityFinderPanel::applyKindColours()
     for (int r = 0; r < m_rowKind.size() && r < m_table->rowCount(); ++r) {
         QTableWidgetItem* item = m_table->item(r, kKindColumn);
         const QString token = kindToken(m_rowKind[r]);
-        // A kind this build has never met keeps the table's own text colour:
-        // the row still says the word, and a colour invented for it would
-        // claim we know which of the five it is.
+        // Empty only when the row's kind is empty, i.e. the gate sent no
+        // verdict at all: the row still says so in words, and a colour
+        // invented for "nothing said" would claim a verdict the gate never
+        // gave. Every kind the gate DOES name, known or not, gets a token --
+        // see kindToken()'s own comment for why the fallback is never empty.
         if (item && !token.isEmpty())
             item->setForeground(tm.color(m_table, token));
     }

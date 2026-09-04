@@ -176,7 +176,11 @@ QString lastRequest(const FakeGate& net, const QString& prefix)
 // not on BAND, not on SITE, not with the window closed, and never before it has
 // been opened at all. Unchanged by the PAIR STAGES round: the FLOW strip still
 // wants this page's /filter read, even though nothing drawn on the page itself
-// does.
+// does. FILTER itself never touches /diversity/spatial or /diversity/beacons --
+// the two DO get one background-timer fetch apiece the moment the window is
+// built (see DiversityBandPoller::backgroundPoll()), but that fires on open,
+// before FILTER is ever selected, so what this test actually checks below is
+// that switching TO FILTER adds nothing further to either.
 void testFilterPageStartsAndStopsTheFilterPoll()
 {
     closedToStart();
@@ -191,17 +195,20 @@ void testFilterPageStartsAndStopsTheFilterPoll()
     CHECK(w != nullptr);
     if (!w)
         return;
-    // Opening lands on SLICE, which polls nothing of its own.
+    // Opening lands on SLICE, which polls nothing of its own /filter.
     CHECK(pollCount(net) == 0);
+    const int spatialOnOpen = net.count(QStringLiteral("/diversity/spatial"));
+    const int beaconsOnOpen = net.count(QStringLiteral("/diversity/beacons"));
 
     pageButton(w, "diversityWindowPageFilter")->click();
     settle();
     const int running = pollCount(net);
     CHECK(running > 0);
     // FILTER's neighbours stay off while it is up: the span and the beacon
-    // watch are not what this page is about.
-    CHECK(net.count(QStringLiteral("/diversity/spatial")) == 0);
-    CHECK(net.count(QStringLiteral("/diversity/beacons")) == 0);
+    // watch are not what this page is about, so selecting FILTER must not add
+    // to either beyond the one background fetch already primed on open.
+    CHECK(net.count(QStringLiteral("/diversity/spatial")) == spatialOnOpen);
+    CHECK(net.count(QStringLiteral("/diversity/beacons")) == beaconsOnOpen);
 
     // MUTATION: leave the page. The poll stops where it is, and comes back when
     // the page does -- the page switch is the whole subscription.

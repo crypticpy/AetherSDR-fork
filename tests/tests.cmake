@@ -3149,6 +3149,73 @@ add_test(NAME diversity_band_test COMMAND diversity_band_test)
 set_tests_properties(diversity_band_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# The BAND page's BACKGROUND half: the spatial waterfall and FINDER routes
+# polled at 1 Hz whenever the window exists and the gate is dual-tuner,
+# regardless of page or visibility, plus the FINDER kind colours. A fourth
+# binary rather than more cases in diversity_band_test for the same reason
+# that file is separate from diversity_window_test: it is already at the
+# 800-line budget AGENTS.md asks for, and this page's cases need the same
+# fresh, process-wide AppSettings start every window case does.
+add_executable(diversity_band_background_test
+    tests/diversity_band_background_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateAppletControls.cpp
+    src/gui/AetherGateAppletDiversity.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainTile.cpp
+    src/gui/AetherGateChainAuto.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainPresets.cpp
+    src/gui/AetherGateChainVisual.cpp
+    src/gui/AetherGateDeviceStrip.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityFlowStrip.cpp
+    src/gui/DiversityFlowStripAuto.cpp
+    src/gui/DiversityFlowStripDig.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFilterPanelPaint.cpp
+    src/gui/DiversityFilterPanelSqueeze.cpp
+    src/gui/DiversityFilterPanelRoof.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_band_background_test PRIVATE src tests)
+target_link_libraries(diversity_band_background_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_band_background_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_band_background_test COMMAND diversity_band_background_test)
+set_tests_properties(diversity_band_background_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The CHAIN window -- the filter chain as a block diagram, opened from the
 # applet's own door beside the Diversity one. Its own binary rather than more
 # cases in diversity_band_test for the reason that file is separate from

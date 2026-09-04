@@ -27,10 +27,27 @@ constexpr int kSiteTickMs = 1000;
 // changes when somebody moves a control.
 constexpr int kFilterTickMs = 500;
 
-// /diversity/finder summarises ten minutes and is answered from a ring the
-// gate updates slowly -- 1 Hz is already faster than it can change, and so is
-// /diversity/beacons, whose schedule turns once every three minutes.
+// One in four BAND-cadence ticks (4 Hz -> 1 Hz) is how /diversity/finder,
+// which wants a once-a-second summary rather than a waterfall row, rides the
+// same timer as /diversity/spatial without its own clock. At any other
+// cadence every tick already is the slow tick.
 constexpr int kSlowEveryTicks = 4;
+
+// 1 Hz, with no page on screen at all -- setBandAvailable(true) and nothing
+// else. The same rate SITE already ticks at, kept as its own name because the
+// two are picked for different reasons: SITE's is "no faster route exists on
+// this page", this one is "nobody is watching, so the waterfall row rate
+// backs off from 4 Hz to the slowest rate still worth keeping history at".
+constexpr int kBackgroundTickMs = 1000;
+
+// How often the background timer also primes /diversity/beacons and
+// /diversity/compass: a beacon slot is ten seconds long and the schedule
+// turns once every three minutes (see the SITE cadence comment at the top of
+// the file), so once every half minute is already generous for a page that
+// is not even on screen -- it exists only so a relaunch, or a window left
+// open on BAND/FILTER/SLICE, does not show a blank beacon table until the
+// operator forces a check.
+constexpr int kBackgroundBeaconEveryTicks = 30;
 
 // Bounded like every other gate request (tools/check_network_timeouts.py): a
 // half-open socket must become an error, not a reply that never arrives. Well
@@ -56,11 +73,20 @@ DiversityBandPoller::DiversityBandPoller(QNetworkAccessManager* net, QObject* pa
     m_timer = new QTimer(this);
     m_timer->setObjectName(QStringLiteral("gateDiversityBandTimer"));
     connect(m_timer, &QTimer::timeout, this, &DiversityBandPoller::poll);
+    // Independent of m_timer above on purpose -- see setBandAvailable() and
+    // restartBackground(). A page cadence (250/500/1000 ms, changing as the
+    // operator switches pages) and a "nobody is watching" cadence sharing one
+    // clock is exactly the bug this second timer avoids: a FILTER page's 2 Hz
+    // or a SITE page's 1 Hz would otherwise double one of its own ticks into
+    // an extra background fetch every time the interval lined up.
+    m_backgroundTimer = new QTimer(this);
+    m_backgroundTimer->setObjectName(QStringLiteral("gateDiversityBackgroundTimer"));
+    connect(m_backgroundTimer, &QTimer::timeout, this, &DiversityBandPoller::backgroundPoll);
 }
 
 bool DiversityBandPoller::isPolling() const
 {
-    return m_timer->isActive();
+    return m_timer->isActive() || m_backgroundTimer->isActive();
 }
 
 void DiversityBandPoller::setBaseUrl(const QString& base)
@@ -69,6 +95,7 @@ void DiversityBandPoller::setBaseUrl(const QString& base)
         return;
     m_base = base;
     restart();
+    restartBackground();
 }
 
 void DiversityBandPoller::setPages(bool bandVisible, bool siteVisible, bool filterVisible)
@@ -145,6 +172,61 @@ void DiversityBandPoller::poll()
     }
     if (m_filterEnabled)
         fetchFilter();
+}
+
+void DiversityBandPoller::setBandAvailable(bool available)
+{
+    if (m_bandAvailable == available)
+        return;
+    m_bandAvailable = available;
+    restartBackground();
+}
+
+void DiversityBandPoller::restartBackground()
+{
+    if (!m_bandAvailable || m_base.isEmpty() || !m_net) {
+        m_backgroundTimer->stop();
+        return;
+    }
+    // Start from tick zero, same reasoning as restart() above: the first
+    // background poll fires at once rather than waiting out a second, so a
+    // relaunch (or a window that just got built) does not sit on a blank
+    // waterfall and an empty beacon table for a whole tick before either one
+    // is asked for.
+    m_backgroundTick = 0;
+    m_backgroundTimer->start(kBackgroundTickMs);
+    backgroundPoll();
+}
+
+// The independent half of setBandAvailable(): unlike poll() above, this never
+// shares a timer with a page cadence, so a FILTER page's 2 Hz or a SITE
+// page's 1 Hz can never accidentally double one of its ticks into an extra
+// background fetch.
+void DiversityBandPoller::backgroundPoll()
+{
+    if (m_base.isEmpty() || !m_net)
+        return;
+    // /diversity/spatial and /diversity/finder: skip while BAND is actually
+    // the page on screen -- poll() already has both routes at 4 Hz/1 Hz then,
+    // and firing this too would just be a second request for the same row.
+    if (!m_bandEnabled) {
+        fetchSpatial();
+        fetchFinder();
+    }
+    // /diversity/beacons and /diversity/compass, once every half minute,
+    // regardless of page: this is the B-SITE-1 fix. poll()'s own fetch of the
+    // same two routes only runs while SITE is the page actually on screen, so
+    // a window that restored onto BAND, FILTER or SLICE -- or is not even
+    // open yet -- used to leave the beacon table exactly as blank as it was
+    // at the last relaunch until the operator switched to SITE and forced a
+    // check. SITE being up already covers this ten times over, so skip it
+    // there too rather than doubling the request.
+    const bool onHalfMinute = (m_backgroundTick % kBackgroundBeaconEveryTicks) == 0;
+    ++m_backgroundTick;
+    if (!m_siteEnabled && onHalfMinute) {
+        fetchBeacons();
+        fetchCompass();
+    }
 }
 
 void DiversityBandPoller::fetchSpatial()

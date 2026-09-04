@@ -42,9 +42,9 @@ class QTableWidget;
 namespace AetherSDR {
 
 // One candidate's stretch of the strip, and the gate's word for what is in
-// it: "voice", "cw", "data", "carrier" or "noise". A word this build has
-// never heard of paints as plain activity rather than as a colour we invented
-// for it, and a gate that sends no kinds at all sends no bands.
+// it: "voice", "cw", "data" (or "rtty"/"ft8"/"ft4"/"psk31" by name),
+// "carrier", "noise", or "signal" for a verdict the gate would rather not
+// narrow further. A gate that sends no kinds at all sends no bands.
 struct DiversityKindBand {
     float   from{0.0f};      // 0..1 across the span the strip is drawn over
     float   to{0.0f};

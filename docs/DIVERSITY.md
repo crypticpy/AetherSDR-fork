@@ -307,7 +307,17 @@ about its whole 125 kHz instead. Both are click-to-tune: a click moves
 AetherSDR's active slice and switches the combiner to **track**, so the
 first over you hear is already being solved for.
 
-**SPATIAL WATERFALL.** One row per poll (4 Hz) across the gate's span, with
+Both of the gate routes this page draws from keep running in the
+background, once a second, from the moment the Diversity window exists and
+the gate reports a dual-tuner pair — whether BAND is the page on screen,
+another page is, or the window is not even open yet. Opening onto BAND is
+therefore not opening onto an empty picture and an empty table: the
+waterfall already has a minute or more of history in it and the FINDER
+table already has whatever it found while you were on another page,
+because those two routes were never waiting for you to look.
+
+**SPATIAL WATERFALL.** One row per poll (4 Hz while the page is actually on
+screen, 1 Hz in the background otherwise) across the gate's span, with
 colour meaning *direction* rather than strength: hue is the inter-loop
 arrival phase, and the key under the picture is the scale itself — the hue
 wheel from −180° to +180°, and the grey the waterfall paints where there
@@ -446,6 +456,13 @@ five: 14.100, 18.110, 21.150, 24.930 and 28.200 MHz. Beacon phase is worth
 more than it looks — it is the only phase in this window whose right answer
 is already known, which is what a future geometry solve has to calibrate
 itself against.
+
+This table, like the BAND page's, is kept warm in the background — once
+every half minute, from the moment the Diversity window exists, whichever
+page it happens to be showing. A restart used to leave it exactly as blank
+as it was at the last relaunch until you opened SITE and forced a check; now
+opening onto SITE reads back whatever the last background pass already
+heard.
 
 **Station grid.** Type your Maidenhead locator into the field at the top of
 BEACONS and press `SET` — four characters (`EM10`) or six (`EM10bk`), case

@@ -14,6 +14,11 @@
 //     a different one: /diversity/spatial is a waterfall row and wants 4 Hz,
 //     /diversity/finder is a ten-minute summary and wants 1 Hz. A route that
 //     needs four times the rate cannot piggyback on a timer that ticks once.
+//     Both of them also run at 1 Hz in the BACKGROUND -- see
+//     setBandAvailable() -- whenever the gate has a dual-tuner pair, whether
+//     or not the BAND page (or the window at all) is on screen, so the
+//     waterfall's history and the FINDER table's ten minutes are already
+//     filling in by the time the operator opens onto it.
 //   * SIZE. AetherGateApplet.cpp is already past the file-size budget
 //     AGENTS.md asks for; new transport goes beside it, not into it.
 //
@@ -73,6 +78,21 @@ public:
     // waiting out a tick, so a switch paints at once.
     void setPages(bool bandVisible, bool siteVisible, bool filterVisible);
 
+    // Whether the background timer should be running at all, independent of
+    // whether any page is on screen: AetherGateApplet passes true whenever
+    // the gate is present AND its own /diversity poll's "available" flag says
+    // there is a dual-tuner pair to draw (AetherGateApplet::updateBandPoll()).
+    // It drives its OWN timer (see restartBackground()) rather than folding
+    // into the page cadence above, and at 1 Hz keeps three things warm
+    // regardless of page: /diversity/spatial (so the waterfall's history is
+    // not starting from one row when BAND is opened), /diversity/finder (the
+    // FINDER table's ten-minute summary), and -- once every half minute --
+    // /diversity/beacons and /diversity/compass, so the SITE page does not
+    // open onto a blank table left over from the last relaunch. This flag
+    // only ever ADDS polling; it never clears history -- that stays
+    // DiversitySpatialWaterfall's own job, on a span change.
+    void setBandAvailable(bool available);
+
     // Wires the two filter-page signals to `panel` from here rather than from
     // AetherGateApplet's constructor, which is where every other diversity
     // connect lives. AetherGateApplet.cpp is past the file-size budget
@@ -123,6 +143,11 @@ public slots:
     // directly instead of waiting out real milliseconds.
     void poll();
 
+    // One background tick, driven by m_backgroundTimer rather than m_timer
+    // above -- see setBandAvailable(). Public for the same reason poll() is:
+    // a test steps it directly instead of waiting out real seconds.
+    void backgroundPoll();
+
     // One GET on `path` (e.g. "/filter/set") with `query`, answered by
     // filterReceived(). Never dropped for an in-flight poll: a control the
     // operator just moved must reach the gate, and the reply is what the page
@@ -148,6 +173,8 @@ public slots:
 
 private:
     void restart();
+    // restart()'s counterpart for m_backgroundTimer -- see setBandAvailable().
+    void restartBackground();
     // The one GET both write doors are made of; `asSite` picks which of the
     // two reply signals carries the answer.
     void sendWrite(const QString& path, const QUrlQuery& query, bool asSite);
@@ -159,11 +186,24 @@ private:
 
     QNetworkAccessManager* m_net{nullptr};
     QTimer*                m_timer{nullptr};
+    // The background timer -- see setBandAvailable() and restartBackground().
+    // Deliberately its own QTimer rather than a second cadence squeezed onto
+    // m_timer above: m_timer's interval changes with which page is visible
+    // (250/500/1000 ms), and a background rate riding along on that would
+    // double-fire every time the two happened to line up.
+    QTimer*                m_backgroundTimer{nullptr};
     QString                m_base;
     bool                   m_bandEnabled{false};
     bool                   m_siteEnabled{false};
     bool                   m_filterEnabled{false};
+    // See setBandAvailable(). Orthogonal to the three page flags above: it
+    // can be true with every one of them false (window closed) or true
+    // alongside m_bandEnabled (BAND on screen, where it changes nothing).
+    bool                   m_bandAvailable{false};
     int                    m_tick{0};
+    // m_backgroundTimer's own tick counter -- kept separate from m_tick above
+    // so the two timers' cadences can never interfere with each other.
+    int                    m_backgroundTick{0};
     // A reply still on the wire when the next tick comes round is not a reason
     // to start a second one: at 4 Hz a slow gate would otherwise queue
     // requests faster than it answers them.

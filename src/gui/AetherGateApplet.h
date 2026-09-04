@@ -188,7 +188,9 @@ private:
     // IS the read-back the window redraws from.
     void toggleChainWindow();
     void onChainRequestWrite(QString route, QUrlQuery query);
-    // Starts or stops the band poller from the panel's wantsBandPoll().
+    // Starts or stops the band poller from the panel's wantsBandPoll(), and
+    // (separately) from m_diversityAvailable -- see DiversityBandPoller::
+    // setBandAvailable()'s own comment for why the two are not the same gate.
     void updateBandPoll();
 
     QPointer<RadioModel>   m_model;
@@ -237,9 +239,17 @@ private:
     // than waiting out a stale count.
     bool m_mapFetched{false};
     int  m_pollsSinceMap{0};
-    // /diversity/spatial + /diversity/finder. Idle (and issuing nothing at
-    // all) unless the window is open on its BAND page.
+    // /diversity/spatial + /diversity/finder. Runs at 4 Hz while the window
+    // is open on its BAND page (see updateBandPoll()) and in the background
+    // at 1 Hz whenever m_diversityAvailable holds, whatever page (or no
+    // window at all) is on screen.
     DiversityBandPoller* m_bandPoller{nullptr};
+    // Set from every /diversity poll's own top-level "available" flag --
+    // whether the gate currently reports a dual-tuner pair, not whether the
+    // JSON parsed or the panel is showing anything. Feeds
+    // DiversityBandPoller::setBandAvailable() through updateBandPoll() so the
+    // BAND page's history keeps filling while nobody is looking at it.
+    bool m_diversityAvailable{false};
 };
 
 } // namespace AetherSDR
