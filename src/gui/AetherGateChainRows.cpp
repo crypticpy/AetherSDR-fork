@@ -1,5 +1,7 @@
 #include "gui/AetherGateChainRows.h"
 
+#include "gui/DiversityAge.h"
+
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QJsonArray>
@@ -364,7 +366,7 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
                       "stage yet answers with an error and the row does not move: "
                       "nothing here is optimistic.");
     digital.shortTip = tr_("Sets the DSP passband width - this is your roofing "
-                           "filter control.");
+                           "filter for the slice.");
     rows << digital;
 
     // 3 -- the noise blanker, at the full IQ rate where an IF blanker belongs.
@@ -395,8 +397,8 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
                          "twin PBT, an IC-7851 would call it. Drag them on the "
                          "FILTER page's curve; the numbers in force can differ from "
                          "the numbers asked for when AUTO WIDTH is fitting them."),
-                     tr_("Both slice-filter edges - drag them on the FILTER page "
-                         "to narrow reception."));
+                     tr_("The two edges of what you hear, in Hz. Narrow it to "
+                         "shut a neighbour out."));
 
     // 5 -- shape.
     rows << wordSelectRow(QStringLiteral("shape"), tr_("SHAPE"),
@@ -409,8 +411,8 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
                           tr_("How steep the passband edges are. SOFT is a 255-tap "
                               "Hamming design, SHARP a 1023-tap Kaiser - Icom's own "
                               "words for the same choice."),
-                          tr_("Passband edge steepness - SOFT for a gentler sound, "
-                              "SHARP to crowd out a near signal."));
+                          tr_("Edge steepness - SOFT sounds gentler, SHARP crowds "
+                              "out a close signal."));
 
     // 6 -- notches, manual and automatic. One row, because they are one filter.
     const QJsonObject anf = f.value(QStringLiteral("anf")).toObject();
@@ -443,8 +445,8 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
                           "for it. On AUTO it is fitted from the talker's own voice "
                           "print against an average speech spectrum, which no radio "
                           "does."),
-                      tr_("A broad EQ bell - shapes tone in or out of the "
-                          "passband."));
+                      tr_("One broad bump or dip in the passband, to lift a "
+                          "voice out of the mud."));
 
     // 8 -- APF.
     const QJsonObject apf = f.value(QStringLiteral("apf")).toObject();
@@ -457,8 +459,8 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
                       tr_("The audio peak filter: a narrow resonance for digging one "
                           "CW note out of noise. Same control, same default region "
                           "(600 Hz), as the APF on an FTdx101 or an IC-7851."),
-                      tr_("Narrow CW audio peak filter - digs one note out of "
-                          "noise."));
+                      tr_("Peaks one narrow note for CW - makes a dit ring and "
+                          "drops everything else."));
 
     // 9 -- automatic width.
     const QJsonObject autoWidth = f.value(QStringLiteral("auto")).toObject();
@@ -476,7 +478,7 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
                           "energy actually is and moves both passband edges to it. "
                           "No radio has a counterpart."),
                       tr_("Auto-fits both passband edges to this station's "
-                          "energy every over."));
+                          "energy, once per over."));
 
     // 10 -- the automatic RX EQ tilt.
     const QJsonObject eq = f.value(QStringLiteral("auto_eq")).toObject();
@@ -490,8 +492,8 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
                           "multi-band equaliser. It flattens a station that is all "
                           "bass or all edge; it does not let you shape the audio to "
                           "taste."),
-                      tr_("Auto tilt between 550 Hz-2 kHz - evens out a bass- or "
-                          "edge-heavy signal."));
+                      tr_("Levels the tilt of the received audio so it is "
+                          "neither bassy nor thin."));
 
     // 11 -- the audio AGC.
     const QJsonObject agc = f.value(QStringLiteral("agc")).toObject();
@@ -510,24 +512,50 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
             "explicit - most radios give you three words. The threshold is "
             "Elecraft's AGC-T, and the last number is the gain the AGC is "
             "applying right now."),
-        tr_("Audio AGC mode and timing - controls how fast gain reacts to "
-            "level."));
+        tr_("How fast the level is held steady - FAST for CW, SLOW for "
+            "voice."));
 
     // 12 -- per-talker recall.
     const QJsonObject talker = f.value(QStringLiteral("talker")).toObject();
-    rows << toggleRow(
-        QStringLiteral("talker"), tr_("PER TALKER"), QStringLiteral("talker"),
-        flag(talker, "enabled"),
+    const int talkerId = int(num(talker, "id"));
+    QString talkerDetail =
         QStringLiteral("%1 · %2 · id %3 · %4 kept")
             .arg(onOff(flag(talker, "enabled")), word(talker, "snap"),
-                 QString::number(int(num(talker, "id"))),
+                 QString::number(talkerId),
                  QString::number(
-                     talker.value(QStringLiteral("remembered")).toArray().size())),
+                     talker.value(QStringLiteral("remembered")).toArray().size()));
+    // "· learned N ago" on the value, when the gate says when the CURRENT
+    // talker's own filter was learned (AGENTS.md, "Keep what the station
+    // learned"): the filter is a stored measurement like any other, so it
+    // carries its own age. `remembered[]` is a list of {id, filter{...}}
+    // objects now; an older gate whose entries carry no `filter` at all, or
+    // whose current talker's filter carries no learned_at, leaves the value
+    // exactly as it reads today -- never a zero age invented for a filter
+    // that was never dated.
+    const QJsonArray remembered = talker.value(QStringLiteral("remembered")).toArray();
+    for (const QJsonValue& rv : remembered) {
+        if (!rv.isObject())
+            continue;
+        const QJsonObject entry = rv.toObject();
+        if (int(num(entry, "id")) != talkerId)
+            continue;
+        const QJsonValue learnedAt =
+            entry.value(QStringLiteral("filter")).toObject().value(QStringLiteral("learned_at"));
+        if (learnedAt.isDouble()) {
+            talkerDetail += tr_(" · learned %1")
+                                .arg(diversityAgeSince(qint64(learnedAt.toDouble()),
+                                                       QDateTime::currentSecsSinceEpoch()));
+        }
+        break;
+    }
+    rows << toggleRow(
+        QStringLiteral("talker"), tr_("PER TALKER"), QStringLiteral("talker"),
+        flag(talker, "enabled"), talkerDetail,
         tr_("The receiver remembers the AUTOMATIC settings - fitted edges, EQ tilt, the "
             "contour bell - per voice it recognises. Your own settings are "
             "deliberately not per talker."),
-        tr_("Remembers auto settings per voice - recalls fit edges and tone "
-            "by talker."));
+        tr_("Brings back each remembered talker's own filter the moment they "
+            "key up."));
 
     // 13 -- the full stop. Where the chain leaves the gate, so "why is there
     // no NR on this page" never becomes a question.
@@ -538,8 +566,8 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
                          "downstream of everything above and after the audio has "
                          "arrived. They are on the Aetherial Voice panel, and "
                          "nothing upstream duplicates them."),
-                     tr_("Where NR and compression run - both live in "
-                         "AetherSDR, not upstream."));
+                     tr_("Where the audio leaves the gate for this "
+                         "application."));
 
     return rows;
 }
@@ -686,8 +714,8 @@ QList<ChainStage> chainFrontendRows(const ChainFrontendStatus& fe)
             "scale, and how many of them clipped. Under 3 dB, or any clip at "
             "all, is what the guard -- when it is on -- steps the LNA down "
             "for.");
-    headroom.shortTip = tr_("Headroom to full scale - how close the ADC is "
-                            "to clipping.");
+    headroom.shortTip = tr_("How close the ADC is to clipping. Under 3 dB "
+                            "the audio starts to break up.");
     rows.append(headroom);
 
     ChainStage guard;
@@ -700,8 +728,8 @@ QList<ChainStage> chainFrontendRows(const ChainFrontendStatus& fe)
         tr_("Steps the LNA state down when the ADC is within 3 dB of full "
             "scale or has clipped, and back up 30 s after it is clear. It "
             "never goes below the floor beside it.");
-    guard.shortTip = tr_("Auto-backs the LNA off before the ADC clips, "
-                         "restores it once the signal clears.");
+    guard.shortTip = tr_("Backs the LNA off before the ADC clips, and "
+                         "restores it once the signal goes.");
     guard.actionRoute = QStringLiteral("/frontend/set");
     guard.actionQuery = QStringLiteral("guard=")
                          + (fe.guard ? QStringLiteral("off") : QStringLiteral("on"));

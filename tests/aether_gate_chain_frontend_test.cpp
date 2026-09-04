@@ -17,8 +17,12 @@
 // poll will once that wiring lands.
 #include "AetherGateChainFixture.h"
 
+#include "gui/AetherGateChainRows.h"
+#include "gui/DiversityAge.h"
+
 #include <QApplication>
 #include <QComboBox>
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -400,6 +404,108 @@ void testRenderFrontendWhenAsked()
     CHECK(w->grab().save(QString::fromLocal8Bit(path)));
 }
 
+// --------------------------------------------------------------------------
+// PER TALKER -- the value carries "learned N ago" for the current talker
+// --------------------------------------------------------------------------
+//
+// Rows.cpp's own chainFallback() is exercised directly (a pure function, no
+// gate or window needed) rather than through kChainlessFilter as it ships:
+// that fixture's "talker" block still carries the pre-gate-97fa5e7 bare-id
+// remembered[] shape, which is exactly the "older gate" case (c) below pins,
+// so a local copy carries the new object shape instead of editing the
+// shared fixture out from under its other readers.
+
+// remembered[]'s id, and its filter -- present with an age, present with no
+// age at all, or entirely absent (an older gate's own answer for "the gate
+// has kept nothing for them").
+QJsonObject rememberedEntry(int id, bool withFilter, qint64 learnedAt = -1)
+{
+    QJsonObject entry;
+    entry[QStringLiteral("id")] = id;
+    if (withFilter) {
+        QJsonObject filter;
+        filter[QStringLiteral("low_hz")] = 300;
+        filter[QStringLiteral("high_hz")] = 2700;
+        if (learnedAt >= 0)
+            filter[QStringLiteral("learned_at")] = double(learnedAt);
+        entry[QStringLiteral("filter")] = filter;
+    }
+    return entry;
+}
+
+const AetherSDR::ChainStage* findChainRow(const QList<AetherSDR::ChainStage>& rows,
+                                          const QString& id)
+{
+    for (const auto& row : rows) {
+        if (row.id == id)
+            return &row;
+    }
+    return nullptr;
+}
+
+void testPerTalkerRowValueCarriesLearnedAgeWhenTheGateSendsIt()
+{
+    QJsonObject filter = QJsonDocument::fromJson(kChainlessFilter).object();
+    QJsonObject talker = filter.value(QStringLiteral("talker")).toObject();
+    CHECK(talker.value(QStringLiteral("id")).toInt() == 32);
+
+    const qint64 learnedAt = QDateTime::currentSecsSinceEpoch() - 7300; // ~2 h back
+    QJsonArray remembered;
+    remembered.append(rememberedEntry(30, true));             // no learned_at at all
+    remembered.append(rememberedEntry(32, true, learnedAt));  // the CURRENT talker
+    remembered.append(rememberedEntry(33, false));            // no filter kept
+    talker[QStringLiteral("remembered")] = remembered;
+    filter[QStringLiteral("talker")] = talker;
+
+    const QList<AetherSDR::ChainStage> rows = AetherSDR::chainFallback(filter);
+    const AetherSDR::ChainStage* row = findChainRow(rows, QStringLiteral("talker"));
+    CHECK(row != nullptr);
+    if (!row)
+        return;
+
+    const QString age =
+        AetherSDR::diversityAgeSince(learnedAt, QDateTime::currentSecsSinceEpoch());
+    CHECK(row->detail == QStringLiteral("on · fast · id 32 · 3 kept · learned %1").arg(age));
+
+    // (b) MUTATION: #32 kept a filter but the gate never dated it -- the
+    // value reads exactly as it always has. No zero age is ever invented for
+    // a filter the gate did not say when it learned.
+    QJsonArray rememberedNoAge;
+    rememberedNoAge.append(rememberedEntry(30, true));
+    rememberedNoAge.append(rememberedEntry(32, true));
+    rememberedNoAge.append(rememberedEntry(33, false));
+    talker[QStringLiteral("remembered")] = rememberedNoAge;
+    filter[QStringLiteral("talker")] = talker;
+    const QList<AetherSDR::ChainStage> rowsNoAge = AetherSDR::chainFallback(filter);
+    const AetherSDR::ChainStage* rowNoAge = findChainRow(rowsNoAge, QStringLiteral("talker"));
+    CHECK(rowNoAge != nullptr);
+    if (rowNoAge)
+        CHECK(rowNoAge->detail == QStringLiteral("on · fast · id 32 · 3 kept"));
+
+    // (c) MUTATION: an older gate's bare-id remembered[], exactly as
+    // kChainlessFilter still ships it -- the count still reads, no entry is
+    // ever an object to match the current talker against, and the value is
+    // the pre-existing text untouched.
+    QJsonArray rememberedOldShape{30, 31, 32, 33};
+    talker[QStringLiteral("remembered")] = rememberedOldShape;
+    filter[QStringLiteral("talker")] = talker;
+    const QList<AetherSDR::ChainStage> rowsOldShape = AetherSDR::chainFallback(filter);
+    const AetherSDR::ChainStage* rowOldShape =
+        findChainRow(rowsOldShape, QStringLiteral("talker"));
+    CHECK(rowOldShape != nullptr);
+    if (rowOldShape)
+        CHECK(rowOldShape->detail == QStringLiteral("on · fast · id 32 · 4 kept"));
+
+    // The row's own hover is the WHAT + WHAT FOR sentence design §2.7's
+    // table gives it, elided rather than wrapped, and within the CHAIN
+    // window's own 90-char rule.
+    CHECK(row->shortTip
+          == QStringLiteral(
+                 "Brings back each remembered talker's own filter the moment "
+                 "they key up."));
+    CHECK(row->shortTip.length() <= 90);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -417,6 +523,7 @@ int main(int argc, char** argv)
     testEveryNewWidgetHasANameAndNothingWraps();
     testNothingScrollsWithTheTwoNewRowsOnTheCard();
     testRenderFrontendWhenAsked();
+    testPerTalkerRowValueCarriesLearnedAgeWhenTheGateSendsIt();
 
     std::printf("\n%d aether gate chain frontend test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;
