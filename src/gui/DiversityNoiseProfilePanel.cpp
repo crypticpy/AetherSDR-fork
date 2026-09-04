@@ -70,11 +70,12 @@ constexpr int kTransientMs = 5000;
 // its size, the Do column -- the one action button, or the action button
 // plus a small DISMISS, or "dismissed" plus UNDO -- and Age, how long since
 // the gate first saw this finding. Do's width grew from 88 to 108 for the
-// DISMISS/UNDO pairing; Detail gave up 20 px for that and 58 more for Age,
-// so the table is no wider than before (the gate's sentence is
-// always fully available on the cell's own hover regardless of where it gets
-// cut). Age is last, same position the beacon table's own Age column holds.
-constexpr int kKindColumnWidths[] = {70, 178, 222, 62, 52, 108, 58};
+// DISMISS/UNDO pairing; Detail gave up 20 px for that and 72 more for Age
+// ("41 min ago" needs the 72; 58 elided it on the live window), so the table
+// is no wider than before (the gate's sentence is always fully available on
+// the cell's own hover regardless of where it gets cut). Age is last, same
+// position the beacon table's own Age column holds.
+constexpr int kKindColumnWidths[] = {70, 178, 208, 62, 52, 108, 72};
 constexpr int kKindColumnCount = int(sizeof(kKindColumnWidths) / sizeof(kKindColumnWidths[0]));
 // The Do column's own index is DiversityNoiseProfileDismiss.cpp's
 // kKindActionColumn now that rebuildKindsTable() lives there.
