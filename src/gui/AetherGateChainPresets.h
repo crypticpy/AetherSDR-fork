@@ -114,11 +114,12 @@ QList<ChainPresetWrite> chainPresetSet(const ChainPresetDoc& doc,
                                        const QList<ChainStage>& rows,
                                        QStringList* missing);
 
-// The PRESETS row: a menu, LOAD, SAVE AS..., DELETE, and the one-line notice a
-// delete leaves behind. No modal dialogs anywhere in it -- SAVE AS... opens an
-// inline field where the menu was, and DELETE is undoable for eight seconds
-// instead of asking first. A confirmation box is a question nobody reads; an
-// undo is an answer.
+// The SETUP row: a menu, LOAD, SAVE AS..., DELETE, and the one-line notice a
+// delete leaves behind. It sits on the MODE row, beside SET UP FOR <mode> --
+// both are whole-chain actions and read as a pair (design §2.6). No modal
+// dialogs anywhere in it -- SAVE AS... opens an inline field where the menu
+// was, and DELETE is undoable for eight seconds instead of asking first. A
+// confirmation box is a question nobody reads; an undo is an answer.
 class AetherGateChainPresetBar : public QWidget {
     Q_OBJECT
 public:

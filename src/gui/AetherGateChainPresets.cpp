@@ -32,7 +32,11 @@ namespace {
 // is not still carrying the last thing you did when you come back to it.
 constexpr int kUndoMs = 8000;
 
-constexpr int kPickWidth = 250;
+// This row lives on the MODE row beside SET UP FOR <mode> (design §2.6), so
+// its width competes with the mode buttons for the same line -- narrower
+// than on the VISUAL tab it used to own, but still enough to read a saved
+// name; a longer one elides.
+constexpr int kPickWidth = 150;
 
 // The menu keeps each preset's name as its data and its mode one role along,
 // so the "(edited)" suffix can be put on and taken off without reading the
@@ -299,7 +303,7 @@ AetherGateChainPresetBar::AetherGateChainPresetBar(QWidget* parent) : QWidget(pa
     box->setContentsMargins(0, 0, 0, 0);
     box->setSpacing(6);
 
-    auto* caption = DiversityWidgets::makeCaption(tr("PRESETS"), this);
+    auto* caption = DiversityWidgets::makeCaption(tr("SETUP"), this);
     caption->setObjectName(QStringLiteral("gateChainPresetCaption"));
     caption->setToolTip(tr("Every stage, saved under a name and put back one at a time."));
     caption->setAccessibleDescription(
@@ -344,7 +348,7 @@ AetherGateChainPresetBar::AetherGateChainPresetBar(QWidget* parent) : QWidget(pa
     // the menu happens to be showing. The menu is a choice; this is a fact.
     m_state = DiversityWidgets::makeReadoutLine(
         QStringLiteral("gateChainPresetState"),
-        tr("in force: %1 (edited)").arg(QString(24, QLatin1Char('M'))),
+        tr("in force: %1 (edited)").arg(QString(14, QLatin1Char('M'))),
         tr("The preset the receiver was last set to. \"edited\" means it drifted."),
         this);
     m_state->setAccessibleDescription(

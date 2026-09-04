@@ -23,8 +23,9 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
-// The two tabs, the PRESETS row, the door back from a mark on the picture, and
-// the one place a gesture on the picture or a preset turns into writes. Split
+// The two tabs, the MODE/SETUP row above them, the door back from a mark on
+// the picture, and the one place a gesture on the picture or a preset turns
+// into writes. Split
 // from AetherGateChainWindow.cpp because that file was 654 lines before any of
 // this and AGENTS.md asks for files under 800 -- and because these things are
 // one story: they are the surfaces that do not touch a tile and still have to
@@ -134,6 +135,23 @@ void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
         box->addWidget(button);
     }
 
+    box->addSpacing(14);
+
+    // SETUP: the whole chain as the operator left it, saved under a name.
+    // Design §2.6 moves this off the VISUAL tab and onto the MODE row, beside
+    // SET UP FOR <mode> -- both are whole-chain actions and now read as the
+    // pair they are. Its own widget, JSON store and "edited" comparison are
+    // untouched; only where it lives and what its caption says have changed.
+    m_presets = new AetherGateChainPresetBar(row);
+    m_presets->setSource([this] { return m_strip ? m_strip->stages() : QList<ChainStage>(); },
+                         [this] { return m_mode; });
+    connect(m_presets, &AetherGateChainPresetBar::applyRequested, this,
+            [this](const QList<ChainPresetWrite>& writes, const QString& name,
+                   const QStringList& missing) {
+                runSequence(writes, name, missing, /*isPreset=*/true);
+            });
+    box->addWidget(m_presets);
+
     box->addStretch(1);
     root->addWidget(row);
 
@@ -234,20 +252,24 @@ void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
     });
     nowTimer->start();
 
+    // MODE/SETUP, also above the tabs (design §2.5): the two whole-chain
+    // actions -- set up for a mode, and load a saved chain -- have to read
+    // the same on VISUAL as on CHAIN, and a row built inside the CHAIN tab
+    // alone would vanish the moment the operator flipped to the picture.
+    buildModeRow(root);
+
     m_tabs = new QTabWidget(bodyWidget());
     m_tabs->setObjectName(QStringLiteral("gateChainTabs"));
     m_tabs->setAccessibleName(tr("Chain or picture"));
     m_tabs->setDocumentMode(false);
 
-    // ---- CHAIN: the mode row and the scrolling diagram.
+    // ---- CHAIN: the scrolling diagram, under the MODE row above.
     auto* chainTab = new QWidget(m_tabs);
     chainTab->setObjectName(QStringLiteral("gateChainTabChain"));
     chainTab->setAccessibleName(tr("The chain as a diagram"));
     auto* chainBox = new QVBoxLayout(chainTab);
     chainBox->setContentsMargins(0, 6, 0, 0);
     chainBox->setSpacing(6);
-
-    buildModeRow(chainBox);
 
     // Everything below the mode row scrolls, so the window can be dragged
     // smaller than its natural content height without a card becoming
@@ -281,27 +303,16 @@ void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
                           tr("Every stage between the antenna and your ears, in "
                              "the order the signal goes through them."));
 
-    // ---- VISUAL: the presets row, then the passband as a picture at the
-    // width of the window. The operator's words: "flip over to the visual
-    // filter screen where you can see presets". PRESETS is a whole chain in
-    // one press, exactly what the picture shows the effect of, and it sits
-    // over the picture rather than over the diagram for that reason.
+    // ---- VISUAL: the passband as a picture at the width of the window.
+    // SETUP used to sit here as its own row -- design §2.6 moved it onto the
+    // MODE row above the tabs instead, beside SET UP FOR <mode>, freeing this
+    // whole row's height back to the picture.
     auto* visualTab = new QWidget(m_tabs);
     visualTab->setObjectName(QStringLiteral("gateChainTabVisual"));
-    visualTab->setAccessibleName(tr("The filter as a picture, and the presets"));
+    visualTab->setAccessibleName(tr("The filter as a picture"));
     auto* visualBox = new QVBoxLayout(visualTab);
     visualBox->setContentsMargins(0, 6, 0, 0);
     visualBox->setSpacing(6);
-
-    m_presets = new AetherGateChainPresetBar(visualTab);
-    m_presets->setSource([this] { return m_strip ? m_strip->stages() : QList<ChainStage>(); },
-                         [this] { return m_mode; });
-    connect(m_presets, &AetherGateChainPresetBar::applyRequested, this,
-            [this](const QList<ChainPresetWrite>& writes, const QString& name,
-                   const QStringList& missing) {
-                runSequence(writes, name, missing, /*isPreset=*/true);
-            });
-    visualBox->addWidget(m_presets);
 
     m_visual = new AetherGateChainVisual(visualTab);
     connect(m_visual, &AetherGateChainVisual::requestWrite, this,
@@ -316,10 +327,10 @@ void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
 
     m_tabs->addTab(visualTab, tr("VISUAL"));
     m_tabs->setTabToolTip(kTabVisual,
-                          tr("The passband drawn over what is actually arriving, "
-                             "and your saved presets. Drag the edges, "
-                             "double-click to notch, right-click a notch to take "
-                             "it away, click any mark to go to its stage."));
+                          tr("The passband drawn over what is actually arriving. "
+                             "Drag the edges, double-click to notch, right-click "
+                             "a notch to take it away, click any mark to go to "
+                             "its stage."));
 
     connect(m_tabs, &QTabWidget::currentChanged, this, [this](int index) {
         refreshVisualActive();

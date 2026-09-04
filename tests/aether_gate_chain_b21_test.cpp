@@ -160,6 +160,50 @@ void testThePictureIsFedOnlyWhileShownAndInFront()
 // Presets
 // --------------------------------------------------------------------------
 
+// W5 (CHAIN redesign §2.6): SETUP -- what this window still calls
+// "gateChainPresetRow" -- moved off the VISUAL tab and onto the MODE row, a
+// child of "gateChainModeRow", so it reads beside SET UP FOR <mode> and stays
+// on screen on both tabs. MUTATION: parenting it back under either tab's own
+// box would fail one of the isAncestorOf() checks, or make it disappear on
+// CHAIN, this window's own default tab, failing the first isVisibleTo().
+void testSetupSitsOnTheModeRowAndIsVisibleOnBothTabs()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, visualFilter());
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w, kTabChain);
+
+    auto* row = w->findChild<QWidget*>(QStringLiteral("gateChainPresetRow"));
+    auto* modeRow = w->findChild<QWidget*>(QStringLiteral("gateChainModeRow"));
+    auto* visualTab = w->findChild<QWidget*>(QStringLiteral("gateChainTabVisual"));
+    auto* chainTab = w->findChild<QWidget*>(QStringLiteral("gateChainTabChain"));
+    CHECK(row != nullptr && modeRow != nullptr && visualTab != nullptr && chainTab != nullptr);
+    if (!row || !modeRow || !visualTab || !chainTab)
+        return;
+    CHECK(modeRow->isAncestorOf(row));
+    CHECK(!visualTab->isAncestorOf(row));
+    CHECK(!chainTab->isAncestorOf(row));
+
+    // On CHAIN -- the tab the window opens on -- SETUP is already on screen,
+    // beside SET UP FOR <mode>...
+    CHECK(row->isVisibleTo(w));
+    CHECK(button(w, QStringLiteral("gateChainSetButton_phone"))->isVisibleTo(w));
+    // ...and stays visible after flipping to VISUAL and back. MUTATION: a
+    // regression that widens SETUP back out to its old VISUAL-tab size would
+    // push the window past the no-scroll budget checked at 1120 px elsewhere;
+    // pin the window's own floor here so that regression fails close to its
+    // cause instead of only in the unrelated visibility test.
+    CHECK(w->minimumSizeHint().width() <= 1120);
+    bringUp(w, kTabVisual);
+    CHECK(row->isVisibleTo(w));
+    bringUp(w, kTabChain);
+    CHECK(row->isVisibleTo(w));
+}
+
 void testSaveAsWritesOneJsonFilePerPresetUnderAppData()
 {
     wipePresets();
@@ -172,10 +216,11 @@ void testSaveAsWritesOneJsonFilePerPresetUnderAppData()
         return;
     bringUp(w, kTabVisual);
 
-    // The row is on the VISUAL tab, with nothing in force yet.
+    // The row is on the MODE row above the tabs now (W5), with nothing in
+    // force yet -- see testSetupSitsOnTheModeRowAndIsVisibleOnBothTabs() for
+    // the placement itself.
     auto* row = w->findChild<QWidget*>(QStringLiteral("gateChainPresetRow"));
-    auto* visualTab = w->findChild<QWidget*>(QStringLiteral("gateChainTabVisual"));
-    CHECK(row != nullptr && visualTab != nullptr && visualTab->isAncestorOf(row));
+    CHECK(row != nullptr);
     CHECK(labelText(w, "gateChainPresetState") == QStringLiteral("no preset in force"));
 
     // SAVE AS... opens an inline field where the menu was; Enter commits.
@@ -681,6 +726,7 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
 
     testThePictureIsFedOnlyWhileShownAndInFront();
+    testSetupSitsOnTheModeRowAndIsVisibleOnBothTabs();
     testSaveAsWritesOneJsonFilePerPresetUnderAppData();
     testLoadSendsTheStagesInOrderThroughTheSequencerAndEditedIsAComparison();
     testLoadSkipsAStageThisReceiverDoesNotHaveAndNamesIt();
