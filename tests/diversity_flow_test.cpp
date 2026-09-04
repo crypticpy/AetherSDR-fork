@@ -441,11 +441,17 @@ void testNothingScrollsOnAnyPageAtTheInitialSize()
     w->resize(1120, 860);
     settle();
 
-    // The tab row and the pair row are separate widgets at the top, and the
-    // NEXT line is at the bottom rather than a third row under them. If any of
-    // the three were folded back together this is what would notice.
-    CHECK(child<QWidget>(w, "diversityWindowTabRow") != nullptr);
-    CHECK(child<QWidget>(w, "diversityWindowChainRow") != nullptr);
+    // The pair row and the tab row are separate widgets at the top -- PAIR
+    // first, the tabs directly on the page they switch -- and the NEXT line
+    // is at the bottom rather than a third row under them. If any of the
+    // three were folded back together, or the two swapped back, this is what
+    // would notice.
+    auto* tabRow = child<QWidget>(w, "diversityWindowTabRow");
+    auto* pairRow = child<QWidget>(w, "diversityWindowChainRow");
+    CHECK(tabRow != nullptr);
+    CHECK(pairRow != nullptr);
+    if (tabRow && pairRow)
+        CHECK(pairRow->geometry().bottom() <= tabRow->geometry().top());
     CHECK(child<QWidget>(w, "diversityWindowNextStrip") != nullptr);
     CHECK(child<QLabel>(w, "diversityWindowPairCaption") != nullptr);
     CHECK(w->minimumSizeHint().width() <= 1120);

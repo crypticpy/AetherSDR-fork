@@ -138,13 +138,16 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     auto* root = new QVBoxLayout(bodyWidget());
     root->setContentsMargins(8, 4, 8, 8);
     root->setSpacing(8);
-    // Two sticky strips, in the order the operator reads them: where you are,
-    // and what the pair is doing on every page. Two rows rather than one
-    // because v2's single row read as one sentence and left "do the controls
-    // change with the tab?" unanswerable -- see DiversityWindowChain.cpp.
-    // Tighter spacing between the two than the 8 px the rest of the window
-    // uses: they are one block of "about the window", and a gap as wide as the
-    // one under them would read as two unrelated strips.
+    // Two sticky strips: what the pair is doing on every page, then where you
+    // are. PAIR is on top because it never changes with the page; the tabs sit
+    // directly on the page they switch, so a tab reads as part of what is
+    // under it and not as another row of controls (the operator's own call,
+    // 2026-09-04). Two rows rather than one because v2's single row read as
+    // one sentence and left "do the controls change with the tab?"
+    // unanswerable -- see DiversityWindowChain.cpp. Tighter spacing between
+    // the two than the 8 px the rest of the window uses: they are one block
+    // of "about the window", and a gap as wide as the one under them would
+    // read as two unrelated strips.
     //
     // The FLOW line used to be a third row here and is not any more: five lit
     // pills under four lit tabs read as a second tab bar, which is exactly the
@@ -153,8 +156,8 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     auto* strips = new QVBoxLayout;
     strips->setContentsMargins(0, 0, 0, 0);
     strips->setSpacing(4);
-    strips->addWidget(buildTabRow());
     strips->addWidget(buildChainRow());
+    strips->addWidget(buildTabRow());
     root->addLayout(strips);
 
     // Everything below the sticky rows scrolls, so the window can be

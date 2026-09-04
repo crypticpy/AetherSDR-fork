@@ -1,15 +1,6 @@
 # Start
 
-**Row 1 — the pages.** SLICE / BAND / SITE / FILTER, and nothing else;
-`pages` is written at the right end of the row to say so. SLICE, described
-below, is about the frequency you are tuned to. BAND is about the whole span
-the gate can see, and is where you go to decide where to be tuned. SITE is
-about neither: it is about your station — what kind of noise this address
-makes, and what the world's beacon network measures your antennas to be
-worth. FILTER is about what happens to the audio *after* the combiner: the
-slice filter, drawn and driven.
-
-**Row 2 — PAIR.** Everything on this row acts on the antenna pair itself and
+**Row 1 — PAIR.** Everything on this row acts on the antenna pair itself and
 applies whichever page you are looking at. MODE (off / manual / null /
 track), HEAR (OUT — the combined output, A, B, STEREO — what goes to the
 audio; the combiner keeps learning whichever you pick), *Hear A only*
@@ -38,6 +29,15 @@ null on purpose it reads `pan: A only`, `B only` or `nulled`; an older
 gate that has never sent `pan` reads `pan: —`. Kept to a few words
 because the row is already at the window's own 1120 px opening width, with
 the fuller explanation in the readout's tooltip instead.
+
+**Row 2 — the pages.** SLICE / BAND / SITE / FILTER, and nothing else;
+`pages` is written at the right end of the row to say so. SLICE, described
+below, is about the frequency you are tuned to. BAND is about the whole span
+the gate can see, and is where you go to decide where to be tuned. SITE is
+about neither: it is about your station — what kind of noise this address
+makes, and what the world's beacon network measures your antennas to be
+worth. FILTER is about what happens to the audio *after* the combiner: the
+slice filter, drawn and driven.
 
 **The START page — five cards, in the order that gets the best signal.**
 START is the window's first tab. It draws one fixed-height card per step —

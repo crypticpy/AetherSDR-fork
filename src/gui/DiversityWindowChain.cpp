@@ -113,7 +113,7 @@ QString spectrumSourceText(const QJsonObject& d, bool aligned)
 } // namespace
 
 // --------------------------------------------------------------------------
-// Row 1: where you are
+// Row 2: where you are -- directly on the page it switches
 // --------------------------------------------------------------------------
 
 QWidget* DiversityWindow::buildTabRow()
@@ -189,7 +189,7 @@ void DiversityWindow::retargetPageHelp(int page)
 }
 
 // --------------------------------------------------------------------------
-// Row 2: what the pair is doing, on every page
+// Row 1: what the pair is doing, on every page
 // --------------------------------------------------------------------------
 
 QWidget* DiversityWindow::buildChainRow()

@@ -114,21 +114,11 @@ reopens on the next run if it was open at exit.
 
 Two strips sit above the pages and one line sits under them. They do three
 different jobs. They are three rows rather than one because as one row they
-read as a single sentence of controls, and half of them are not.
+read as a single sentence of controls, and half of them are not. PAIR is the
+top row because it never changes with the page; the page tabs sit directly on
+the page they switch.
 
-**Row 1 — the pages.** START / SLICE / BAND / SITE / FILTER, and nothing
-else; `pages` is written near the right end of the row to say so, and one
-**?** at the end of the row opens the help for whichever page is showing.
-The window opens on the page you left it on; the first time, on START.
-START, described below, is the session itself written out. SLICE, described
-below, is about the frequency you are tuned to. BAND is about the whole span
-the gate can see, and is where you go to decide where to be tuned. SITE is
-about neither: it is about your station — what kind of noise this address
-makes, and what the world's beacon network measures your antennas to be
-worth. FILTER is about what happens to the audio *after* the combiner: the
-slice filter, drawn and driven.
-
-**Row 2 — PAIR.** Everything on this row acts on the antenna pair itself and
+**Row 1 — PAIR.** Everything on this row acts on the antenna pair itself and
 applies whichever page you are looking at. MODE (off / manual / null /
 track), HEAR (OUT — the combined output, A, B, STEREO — what goes to the
 audio; the combiner keeps learning whichever you pick), *Hear A only*
@@ -157,6 +147,18 @@ null on purpose it reads `pan: A only`, `B only` or `nulled`; an older
 gate that has never sent `pan` reads `pan: —`. Kept to a few words
 because the row is already at the window's own 1120 px opening width, with
 the fuller explanation in the readout's tooltip instead.
+
+**Row 2 — the pages.** START / SLICE / BAND / SITE / FILTER, and nothing
+else; `pages` is written near the right end of the row to say so, and one
+**?** at the end of the row opens the help for whichever page is showing.
+The window opens on the page you left it on; the first time, on START.
+START, described below, is the session itself written out. SLICE, described
+below, is about the frequency you are tuned to. BAND is about the whole span
+the gate can see, and is where you go to decide where to be tuned. SITE is
+about neither: it is about your station — what kind of noise this address
+makes, and what the world's beacon network measures your antennas to be
+worth. FILTER is about what happens to the audio *after* the combiner: the
+slice filter, drawn and driven.
 
 **The START page — the session, written out.** Five cards, in the order
 that gets the best signal, each with the reason it is in that order beside
