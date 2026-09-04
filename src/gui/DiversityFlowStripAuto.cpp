@@ -40,12 +40,14 @@ void DiversityFlowStrip::updateAutoCleanBanner()
                "got worse. Off by default; off, it holds nothing."));
         m_autoCleanButton->setCheckable(true);
         m_autoCleanButton->setCursor(Qt::PointingHandCursor);
-        applyToggleButtonStyle(m_autoCleanButton, ToggleTribe::Warning);
-        // The gate's own `why` is an arbitrary sentence -- unlike every other
-        // fixed-shape readout in this window, this one has no true worst
-        // case. Ignored, the same treatment m_line already carries, so a
-        // long one clips instead of dragging the window's minimum width
-        // past the 1120 it opens at.
+        // The same emphasised ON tone the sidebar's switch wears (U1: not
+        // the warning gold, which read as an alarm).
+        applyToggleButtonStyle(m_autoCleanButton);
+        // The gate's own `state_label` is a few words of its choosing --
+        // unlike every other fixed-shape readout in this window, this one
+        // has no true worst case. Ignored, the same treatment m_line already
+        // carries, so a long one elides instead of dragging the window's
+        // minimum width past the 1120 it opens at.
         //
         // Unlike m_line, this widget sits in the same QHBoxLayout WITHOUT a
         // stretch factor, next to m_line's stretch of 1 -- a bare
@@ -55,12 +57,12 @@ void DiversityFlowStrip::updateAutoCleanBanner()
         // sibling declares stretch. Floor it at the compact label's own
         // width instead, so it always renders as a real button; the long
         // indicator sentence is elided to that floor rather than clipped
-        // inside a nonexistent one; the floor is wide enough for the state
-        // word, so "AUTO CLEAN ON · measuring" always reads whole.
+        // inside a nonexistent one; the floor is wide enough for the short
+        // labels, so "AUTO CLEAN ON · listening" always reads whole.
         m_autoCleanButton->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         m_autoCleanButton->setMinimumWidth(
             m_autoCleanButton->fontMetrics().horizontalAdvance(
-                QStringLiteral("AUTO CLEAN ON \u00b7 measuring \u00b7 ")) + 40);
+                QStringLiteral("AUTO CLEAN ON \u00b7 listening \u00b7 ")) + 40);
         connect(m_autoCleanButton, &QPushButton::clicked, this, [this](bool checked) {
             emit requestAutoCleanToggle(checked);
         });
@@ -74,7 +76,8 @@ void DiversityFlowStrip::updateAutoCleanBanner()
     m_autoCleanButton->setVisible(m_governor.available);
     const QSignalBlocker block(m_autoCleanButton);
     m_autoCleanButton->setChecked(m_governor.available && m_governor.autoOn);
-    chainAutoSetButtonIndicator(m_autoCleanButton, chainAutoIndicatorLine(m_governor));
+    chainAutoSetButtonIndicator(m_autoCleanButton, chainAutoIndicatorLine(m_governor),
+                                chainAutoIndicatorSentence(m_governor));
 }
 
 } // namespace AetherSDR

@@ -52,15 +52,17 @@ void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
     // No new poll: this timer only re-reads state /filter already delivered.
     auto* autoBanner = DiversityWidgets::makeReadoutLine(
         QStringLiteral("gateChainAutoCleanBanner"),
-        QStringLiteral("AUTO CLEAN ON · settling · mains/squeeze backing off until 12:46"),
+        QStringLiteral("AUTO CLEAN ON · trying a null on the mains hum · "
+                       "mains/squeeze backing off until 12:46"),
         tr("The chain's own governor -- read-only here. Turn it on or off "
            "from the Diversity window or the sidebar's own AUTO CLEAN switch."),
         bodyWidget());
     autoBanner->setAccessibleName(tr("AUTO CLEAN status"));
-    // The gate's own `why` has no true worst case -- same Ignored treatment
-    // the sidebar's and FLOW strip's own AUTO CLEAN widgets carry, so a long
-    // one clips instead of pushing this window's minimum width past the
-    // 1120 it opens at.
+    // This header has the room the switches lack, so it carries the whole
+    // sentence (U1: the switches show the label alone). The gate's own `why`
+    // has no true worst case -- same Ignored treatment the sidebar's and
+    // FLOW strip's own AUTO CLEAN widgets carry, so a long one clips instead
+    // of pushing this window's minimum width past the 1120 it opens at.
     autoBanner->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     autoBanner->setMinimumWidth(0);
     autoBanner->setVisible(false);
@@ -70,7 +72,7 @@ void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
     autoTimer->setObjectName(QStringLiteral("gateChainAutoCleanBannerTimer"));
     autoTimer->setInterval(500);
     connect(autoTimer, &QTimer::timeout, this, [this, autoBanner] {
-        const QString indicator = chainAutoIndicatorLine(this->m_governor);
+        const QString indicator = chainAutoIndicatorSentence(this->m_governor);
         autoBanner->setVisible(!indicator.isEmpty());
         if (!indicator.isEmpty())
             autoBanner->setText(indicator);

@@ -237,10 +237,12 @@ AetherGateDiversityPanel::AetherGateDiversityPanel(QWidget* parent)
            "Off by default; off, it holds nothing."));
     m_autoCleanButton->setCheckable(true);
     m_autoCleanButton->setCursor(Qt::PointingHandCursor);
-    applyToggleButtonStyle(m_autoCleanButton, ToggleTribe::Warning);
-    // The gate's own `why` has no true worst case -- same Ignored treatment
-    // m_statusLine above already carries, so a long one clips rather than
-    // pushing this ~250px sidebar column wider.
+    // The same emphasised ON tone every other switch in this sidebar wears
+    // (U1: the warning gold read as an alarm, and AUTO CLEAN is not one).
+    applyToggleButtonStyle(m_autoCleanButton);
+    // The gate's own `state_label` has no true worst case -- same Ignored
+    // treatment m_statusLine above already carries, so a long one elides
+    // rather than pushing this ~250px sidebar column wider.
     m_autoCleanButton->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     m_autoCleanButton->setMinimumWidth(0);
     m_autoCleanButton->setVisible(false);   // shown once a governor block arrives
@@ -399,7 +401,8 @@ void AetherGateDiversityPanel::applyDiversity(const QJsonObject& d, bool isJson)
         m_autoCleanButton->setVisible(gov.available);
         const QSignalBlocker block(m_autoCleanButton);
         m_autoCleanButton->setChecked(gov.autoOn);
-        chainAutoSetButtonIndicator(m_autoCleanButton, chainAutoIndicatorLine(gov));
+        chainAutoSetButtonIndicator(m_autoCleanButton, chainAutoIndicatorLine(gov),
+                                    chainAutoIndicatorSentence(gov));
     }
 
     // Written from a poll only when the combo is neither focused nor has its

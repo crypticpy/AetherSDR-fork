@@ -96,7 +96,8 @@ struct ChainAutoGovernor {
     bool    available{false};
     bool    autoOn{false};
     QString state;
-    QString why;
+    QString why;        // the sentence: the card, the inspector, hover
+    QString label;      // `state_label`: the few plain words a switch shows
     double  settleS{0.0};
     double  marginDb{0.0};
     double  spreadDb{0.0};
@@ -156,22 +157,33 @@ QString chainAutoStateLine(const ChainAutoGovernor& gov);
 // line already covers those). Empty when AUTO has never touched a dig.
 QString chainAutoDigLine(const ChainAutoGovernor& gov);
 
-// B25's own AUTO CLEAN ON banner, the one line every surface in
-// docs/DIVERSITY.md's "AUTO CLEAN: the chain decides" shows when the
-// governor is on: "AUTO CLEAN ON · <state> · <why>". Empty when the governor
-// block never arrived or auto is off -- the caller's job to collapse to
-// "AUTO CLEAN" alone (or hide entirely) in that case, since that decision is
-// surface-specific (a switch collapses to the bare label; a read-only header
-// just disappears).
+// The governor's own few plain words -- `state_label` ("listening",
+// "trying a null on the mains hum", "kept", "put back", "holding the
+// blanker"), or the raw state on a gate too old to send one.
+QString chainAutoStateWord(const ChainAutoGovernor& gov);
+
+// B25's own AUTO CLEAN ON indicator, what a switch's face shows while the
+// governor is on: "AUTO CLEAN ON · <state_label>" and nothing more -- U1: the
+// sentence is the machine narrating itself, so it never rides on a switch.
+// Empty when the governor block never arrived or auto is off -- the caller's
+// job to collapse to "AUTO CLEAN" alone (or hide entirely) in that case,
+// since that decision is surface-specific (a switch collapses to the bare
+// label; a read-only header just disappears).
 QString chainAutoIndicatorLine(const ChainAutoGovernor& gov);
 
-// Puts that line on a switch that is usually narrower than the sentence (the
-// sidebar is 244 px; the FLOW strip's button sits beside a stretch-1 line):
-// the text is elided to the button's current width, the whole line rides in
-// the accessible description and ahead of the button's own tooltip, and an
-// empty indicator collapses the switch to the bare "AUTO CLEAN". The base
-// tooltip is remembered on the first call so the indicator never stacks.
-void chainAutoSetButtonIndicator(QPushButton* button, const QString& indicator);
+// The whole line for the surfaces with room for it -- the CHAIN window's
+// read-only header, a switch's tooltip and accessible description:
+// "AUTO CLEAN ON · <state_label> · <why>". Empty on the same terms.
+QString chainAutoIndicatorSentence(const ChainAutoGovernor& gov);
+
+// Puts the indicator on a switch (the sidebar is 244 px; the FLOW strip's
+// button sits beside a stretch-1 line): the face shows `indicator` elided
+// to the button's current width, `sentence` rides in the accessible
+// description and ahead of the button's own tooltip, and an empty indicator
+// collapses the switch to the bare "AUTO CLEAN". The base tooltip is
+// remembered on the first call so the sentence never stacks.
+void chainAutoSetButtonIndicator(QPushButton* button, const QString& indicator,
+                                 const QString& sentence);
 
 // True when the governor itself started the dig currently running or just
 // finished: a pending write for tool "dig", a held "dig", or -- once neither

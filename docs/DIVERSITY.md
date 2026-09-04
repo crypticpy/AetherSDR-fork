@@ -848,7 +848,7 @@ card's own muted "why" tone reused, not a new colour, and it disappears the
 moment the gate's next answer no longer names that row.
 
 Select the AUTO CLEAN card and its inspector adds two lines under the usual
-one: the governor's own `state · why`, then its recent moves, newest first —
+one: the governor's own `state_label · why`, then its recent moves, newest first —
 `12:41:07 · squeeze · carrier · kept +1.8 dB · <why>`,
 `… · undone -0.9 dB · …`, a bare `released`, or `error: <the gate's own
 words>` for one it refused. An active backoff prints as
@@ -888,17 +888,24 @@ stops a dig AUTO started and leaves one you started alone.
 
 ### Seeing it, and turning it off
 
-While `governor.auto` holds, three surfaces say `AUTO CLEAN ON · <state>
-· <why>` in the same tone every emphasised readout in this window already
-wears: the sidebar's own **AUTO CLEAN** button (a checkable switch, press
-it to send `auto=on` or `auto=off`); the Diversity window's FLOW strip,
-same switch, same words, above the checklist; and the CHAIN window's
-header, read-only, with no write path of its own. The two switches are
-narrower than the gate's `why` sentence, so they show `AUTO CLEAN ON ·
-<state> · …` elided to the room they have; hover for the whole line, which
-is also the control's accessible description. Off, or on a gate too old
-to send a governor block, the sidebar and FLOW switches collapse to a
-bare `AUTO CLEAN` toggle and the CHAIN header disappears.
+While `governor.auto` holds, three surfaces show it, in the same
+emphasised ON tone every other switch in the sidebar wears (not the
+warning gold: AUTO CLEAN on is not an alarm). The sidebar's own **AUTO
+CLEAN** button (a checkable switch, press it to send `auto=on` or
+`auto=off`) and the Diversity window's FLOW strip switch, above the
+checklist, say `AUTO CLEAN ON · <state_label>` and nothing more:
+`state_label` is the governor's own few plain words — `listening`,
+`trying a null on the mains hum`, `trying the blanker`, `kept`, `put
+back`, `holding the blanker`, `DIG OUT running`, `waiting for the
+stream` — so the switch never reads as the machine narrating itself.
+The sentence (`why`) rides in the switch's tooltip and accessible
+description, on the AUTO CLEAN card's inspector, and on the CHAIN
+window's read-only header, which has the room for `AUTO CLEAN ON ·
+<state_label> · <why>` and no write path of its own. A gate too old to
+send `state_label` puts the raw `state` word on the face instead. Off,
+or on a gate with no governor block at all, the sidebar and FLOW
+switches collapse to a bare `AUTO CLEAN` toggle and the CHAIN header
+disappears.
 
 ### DIG STOP, on the line itself
 
@@ -1119,7 +1126,10 @@ The gate's HTTP control port (default 8731) serves:
 - `GET /diversity/set?auto=on|off` — the AUTO CLEAN switch (exact strings;
   anything else is `{"error": ...}`). `GET /diversity/governor` — what it
   holds and why: `auto`, `state` (`idle|measuring|applying|settling|backoff`),
-  `why`, `settle_s`, `margin_db`, `spread_db`, `holding[]` {tool, params,
+  `state_label` (the few plain words a switch shows: `off`, `listening`,
+  `trying <tool> on <what>`, `kept`, `put back`, `holding <tools>`,
+  `DIG OUT running`, `waiting for the stream`, `failed`), `why` (the
+  sentence), `settle_s`, `margin_db`, `spread_db`, `holding[]` {tool, params,
   kind, why, since, delta_db}, `pending`, `events[]` (last 50, each with
   `result: pending|kept|undone|released|error` and `delta_db`), `backoff[]`
   {kind, tool, until}, `available`, `error`. The same block is `governor`

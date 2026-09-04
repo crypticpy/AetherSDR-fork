@@ -130,6 +130,7 @@ ChainAutoGovernor chainAutoParseGovernor(const QJsonObject& filter)
     g.autoOn = o.value(QStringLiteral("auto")).toBool(false);
     g.state = o.value(QStringLiteral("state")).toString();
     g.why = o.value(QStringLiteral("why")).toString();
+    g.label = o.value(QStringLiteral("state_label")).toString();
     g.settleS = num(o.value(QStringLiteral("settle_s")));
     g.marginDb = num(o.value(QStringLiteral("margin_db")));
     g.spreadDb = num(o.value(QStringLiteral("spread_db")));
@@ -231,7 +232,7 @@ QString chainAutoStateLine(const ChainAutoGovernor& gov)
 {
     if (!gov.available)
         return QString();
-    QString line = QStringLiteral("%1 · %2").arg(gov.state, gov.why);
+    QString line = QStringLiteral("%1 · %2").arg(chainAutoStateWord(gov), gov.why);
     const QString dig = chainAutoDigLine(gov);
     if (!dig.isEmpty())
         line += QStringLiteral(" · ") + dig;
@@ -266,14 +267,28 @@ QString chainAutoDigLine(const ChainAutoGovernor& gov)
     return QString();
 }
 
+QString chainAutoStateWord(const ChainAutoGovernor& gov)
+{
+    return gov.label.isEmpty() ? gov.state : gov.label;
+}
+
 QString chainAutoIndicatorLine(const ChainAutoGovernor& gov)
 {
     if (!gov.available || !gov.autoOn)
         return QString();
-    return QStringLiteral("AUTO CLEAN ON · %1 · %2").arg(gov.state, gov.why);
+    return QStringLiteral("AUTO CLEAN ON · %1").arg(chainAutoStateWord(gov));
 }
 
-void chainAutoSetButtonIndicator(QPushButton* button, const QString& indicator)
+QString chainAutoIndicatorSentence(const ChainAutoGovernor& gov)
+{
+    const QString line = chainAutoIndicatorLine(gov);
+    if (line.isEmpty() || gov.why.isEmpty())
+        return line;
+    return line + QStringLiteral(" · ") + gov.why;
+}
+
+void chainAutoSetButtonIndicator(QPushButton* button, const QString& indicator,
+                                 const QString& sentence)
 {
     static const char* const kBaseTip = "chainAutoBaseToolTip";
     if (!button->property(kBaseTip).isValid())
@@ -291,8 +306,9 @@ void chainAutoSetButtonIndicator(QPushButton* button, const QString& indicator)
     const int avail = qMax(button->width() - 16,
                            button->fontMetrics().horizontalAdvance(QObject::tr("AUTO CLEAN ON")) + 24);
     button->setText(button->fontMetrics().elidedText(indicator, Qt::ElideRight, avail));
-    button->setAccessibleDescription(indicator);
-    button->setToolTip(base.isEmpty() ? indicator : indicator + QStringLiteral("\n\n") + base);
+    const QString whole = sentence.isEmpty() ? indicator : sentence;
+    button->setAccessibleDescription(whole);
+    button->setToolTip(base.isEmpty() ? whole : whole + QStringLiteral("\n\n") + base);
 }
 
 bool chainAutoDigStartedByAuto(const ChainAutoGovernor& gov)

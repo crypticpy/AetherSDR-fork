@@ -76,13 +76,15 @@ QByteArray withGovernor(const QByteArray& body, const QJsonObject& gov)
 // tests/aether_gate_chain_auto_test.cpp's own governor() builds, redefined
 // here rather than shared because that helper is local to that file.
 QJsonObject governor(bool autoOn, const QString& state, const QString& why,
-                     const QJsonArray& holding = {})
+                     const QJsonArray& holding = {}, const QString& label = {})
 {
     QJsonObject g;
     g.insert(QStringLiteral("available"), true);
     g.insert(QStringLiteral("auto"), autoOn);
     g.insert(QStringLiteral("state"), state);
     g.insert(QStringLiteral("why"), why);
+    if (!label.isEmpty())
+        g.insert(QStringLiteral("state_label"), label);
     g.insert(QStringLiteral("settle_s"), 5.0);
     g.insert(QStringLiteral("margin_db"), 1.0);
     g.insert(QStringLiteral("spread_db"), 2.0);
@@ -212,21 +214,38 @@ void testSidebarIndicatorAndToggle()
     CHECK(!button->isChecked());
     CHECK_EQ(button->text(), QStringLiteral("AUTO CLEAN"));
 
-    // MUTATION: turned on -- the state and why, on the button's own face.
+    // MUTATION: turned on -- the governor's own plain words on the button's
+    // face, never the sentence (U1); the sentence rides in the tooltip and
+    // the accessible description.
+    net.routes[QStringLiteral("/diversity")] = {
+        QNetworkReply::NoError,
+        withGovernor(kDiversityFull,
+                     governor(true, QStringLiteral("settling"),
+                              QStringLiteral("mains/squeeze backing off until 12:46"),
+                              {}, QStringLiteral("trying a null on the mains hum")))};
+    tick(a);
+    CHECK(button->isChecked());
+    CHECK_EQ(button->accessibleDescription(),
+             QStringLiteral("AUTO CLEAN ON · trying a null on the mains hum · "
+                            "mains/squeeze backing off until 12:46"));
+    CHECK(button->text().startsWith(QStringLiteral("AUTO CLEAN ON · trying")));
+    CHECK(!button->text().contains(QStringLiteral("backing off")));
+    CHECK(!button->text().contains(QStringLiteral("settling")));
+    CHECK(button->toolTip().startsWith(
+        QStringLiteral("AUTO CLEAN ON · trying a null on the mains hum · mains/squeeze")));
+
+    // MUTATION: a gate too old to send state_label falls back to the raw
+    // state on the face, sentence still off it.
     net.routes[QStringLiteral("/diversity")] = {
         QNetworkReply::NoError,
         withGovernor(kDiversityFull,
                      governor(true, QStringLiteral("settling"),
                               QStringLiteral("mains/squeeze backing off until 12:46")))};
     tick(a);
-    CHECK(button->isChecked());
+    CHECK_EQ(button->text(), QStringLiteral("AUTO CLEAN ON · settling"));
     CHECK_EQ(button->accessibleDescription(),
              QStringLiteral("AUTO CLEAN ON · settling · "
                             "mains/squeeze backing off until 12:46"));
-    // The visible text is elided to the switch, never clipped mid-word, and
-    // always opens with the state; the whole sentence rides in the tooltip.
-    CHECK(button->text().startsWith(QStringLiteral("AUTO CLEAN ON")));
-    CHECK(button->toolTip().startsWith(QStringLiteral("AUTO CLEAN ON · settling · ")));
 
     // Pressing it while ON writes auto=off, exactly.
     button->click();
@@ -275,13 +294,14 @@ void testFlowStripIndicatorAndToggle()
         QNetworkReply::NoError,
         withGovernor(kDiversityFull,
                      governor(true, QStringLiteral("measuring"),
-                              QStringLiteral("sampling the noise floor")))};
+                              QStringLiteral("sampling the noise floor"),
+                              {}, QStringLiteral("listening")))};
     tick(a);
     CHECK(button->isVisible());
     CHECK(button->isChecked());
     CHECK_EQ(button->accessibleDescription(),
-             QStringLiteral("AUTO CLEAN ON · measuring · sampling the noise floor"));
-    CHECK(button->text().startsWith(QStringLiteral("AUTO CLEAN ON")));
+             QStringLiteral("AUTO CLEAN ON · listening · sampling the noise floor"));
+    CHECK_EQ(button->text(), QStringLiteral("AUTO CLEAN ON · listening"));
 
     button->click();
     settle();
@@ -314,7 +334,8 @@ void testChainWindowBannerIsReadOnly()
     connectGateBoth(a, net, kDiversityFull,
                     withGovernor(kChainFullFilter,
                                  governor(true, QStringLiteral("settling"),
-                                          QStringLiteral("mains/squeeze backing off until 12:46"))));
+                                          QStringLiteral("mains/squeeze backing off until 12:46"),
+                                          {}, QStringLiteral("trying a null on the mains hum"))));
     AetherGateChainWindow* w = openChain(a);
     CHECK(w != nullptr);
     if (!w)
@@ -332,8 +353,9 @@ void testChainWindowBannerIsReadOnly()
     if (!banner)
         return;
     CHECK(banner->isVisible());
+    // The header has the room: the label AND the sentence (U1).
     CHECK_EQ(banner->text(),
-             QStringLiteral("AUTO CLEAN ON · settling · "
+             QStringLiteral("AUTO CLEAN ON · trying a null on the mains hum · "
                             "mains/squeeze backing off until 12:46"));
 
     // MUTATION: auto goes off -- the banner disappears rather than reading
