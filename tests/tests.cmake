@@ -3100,6 +3100,75 @@ add_test(NAME diversity_window_test COMMAND diversity_window_test)
 set_tests_properties(diversity_window_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# The DiversityWindow talker table, timeline and derived event log --
+# split out of diversity_window_test.cpp, which was over the 800-line
+# budget AGENTS.md asks for. Same harness, same fixture.
+add_executable(diversity_window_talkers_test
+    tests/diversity_window_talkers_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateAppletControls.cpp
+    src/gui/AetherGateAppletDiversity.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainTile.cpp
+    src/gui/AetherGateChainAuto.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateChainBypass.cpp
+    src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainPresets.cpp
+    src/gui/AetherGateChainVisual.cpp
+    src/gui/AetherGateDeviceStrip.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityHelp.cpp
+    src/gui/DiversityNextStrip.cpp
+    src/gui/DiversitySessionCard.cpp
+    src/gui/DiversitySessionModel.cpp
+    src/gui/DiversitySessionPage.cpp
+    src/gui/DiversitySessionText.cpp
+    src/gui/HelpDialog.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFilterPanelPaint.cpp
+    src/gui/DiversityFilterPanelSqueeze.cpp
+    src/gui/DiversityFilterPanelRoof.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityNoiseProfileDismiss.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_window_talkers_test PRIVATE src tests)
+target_link_libraries(diversity_window_talkers_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_window_talkers_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_window_talkers_test COMMAND diversity_window_talkers_test)
+set_tests_properties(diversity_window_talkers_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # The Diversity window's BAND page: the SLICE/BAND switch, the spatial
 # waterfall and the conversation FINDER, and the two extra gate routes they are
 # fed from (/diversity/spatial at 4 Hz, /diversity/finder at 1 Hz). A third
@@ -3656,6 +3725,75 @@ target_link_libraries(aether_gate_chain_auto_test PRIVATE
 set_target_properties(aether_gate_chain_auto_test PROPERTIES AUTOMOC ON)
 add_test(NAME aether_gate_chain_auto_test COMMAND aether_gate_chain_auto_test)
 set_tests_properties(aether_gate_chain_auto_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The AUTO CLEAN card's own state+events inspector -- split out of
+# aether_gate_chain_auto_test.cpp, which was over the 800-line budget
+# AGENTS.md asks for. Same harness, same fixture.
+add_executable(aether_gate_chain_auto_inspector_test
+    tests/aether_gate_chain_auto_inspector_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateAppletControls.cpp
+    src/gui/AetherGateAppletDiversity.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainTile.cpp
+    src/gui/AetherGateChainAuto.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateChainBypass.cpp
+    src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainPresets.cpp
+    src/gui/AetherGateChainVisual.cpp
+    src/gui/AetherGateDeviceStrip.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityHelp.cpp
+    src/gui/DiversityNextStrip.cpp
+    src/gui/DiversitySessionCard.cpp
+    src/gui/DiversitySessionModel.cpp
+    src/gui/DiversitySessionPage.cpp
+    src/gui/DiversitySessionText.cpp
+    src/gui/HelpDialog.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFilterPanelPaint.cpp
+    src/gui/DiversityFilterPanelSqueeze.cpp
+    src/gui/DiversityFilterPanelRoof.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityNoiseProfileDismiss.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(aether_gate_chain_auto_inspector_test PRIVATE src tests)
+target_link_libraries(aether_gate_chain_auto_inspector_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(aether_gate_chain_auto_inspector_test PROPERTIES AUTOMOC ON)
+add_test(NAME aether_gate_chain_auto_inspector_test COMMAND aether_gate_chain_auto_inspector_test)
+set_tests_properties(aether_gate_chain_auto_inspector_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(aether_gate_chain_roof_test
@@ -4508,6 +4646,75 @@ target_link_libraries(diversity_flow_test PRIVATE
 set_target_properties(diversity_flow_test PROPERTIES AUTOMOC ON)
 add_test(NAME diversity_flow_test COMMAND diversity_flow_test)
 set_tests_properties(diversity_flow_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The DiversityWindow FLOW strip's sixth step, DIG -- split out of
+# diversity_flow_test.cpp, which was over the 800-line budget AGENTS.md
+# asks for. Same harness, same fixture.
+add_executable(diversity_flow_dig_test
+    tests/diversity_flow_dig_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateAppletControls.cpp
+    src/gui/AetherGateAppletDiversity.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainTile.cpp
+    src/gui/AetherGateChainAuto.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateChainBypass.cpp
+    src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainPresets.cpp
+    src/gui/AetherGateChainVisual.cpp
+    src/gui/AetherGateDeviceStrip.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityHelp.cpp
+    src/gui/DiversityNextStrip.cpp
+    src/gui/DiversitySessionCard.cpp
+    src/gui/DiversitySessionModel.cpp
+    src/gui/DiversitySessionPage.cpp
+    src/gui/DiversitySessionText.cpp
+    src/gui/HelpDialog.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFilterPanelPaint.cpp
+    src/gui/DiversityFilterPanelSqueeze.cpp
+    src/gui/DiversityFilterPanelRoof.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityNoiseProfileDismiss.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_flow_dig_test PRIVATE src tests)
+target_link_libraries(diversity_flow_dig_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_flow_dig_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_flow_dig_test COMMAND diversity_flow_dig_test)
+set_tests_properties(diversity_flow_dig_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(meter_applet_capability_test
@@ -6279,6 +6486,77 @@ target_link_libraries(diversity_session_page_test PRIVATE
 set_target_properties(diversity_session_page_test PROPERTIES AUTOMOC ON)
 add_test(NAME diversity_session_page_test COMMAND diversity_session_page_test)
 set_tests_properties(diversity_session_page_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    TIMEOUT 300)
+
+# The DiversitySessionPage START page's NEXT strip and the frame's
+# no-scroll budget -- split out of diversity_session_page_test.cpp,
+# which was over the 800-line budget AGENTS.md asks for. Same harness,
+# same fixture.
+add_executable(diversity_session_page_next_test
+    tests/diversity_session_page_next_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateAppletControls.cpp
+    src/gui/AetherGateAppletDiversity.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainTile.cpp
+    src/gui/AetherGateChainAuto.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateChainBypass.cpp
+    src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainPresets.cpp
+    src/gui/AetherGateChainVisual.cpp
+    src/gui/AetherGateDeviceStrip.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityHelp.cpp
+    src/gui/DiversityNextStrip.cpp
+    src/gui/DiversitySessionCard.cpp
+    src/gui/DiversitySessionModel.cpp
+    src/gui/DiversitySessionPage.cpp
+    src/gui/DiversitySessionText.cpp
+    src/gui/HelpDialog.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFilterPanelPaint.cpp
+    src/gui/DiversityFilterPanelSqueeze.cpp
+    src/gui/DiversityFilterPanelRoof.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityNoiseProfileDismiss.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_session_page_next_test PRIVATE src tests)
+target_link_libraries(diversity_session_page_next_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_session_page_next_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_session_page_next_test COMMAND diversity_session_page_next_test)
+set_tests_properties(diversity_session_page_next_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     TIMEOUT 300)
 

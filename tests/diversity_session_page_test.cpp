@@ -15,8 +15,16 @@
 // value differs, asserted after the first. A page whose cards were five frozen
 // strings would pass the first assertion of every case and fail the second --
 // the only way to tell "reads the gate" from "looks like it does".
+//
+// The NEXT strip cases and the frame (no-scroll) budget moved out to
+// tests/diversity_session_page_next_test.cpp: this file was at the
+// 800-line budget AGENTS.md asks for. The shared fixture (constants, the
+// governor/dig payload builders, Bench, and the card/strip finder
+// helpers) lives in DiversitySessionPageTestSupport.h so it is not
+// duplicated between the two binaries.
 
 #include "DiversityGateFixture.h"
+#include "DiversitySessionPageTestSupport.h"
 #include "TestSettingsProfile.h"
 #include "core/AppSettings.h"
 #include "gui/AetherGateApplet.h"
@@ -34,24 +42,17 @@
 #include <QLayout>
 #include <QNetworkReply>
 #include <QPushButton>
-#include <QScrollArea>
-#include <QScrollBar>
 #include <QStackedWidget>
 #include <QStringList>
 #include <QTest>
-#include <QTimer>
 #include <QToolButton>
 
 #include <cstdio>
 
 using AetherSDR::AetherGateApplet;
 using AetherSDR::AppSettings;
-using AetherSDR::DiversityNextStrip;
-using AetherSDR::DiversitySessionCard;
 using AetherSDR::DiversitySessionModel;
 using AetherSDR::DiversityWindow;
-using AetherSDR::SessionCopy;
-using AetherSDR::sessionStepCopy;
 
 using namespace DiversityGateFixture;
 
@@ -88,242 +89,6 @@ int g_failed = 0;
             return;                                                                  \
         }                                                                            \
     } while (0)
-
-const char* const kPageKey = "DiversityWindowPage";
-const char* const kCollapsedKey = "DiversityNextStripCollapsed";
-const char* const kPageButtons[] = {
-    "diversityWindowPageStart", "diversityWindowPageSlice", "diversityWindowPageBand",
-    "diversityWindowPageSite", "diversityWindowPageFilter"};
-
-void closedToStart()
-{
-    AppSettings::instance().setValue(QStringLiteral("DiversityWindowVisible"),
-                                     QStringLiteral("False"));
-}
-
-// What a station that has never opened this window has. Written rather than
-// assumed: these cases share one AppSettings and two are about what it keeps.
-void forgetEverything()
-{
-    closedToStart();
-    AppSettings::instance().setValue(QLatin1String(kPageKey), QString());
-    AppSettings::instance().setValue(QLatin1String(kCollapsedKey), QStringLiteral("True"));
-}
-
-// A copy of a fixture with one wire value swapped: what each case needs is the
-// SAME site with one thing different, and a fixture that differed in more than
-// the field under test could not prove which field the page read.
-QByteArray with(const QByteArray& body, const char* from, const char* to)
-{
-    QByteArray out = body;
-    out.replace(from, to);
-    return out;
-}
-
-// The governor block, docs/DIVERSITY.md's own shape. Every cure below depends
-// on it: the model clears every cure model-wide while AUTO CLEAN is off.
-QJsonObject governor(bool autoOn, const QString& state = QStringLiteral("watching"),
-                     const QString& why = QString())
-{
-    QJsonObject g;
-    g.insert(QStringLiteral("available"), true);
-    g.insert(QStringLiteral("auto"), autoOn);
-    g.insert(QStringLiteral("state"), state);
-    g.insert(QStringLiteral("why"), why);
-    g.insert(QStringLiteral("settle_s"), 5.0);
-    g.insert(QStringLiteral("margin_db"), 1.0);
-    g.insert(QStringLiteral("spread_db"), 2.0);
-    g.insert(QStringLiteral("holding"), QJsonArray());
-    g.insert(QStringLiteral("pending"), QJsonValue());
-    g.insert(QStringLiteral("events"), QJsonArray());
-    g.insert(QStringLiteral("backoff"), QJsonArray());
-    g.insert(QStringLiteral("error"), QString());
-    return g;
-}
-
-QByteArray withGovernor(const QByteArray& body, const QJsonObject& gov)
-{
-    QJsonObject root = QJsonDocument::fromJson(body).object();
-    root.insert(QStringLiteral("governor"), gov);
-    return QJsonDocument(root).toJson(QJsonDocument::Compact);
-}
-
-// The site every case not about the governor runs on: two findings with a
-// button, AUTO CLEAN on so the cures exist at all.
-QByteArray kindsAuto(bool autoOn = true)
-{
-    return withGovernor(kDiversityStatusWithKinds, governor(autoOn));
-}
-
-// /filter with a talker locked in -- the one thing that makes the STATION step
-// done, and the only field of that payload this page reads.
-QJsonObject filterWithTalker(int id)
-{
-    QJsonObject root = QJsonDocument::fromJson(kDiversityFilterStatus).object();
-    QJsonObject talker;
-    talker.insert(QStringLiteral("enabled"), true);
-    talker.insert(QStringLiteral("id"), id);
-    root.insert(QStringLiteral("talker"), talker);
-    return root;
-}
-
-// Every chore behind us: aligned and tracking, a clean site, no beacon
-// frequency in the span (the tuned Hz stays 0), and a talker to be given a
-// filter. What the collapsed footer is for.
-const QByteArray kAllChoresDone = R"JSON({"available": true, "channels": 2,
-    "mode": "track", "source": "combined", "phase_deg": 45.0, "ratio_db": -2.5,
-    "lag_samples": 3, "aligned": true, "corr_peak": 0.91,
-    "snr_db": {"a": 12.3, "b": 9.8, "out": 1.2}, "updates": 42,
-    "talking": true, "talker": {"id": 7, "since_s": 30.0},
-    "memory": [{"id": 7, "name": "Ann"}, {"id": 8, "name": "Bo"},
-               {"id": 9, "name": "Cy"}, {"id": 10, "name": "Di"}],
-    "noise_profile": {"mains_hz": 60.0, "hum_db": 3.0, "harmonics": 0,
-                      "impulses_per_s": 0.0, "impulse_db": 0.0, "periodic": [],
-                      "seconds": 2.0, "window_s": 2.0, "impulse_window_s": 4.0,
-                      "kinds": []},
-    "capture": {"active": false, "path": null}})JSON";
-
-const QByteArray kDigIdle = R"({"available": true, "running": false,
-    "phase": "idle", "verdict": "", "error": "", "cancelled": false,
-    "gain_db": 0.0, "steps": [], "best": {}, "changed": {}})";
-
-const QByteArray kDigRunning = R"({"available": true, "running": true,
-    "phase": "searching", "verdict": "", "error": "", "cancelled": false,
-    "gain_db": 2.1, "elapsed_s": 72.0, "seconds": 180.0, "remaining_s": 108.0,
-    "trials_planned": 24, "trials_done": 9, "steps": [],
-    "best": {"post": "v2"}, "changed": {"post": "v2"}})";
-
-const QByteArray kDigDone = R"({"available": true, "running": false,
-    "phase": "done", "verdict": "", "error": "", "cancelled": false,
-    "gain_db": 4.1, "objective_before": -3.2, "objective_after": 0.9,
-    "steps": [{"knob": "nb", "kept": true}],
-    "best": {"nb_db": 11.0}, "changed": {"nb_db": 11.0}})";
-
-void connectGate(AetherGateApplet& a, FakeGate& net, const QByteArray& status)
-{
-    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kStatus};
-    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
-    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, status};
-    net.routes[QStringLiteral("/diversity/set")] = {QNetworkReply::NoError, status};
-    net.routes[QStringLiteral("/diversity/align")] = {QNetworkReply::NoError, status};
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError, kDiversityFilterStatus};
-    a.setRadioAddress(QStringLiteral("10.0.0.5"));
-    settle();
-    settle();
-    settle();
-}
-
-template <typename T>
-T* child(DiversityWindow* w, const char* name)
-{
-    return w->findChild<T*>(QString::fromLatin1(name));
-}
-
-// One applet, one fake gate, one window, opened and torn down the same way
-// every time. `fresh` is false only where the case is ABOUT what the window
-// remembers across a session -- which forgetEverything() would throw away.
-struct Bench {
-    FakeGate net;
-    AetherGateApplet a{nullptr, &net};
-    DiversityWindow* w{nullptr};
-
-    explicit Bench(const QByteArray& status, bool fresh = true)
-    {
-        if (fresh) {
-            forgetEverything();
-        } else {
-            closedToStart();
-        }
-        connectGate(a, net, status);
-        a.findChild<QPushButton*>(QStringLiteral("gateDiversityOpenWindowButton"))->click();
-        settle();
-        w = a.diversityPanel()->window();
-        if (w)
-            tick(a);   // /diversity is fetched once before there is a window to feed
-    }
-    ~Bench()
-    {
-        if (w)
-            w->close();
-        settle();
-        closedToStart();
-    }
-};
-
-// Makes a timer go off now: QTimer::timeout carries a QPrivateSignal, but moc
-// strips that from the meta-method, and the point is to skip real seconds.
-void fire(QTimer* timer)
-{
-    if (!timer)
-        return;
-    if (timer->isSingleShot())
-        timer->stop();
-    QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection);
-}
-
-// One /diversity/dig poll, without waiting out the window's own cadence.
-void digTick(Bench& b, const QByteArray& body)
-{
-    b.net.routes[QStringLiteral("/diversity/dig")] = {QNetworkReply::NoError, body};
-    fire(child<QTimer>(b.w, "diversityWindowDigTimer"));
-    settle();
-}
-
-DiversitySessionCard* card(DiversityWindow* w, int index)
-{
-    return w->findChild<DiversitySessionCard*>(
-        QStringLiteral("diversityWindowSessionCard%1").arg(index));
-}
-
-QLabel* cardBody(DiversityWindow* w, int index)
-{
-    return w->findChild<QLabel*>(
-        QStringLiteral("diversityWindowSessionCard%1Body").arg(index));
-}
-
-QLabel* cardState(DiversityWindow* w, int index)
-{
-    return w->findChild<QLabel*>(
-        QStringLiteral("diversityWindowSessionCard%1State").arg(index));
-}
-
-QPushButton* cardCure(DiversityWindow* w, int index)
-{
-    return w->findChild<QPushButton*>(
-        QStringLiteral("diversityWindowSessionCard%1Cure").arg(index));
-}
-
-DiversityNextStrip* strip(DiversityWindow* w)
-{
-    return w->findChild<DiversityNextStrip*>(QStringLiteral("diversityWindowNextStrip"));
-}
-
-QString nextLine(DiversityWindow* w)
-{
-    DiversityNextStrip* s = strip(w);
-    return s ? s->lineText() : QString();
-}
-
-// Every request to one route since `from`, in the order the gate saw them.
-QStringList requestsTo(const FakeGate& net, const QString& prefix, int from)
-{
-    QStringList out;
-    for (int i = from; i < net.log.size(); ++i) {
-        if (net.log.at(i).startsWith(prefix))
-            out << net.log.at(i);
-    }
-    return out;
-}
-
-// The three write routes. A page change is not one of them.
-int writes(const FakeGate& net)
-{
-    return net.count(QStringLiteral("/diversity/set"))
-           + net.count(QStringLiteral("/diversity/align"))
-           + net.count(QStringLiteral("/diversity/dig"));
-}
-
-// --- (a) The tab row ---------------------------------------------------------------
 
 // START is the first tab and the page a station that has never opened this
 // window lands on.
@@ -542,245 +307,6 @@ void quickStartSendsThreeQueriesInOrder()
                             "/diversity/set?auto=on"));
 }
 
-// --- (c) The NEXT line ---------------------------------------------------------------
-
-// The footer quotes ONE step -- the next one -- and offers its one cure.
-void nextStripSaysOneStepAndOffersOneButton()
-{
-    Bench b(kindsAuto());
-    REQUIRE(b.w != nullptr);
-    CHECK_EQ(nextLine(b.w), QStringLiteral("NEXT · SITE NOISE · 2 findings with a button"));
-    CHECK(!nextLine(b.w).contains(QStringLiteral("RECEIVER")));
-    CHECK(!nextLine(b.w).contains(QStringLiteral("STATION")));
-    auto* button = child<QPushButton>(b.w, "diversityWindowNextButton");
-    CHECK(button != nullptr && button->isVisibleTo(b.w));
-    CHECK_EQ(button->text(), QStringLiteral("GO"));
-    CHECK(strip(b.w)->height() == 22);
-
-    // MUTATION: an earlier step falls over. The line moves to it -- the footer
-    // never lists two.
-    b.net.routes[QStringLiteral("/diversity")] = {
-        QNetworkReply::NoError,
-        withGovernor(with(kDiversityStatusWithKinds, "\"aligned\": true", "\"aligned\": false"),
-                     governor(true))};
-    tick(b.a);
-    CHECK_EQ(nextLine(b.w), QStringLiteral("NEXT · RECEIVER · not aligned"));
-    CHECK_EQ(button->text(), QStringLiteral("REALIGN"));
-    CHECK(!nextLine(b.w).contains(QStringLiteral("SITE NOISE")));
-}
-
-// AUTO CLEAN off is a station under manual control: the footer becomes a
-// status line and no card offers to press anything.
-void manualModeStripHasNoButton()
-{
-    Bench b(kindsAuto(false));
-    REQUIRE(b.w != nullptr);
-    CHECK_EQ(nextLine(b.w), QStringLiteral("NEXT · SITE NOISE · 2 findings with a button"));
-    CHECK(!child<QPushButton>(b.w, "diversityWindowNextButton")->isVisibleTo(b.w));
-    for (int i = 1; i <= DiversitySessionModel::StepCount; ++i) {
-        CHECK(!cardCure(b.w, i)->isVisibleTo(b.w));
-    }
-    CHECK_EQ(card(b.w, 2)->tone(), QStringLiteral("state"));
-
-    // MUTATION: the same site with AUTO CLEAN on. The same sentence, now with
-    // the nudge -- what changed is the offer, not the line.
-    b.net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kindsAuto()};
-    tick(b.a);
-    CHECK_EQ(nextLine(b.w), QStringLiteral("NEXT · SITE NOISE · 2 findings with a button"));
-    CHECK(child<QPushButton>(b.w, "diversityWindowNextButton")->isVisibleTo(b.w));
-    CHECK(cardCure(b.w, 2)->isVisibleTo(b.w));
-    CHECK_EQ(card(b.w, 2)->tone(), QStringLiteral("lit"));
-}
-
-// The switch's face is one of exactly two strings. The governor's state and
-// its "why" belong in the tooltip and the accessible description, never on a
-// control the operator reads at a glance.
-void autoCleanSwitchTextIsOnlyTwoStrings()
-{
-    const QString why = QStringLiteral("waiting 5 s for the level to sit");
-    Bench b(withGovernor(kDiversityStatusWithKinds,
-                         governor(true, QStringLiteral("settling"), why)));
-    REQUIRE(b.w != nullptr);
-    auto* sw = child<QPushButton>(b.w, "diversityWindowFlowAutoCleanButton");
-    REQUIRE(sw != nullptr);
-    CHECK(sw->isVisibleTo(b.w) && strip(b.w)->isAncestorOf(sw));
-    CHECK_EQ(sw->text(), QStringLiteral("AUTO CLEAN ON"));
-    CHECK(sw->isChecked());
-    CHECK(!sw->text().contains(QStringLiteral("settling")));
-    CHECK(!sw->text().contains(QStringLiteral("waiting")));
-    CHECK(!sw->toolTip().contains(QLatin1Char('\n')));
-
-    // MUTATION: the same governor, switched off. The other of the two, and
-    // still not a word of the state on the face.
-    b.net.routes[QStringLiteral("/diversity")] = {
-        QNetworkReply::NoError,
-        withGovernor(kDiversityStatusWithKinds,
-                     governor(false, QStringLiteral("settling"), why))};
-    tick(b.a);
-    CHECK_EQ(sw->text(), QStringLiteral("AUTO CLEAN"));
-    CHECK(!sw->isChecked());
-    CHECK(!sw->toolTip().contains(QLatin1Char('\n')));
-}
-
-// A dig goes on wherever the operator wandered to, so its STOP is on the one
-// row every page keeps on screen -- and there is exactly one of it. (Live,
-// with a dig running, this once read REALIGN · STOP · [ STOP ]: the strip's
-// own STOP sat beside the dig stack's, which carries the same button.)
-void digStopStaysVisibleOnEveryPageWhileARunIsOut()
-{
-    Bench b(kindsAuto());
-    REQUIRE(b.w != nullptr);
-    digTick(b, kDigRunning);
-    auto* stop = child<QPushButton>(b.w, "diversityWindowFlowDigStop");
-    REQUIRE(stop != nullptr);
-    for (const char* page : kPageButtons) {
-        child<QToolButton>(b.w, page)->click();
-        settle();
-        CHECK(stop->isVisibleTo(b.w));
-        int stopCount = 0;
-        for (QPushButton* btn : strip(b.w)->findChildren<QPushButton*>()) {
-            if (btn->isVisibleTo(b.w) && btn->isEnabled()
-                && btn->text() == QStringLiteral("STOP"))
-                ++stopCount;
-        }
-        CHECK(stopCount == 1);
-    }
-    CHECK(nextLine(b.w).contains(QStringLiteral("DIG 1:12 of 3:00")));
-
-    // MUTATION: nothing out. STOP is gone on every page rather than sitting
-    // there greyed -- there is no run to stop.
-    digTick(b, kDigIdle);
-    for (const char* page : kPageButtons) {
-        child<QToolButton>(b.w, page)->click();
-        settle();
-        CHECK(!stop->isVisibleTo(b.w));
-    }
-}
-
-// The verdict row is a footer control too: a run judged only from START would
-// leave the chain on the dig's own settings while the operator read SITE.
-void verdictRowAppearsOnTheFooterNotOnlyOnStart()
-{
-    Bench b(kindsAuto());
-    REQUIRE(b.w != nullptr);
-    child<QToolButton>(b.w, "diversityWindowPageSite")->click();
-    settle();
-    digTick(b, kDigDone);
-    auto* stack = child<QStackedWidget>(b.w, "diversityWindowFlowDigControls");
-    REQUIRE(stack != nullptr);
-    CHECK(strip(b.w)->isAncestorOf(stack));
-    CHECK(stack->isVisibleTo(b.w));
-    CHECK(child<QWidget>(b.w, "diversityWindowFlowDigVerdict") == stack->currentWidget());
-    CHECK(child<QPushButton>(b.w, "diversityWindowFlowDigBetter")->isVisibleTo(b.w));
-    CHECK(nextLine(b.w).contains(QStringLiteral("DIG done · +4.1 dB — better or worse?")));
-
-    // MUTATION: a run the operator stopped. The chain is already back on their
-    // own settings, so there is nothing to be a verdict about.
-    QByteArray cancelled = kDigDone;
-    cancelled.replace("\"cancelled\": false", "\"cancelled\": true");
-    digTick(b, cancelled);
-    CHECK(child<QWidget>(b.w, "diversityWindowFlowDigVerdict") != stack->currentWidget());
-    CHECK(nextLine(b.w).contains(QStringLiteral("DIG found +4.1 dB (put back)")));
-}
-
-// Once the four chores are behind you the footer is one line about who is
-// talking, and a click opens it back up. The choice is remembered.
-void collapsedStripIsOneLineAndExpandsOnClick()
-{
-    Bench b(withGovernor(kAllChoresDone, governor(true)));
-    REQUIRE(b.w != nullptr);
-    b.w->applyFilter(filterWithTalker(7));
-    settle();
-    CHECK(strip(b.w)->collapsed());
-    CHECK_EQ(nextLine(b.w),
-             QStringLiteral("● listening · Ann talking · OUT +1.2 dB · 4 remembered"));
-    CHECK(!nextLine(b.w).contains(QLatin1Char('\n')));
-    CHECK(strip(b.w)->height() == 22);
-
-    auto* line = child<QLabel>(b.w, "diversityWindowNextLine");
-    REQUIRE(line != nullptr);
-    QMetaObject::invokeMethod(line, "linkActivated", Qt::DirectConnection,
-                              Q_ARG(QString, QStringLiteral("toggle")));
-    settle();
-    CHECK(!strip(b.w)->collapsed());
-    CHECK_EQ(nextLine(b.w),
-             QStringLiteral("NEXT · LISTEN · Ann talking · OUT +1.2 dB · 4 remembered"));
-    CHECK_EQ(AppSettings::instance().value(QLatin1String(kCollapsedKey), QString()).toString(),
-             QStringLiteral("False"));
-
-    // MUTATION: a chore comes back. There is nothing to collapse while
-    // something is still owed, whatever the remembered choice was.
-    QMetaObject::invokeMethod(line, "linkActivated", Qt::DirectConnection,
-                              Q_ARG(QString, QStringLiteral("toggle")));
-    settle();
-    CHECK(strip(b.w)->collapsed());
-    b.net.routes[QStringLiteral("/diversity")] = {
-        QNetworkReply::NoError,
-        withGovernor(with(kAllChoresDone, "\"aligned\": true", "\"aligned\": false"),
-                     governor(true))};
-    tick(b.a);
-    CHECK(!strip(b.w)->collapsed());
-    CHECK_EQ(nextLine(b.w), QStringLiteral("NEXT · RECEIVER · not aligned"));
-    forgetEverything();
-}
-
-// --- (d) The frame ---------------------------------------------------------------
-
-// Nothing on START is behind a scrollbar at the size the window opens at.
-void nothingScrollsOnTheStartPageAtTheInitialSize()
-{
-    Bench b(kindsAuto());
-    REQUIRE(b.w != nullptr);
-    b.w->resize(1120, 860);
-    settle();
-    b.w->grab();   // forces a full layout pass on an offscreen platform
-    auto* scroll = child<QScrollArea>(b.w, "diversityWindowStartScroll");
-    REQUIRE(scroll != nullptr);
-    CHECK(scroll->widget()->minimumSizeHint().height() <= scroll->viewport()->height());
-    CHECK(!scroll->verticalScrollBar()->isVisible());
-    CHECK(!scroll->horizontalScrollBar()->isVisible());
-
-    // MUTATION: the longest state string any step can hold -- the pair-mode
-    // explanation, which is a sentence and a half. A card whose state label
-    // wrapped would make the page taller than the frame and put a bar on it.
-    b.net.routes[QStringLiteral("/diversity")] = {
-        QNetworkReply::NoError,
-        withGovernor(with(kDiversityStatusWithKinds, "\"mode\": \"track\"", "\"mode\": \"off\""),
-                     governor(true))};
-    tick(b.a);
-    b.w->grab();
-    CHECK(cardState(b.w, 1)->text().contains(QStringLiteral("track follows the talker")));
-    CHECK(scroll->widget()->minimumSizeHint().height() <= scroll->viewport()->height());
-    CHECK(!scroll->verticalScrollBar()->isVisible());
-    CHECK(!scroll->horizontalScrollBar()->isVisible());
-}
-
-// And it does not push the window's own minimum past the size it opens at,
-// which is the other half of the same rule.
-void startPageMinimumWidthUnder1120()
-{
-    Bench b(kindsAuto());
-    REQUIRE(b.w != nullptr);
-    b.w->resize(1120, 860);
-    settle();
-    b.w->grab();
-    CHECK(b.w->minimumSizeHint().width() <= 1120);
-    CHECK(child<QLabel>(b.w, "diversityWindowSessionCard1Body")->minimumSizeHint().width()
-          <= 1120);
-
-    // MUTATION: the longest state on every card at once. A label that let its
-    // own text set its minimum width would fail here and nowhere else.
-    b.net.routes[QStringLiteral("/diversity")] = {
-        QNetworkReply::NoError,
-        withGovernor(with(kDiversityStatusWithKinds, "\"mode\": \"track\"", "\"mode\": \"off\""),
-                     governor(true))};
-    tick(b.a);
-    b.w->grab();
-    CHECK(b.w->minimumSizeHint().width() <= 1120);
-    CHECK(child<QLabel>(b.w, "diversityWindowSessionCard1State")->minimumSizeHint().width()
-          <= 1120);
-}
-
 } // namespace
 
 int main(int argc, char** argv)
@@ -795,14 +321,6 @@ int main(int argc, char** argv)
     cardCureSendsExactlyOneQuery();
     beaconCardNeverStartsACheck();
     quickStartSendsThreeQueriesInOrder();
-    nextStripSaysOneStepAndOffersOneButton();
-    manualModeStripHasNoButton();
-    autoCleanSwitchTextIsOnlyTwoStrings();
-    digStopStaysVisibleOnEveryPageWhileARunIsOut();
-    verdictRowAppearsOnTheFooterNotOnlyOnStart();
-    collapsedStripIsOneLineAndExpandsOnClick();
-    nothingScrollsOnTheStartPageAtTheInitialSize();
-    startPageMinimumWidthUnder1120();
 
     std::printf("\n%d diversity session page test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;
