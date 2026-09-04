@@ -2,10 +2,12 @@
 
 ## The CHAIN window
 
-`OPEN CHAIN` at the top of the FILTER page opens it. It is a separate
-window rather than a fifth page because the receive chain is not a pair
-feature: an RSPdx has a passband, a blanker and an AGC just as an RSPduo
-does, and the window renders whatever `/filter` reports on either.
+`OPEN CHAIN` at the right-hand end of the page-tab row opens it, from
+whichever page you are on. It is a separate window rather than a fifth
+page — there used to be a FILTER tab and this is what replaced it —
+because the receive chain is not a pair feature: an RSPdx has a
+passband, a blanker and an AGC just as an RSPduo does, and the window
+renders whatever `/filter` reports on either.
 
 It is read left to right, as a block diagram, in four labelled groups
 with an arrow between them.
@@ -13,9 +15,11 @@ with an arrow between them.
 **FRONT END** is one summary card, not seven boxes. Antenna port,
 broadcast traps, PRE/ATT, RF GAIN, RF AGC, the analogue roofing filter
 and the sample rate: one line each, and one hint under all of them —
-`ALL SET ON THE SETUP PAGE`. Nothing in that card is changed from this
-window except the roofing filter, on a receiver whose driver offers its
-IF bandwidths.
+`antenna, gain and rate are set in the GATE panel` — with an `OPEN
+PANEL` button under it that brings the Aether-gate applet's own panel
+to the front. Nothing in that card is changed from this window except
+the roofing filter, on a receiver whose driver offers its IF
+bandwidths, and GUARD below.
 
 HEADROOM and GUARD are two more rows on the same card, when
 `/frontend` says a guard is fitted. HEADROOM is a measured line —
@@ -26,9 +30,9 @@ card carries: a switch, ON or OFF, and beneath it a floor menu that
 limits how far down the switch is allowed to take the LNA. The
 pane's GUARD entry names the last thing the guard actually
 did — `stepped 0 → 1 at 11:42, clipping` — rather than repeat the
-card's own on/off sentence. The hint under the card changes to
-`THE REST IS SET ON THE SETUP PAGE` once GUARD is live from here.
-When the gate's dBm scale no longer matches the LNA state GUARD
+card's own on/off sentence. If the receiver refuses a GUARD write the
+row that asked shows the reason, not just the inspector below. When
+the gate's dBm scale no longer matches the LNA state GUARD
 moved it to, a one-line note says so under the hint — the numbers
 on every other card are still true, but relative rather than
 calibrated until the scale is re-trimmed. A receiver with no guard
@@ -36,8 +40,33 @@ fitted (`available: false`) shows neither row; the card is not
 padded out with dashes for a stage that does not exist.
 
 **PAIR** is what the two loops do together: ALIGN, NB, COMBINER,
-SUB-BAND NULL, POST-FILTER. On a single-tuner device the gate does not
-send those rows and the column is simply not there.
+SUB-BAND NULL, POST-FILTER and SUB-BAND MRC. On a single-tuner device
+the gate does not send those rows and the column is simply not there.
+The last two are the stages that only exist because there are two
+receivers — a post-filter that works on the *coherence* between them,
+and a per-bin weight that only makes sense with a spatial map behind
+it. Neither has an equivalent on a single antenna, which is why they
+outlived the FILTER page every other stage on it left before them.
+
+**POST-FILTER** is OFF / V1 / V2, following the gate's own
+`post.enabled`/`post.version`. V1 is the older, always-on-style
+suppressor; V2 learns the noise floor between words and subtracts it,
+worth trying on faint SSB the combiner has already improved but not
+fully cleaned up. The card's measured line shows what V2 is actually
+doing when the gate reports numbers for it — `in 7.7 dB → out 10.8 dB,
+pauses 10 %` — and just `v1` or a dash otherwise.
+
+**SUB-BAND MRC** is one switch. On, the gate gives every bin in the
+passband its own weight from the spatial map instead of one weight for
+the whole channel — a small, situational gain, and a lab switch more
+than a daily one. The measured line shows the gate's own numbers when
+it has them, `+0.2 dB over broadband, 120 bins`, and a dash otherwise.
+
+Both write immediately through `/diversity/set` (`post=off|on|v2`,
+`mrc=on|off`) rather than through `/filter/set`, because both belong to
+the combiner rather than to the slice filter. There is no Apply button
+and no write-hold: the gate's reply is the next `/diversity` poll's
+answer, and a switch simply follows whatever that poll reports.
 
 **PASSBAND** is the filter you actually tune: the digital roof, the
 slice filter, the passband itself, AUTO WIDTH, SHAPE, IF NOTCH,
@@ -119,7 +148,7 @@ its value: the roof, the blanker, the shape, both notches switches, the
 contour, the APF, the EQ, the AGC, and on a dual-tuner pair the
 combiner, SUB-BAND NULL and POST-FILTER too. What is *not* in one is
 anything this window has never been able to move (the antenna port, the
-LNA, the sample rate — those are set on the setup page), and the
+LNA, the sample rate — those are set in the GATE panel), and the
 passband edges themselves, which belong to the band you are on rather
 than to a way of listening.
 

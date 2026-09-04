@@ -20,7 +20,7 @@ constexpr int kTickMs = 250;
 // one request would be a wakeup budget spent on nothing.
 constexpr int kSiteTickMs = 1000;
 
-// 2 Hz on the FILTER page. The response curve, the AGC gain and the noise
+// 2 Hz on the CHAIN window. The response curve, the AGC gain and the noise
 // blanker's blanked-percentage all move while the operator listens, and a
 // second between frames is slow enough to read as a stalled instrument; four
 // times a second would be spending requests on a 1023-tap response that only
@@ -76,7 +76,7 @@ DiversityBandPoller::DiversityBandPoller(QNetworkAccessManager* net, QObject* pa
     // Independent of m_timer above on purpose -- see setBandAvailable() and
     // restartBackground(). A page cadence (250/500/1000 ms, changing as the
     // operator switches pages) and a "nobody is watching" cadence sharing one
-    // clock is exactly the bug this second timer avoids: a FILTER page's 2 Hz
+    // clock is exactly the bug this second timer avoids: the CHAIN window's 2 Hz
     // or a SITE page's 1 Hz would otherwise double one of its own ticks into
     // an extra background fetch every time the interval lined up.
     m_backgroundTimer = new QTimer(this);
@@ -199,7 +199,7 @@ void DiversityBandPoller::restartBackground()
 }
 
 // The independent half of setBandAvailable(): unlike poll() above, this never
-// shares a timer with a page cadence, so a FILTER page's 2 Hz or a SITE
+// shares a timer with a page cadence, so the CHAIN window's 2 Hz or a SITE
 // page's 1 Hz can never accidentally double one of its ticks into an extra
 // background fetch.
 void DiversityBandPoller::backgroundPoll()

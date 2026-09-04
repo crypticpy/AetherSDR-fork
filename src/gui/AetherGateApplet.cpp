@@ -217,7 +217,7 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
             &AetherGateApplet::onDiversityRequestMemoryClear);
     connect(m_diversityPanel, &AetherGateDiversityPanel::requestMemoryName, this,
             &AetherGateApplet::onDiversityRequestMemoryName);
-    // The Diversity window's FILTER page has its own OPEN CHAIN button, so the
+    // The Diversity window's tab row has its own OPEN CHAIN button, so the
     // chain is reachable from where its neighbouring stages are drawn as well
     // as from the sidebar door below. Same slot either way: the window is built
     // once and then kept, so whichever door is used second raises the one that

@@ -148,17 +148,20 @@ gate that has never sent `pan` reads `pan: —`. Kept to a few words
 because the row is already at the window's own 1120 px opening width, with
 the fuller explanation in the readout's tooltip instead.
 
-**Row 2 — the pages.** START / SLICE / BAND / SITE / FILTER, and nothing
-else; `pages` is written near the right end of the row to say so, and one
-**?** at the end of the row opens the help for whichever page is showing.
-The window opens on the page you left it on; the first time, on START.
-START, described below, is the session itself written out. SLICE, described
-below, is about the frequency you are tuned to. BAND is about the whole span
-the gate can see, and is where you go to decide where to be tuned. SITE is
-about neither: it is about your station — what kind of noise this address
-makes, and what the world's beacon network measures your antennas to be
-worth. FILTER is about what happens to the audio *after* the combiner: the
-slice filter, drawn and driven.
+**Row 2 — the pages.** START / SLICE / BAND / SITE, and nothing else;
+`pages` is written near the right end of the row to say so, `OPEN CHAIN`
+sits at that end beside it, and one **?** at the end of the row opens the
+help for whichever page is showing. The window opens on the page you left
+it on; the first time, on START — as it does for a stored page number this
+build has no page for, which is what a station that last used the retired
+FILTER tab has. START, described below, is the session itself written out.
+SLICE, described below, is about the frequency you are tuned to. BAND is
+about the whole span the gate can see, and is where you go to decide where
+to be tuned. SITE is about neither: it is about your station — what kind of
+noise this address makes, and what the world's beacon network measures your
+antennas to be worth. There was a fifth page, FILTER, for what happens to
+the audio *after* the combiner; every stage switch it carried is in the
+CHAIN window now, and `OPEN CHAIN` is the door to it from every page.
 
 **The START page — the session, written out.** Five cards, in the order
 that gets the best signal, each with the reason it is in that order beside
@@ -627,49 +630,14 @@ sweep started from SITE keeps reporting from BAND or SLICE — and a gate
 too old to serve the beacon route says `beacon watch: not available from
 this gate`. Missing numbers render as `—` rather than as zeros.
 
-## The FILTER page
-
-This page used to hold the whole slice filter — the response curve,
-WIDTH, NOTCH, TONE, AUTO CONTOUR, PER TALKER, AGC & NB, PRESETS. None of
-that is specific to a pair: a single-antenna receiver has a passband, an
-AGC and a notch too. It has all moved to the gate's own CHAIN window,
-reachable from the OPEN CHAIN button at the top of this page — the note
-underneath it says so in as many words: `roofing, blanker, shape, notch,
-APF, AGC: in the CHAIN window`. The passband as a picture — the curve, the notches, the tones the ANF is
-holding — is on the CHAIN window's VISUAL tab, not here.
-
-What is left on FILTER, in the PAIR STAGES box, is the two stages that
-only exist because there are two receivers: a post-filter that works on
-the *coherence* between them, and a per-bin weight that only makes sense
-with a spatial map behind it. Neither has an equivalent on a single
-antenna.
-
-**POST-FILTER.** Three buttons, OFF/V1/V2, checked state follows the
-gate's own `post.enabled`/`post.version`. V1 is the older, always-on-style
-suppressor; V2 learns the noise floor between words and subtracts it,
-worth trying on faint SSB the combiner has already improved but not fully
-cleaned up. The readout beside the buttons shows what V2 is actually
-doing when the gate reports numbers for it — `in 7.7 dB → out 10.8 dB,
-pauses 10 %` — and just `v1` or a dash otherwise.
-
-**SUB-BAND MRC.** One checkable button. Ticked, the gate gives every bin
-in the passband its own weight from the spatial map instead of one
-weight for the whole channel — a small, situational gain, and a lab
-switch more than a daily one. The readout shows the gate's own numbers
-when it has them, `+0.2 dB over broadband, 120 bins`, and a dash
-otherwise.
-
-Both write immediately through `/diversity/set` (`post=off|on|v2`,
-`mrc=on|off`) — there is no Apply button and no write-hold: the gate's
-reply is the next `/diversity` poll's answer, and a button's checked
-state simply follows whatever that poll reports.
-
 ## The CHAIN window
 
-`OPEN CHAIN` at the top of the FILTER page opens it. It is a separate
-window rather than a fifth page because the receive chain is not a pair
-feature: an RSPdx has a passband, a blanker and an AGC just as an RSPduo
-does, and the window renders whatever `/filter` reports on either.
+`OPEN CHAIN` at the right-hand end of the page-tab row opens it, from
+whichever page you are on. It is a separate window rather than a fifth
+page — there used to be a FILTER tab and this is what replaced it —
+because the receive chain is not a pair feature: an RSPdx has a
+passband, a blanker and an AGC just as an RSPduo does, and the window
+renders whatever `/filter` reports on either.
 
 It is read left to right, as a block diagram, in four labelled groups
 with an arrow between them.
@@ -677,9 +645,11 @@ with an arrow between them.
 **FRONT END** is one summary card, not seven boxes. Antenna port,
 broadcast traps, PRE/ATT, RF GAIN, RF AGC, the analogue roofing filter
 and the sample rate: one line each, and one hint under all of them —
-`ALL SET ON THE SETUP PAGE`. Nothing in that card is changed from this
-window except the roofing filter, on a receiver whose driver offers its
-IF bandwidths.
+`antenna, gain and rate are set in the GATE panel` — with an `OPEN
+PANEL` button under it that brings the Aether-gate applet's own panel
+to the front. Nothing in that card is changed from this window except
+the roofing filter, on a receiver whose driver offers its IF
+bandwidths, and GUARD below.
 
 HEADROOM and GUARD are two more rows on the same card, when
 `/frontend` says a guard is fitted. HEADROOM is a measured line —
@@ -690,9 +660,9 @@ card carries: a switch, ON or OFF, and beneath it a floor menu that
 limits how far down the switch is allowed to take the LNA. The
 pane's GUARD entry names the last thing the guard actually
 did — `stepped 0 → 1 at 11:42, clipping` — rather than repeat the
-card's own on/off sentence. The hint under the card changes to
-`THE REST IS SET ON THE SETUP PAGE` once GUARD is live from here.
-When the gate's dBm scale no longer matches the LNA state GUARD
+card's own on/off sentence. If the receiver refuses a GUARD write the
+row that asked shows the reason, not just the inspector below. When
+the gate's dBm scale no longer matches the LNA state GUARD
 moved it to, a one-line note says so under the hint — the numbers
 on every other card are still true, but relative rather than
 calibrated until the scale is re-trimmed. A receiver with no guard
@@ -700,8 +670,33 @@ fitted (`available: false`) shows neither row; the card is not
 padded out with dashes for a stage that does not exist.
 
 **PAIR** is what the two loops do together: ALIGN, NB, COMBINER,
-SUB-BAND NULL, POST-FILTER. On a single-tuner device the gate does not
-send those rows and the column is simply not there.
+SUB-BAND NULL, POST-FILTER and SUB-BAND MRC. On a single-tuner device
+the gate does not send those rows and the column is simply not there.
+The last two are the stages that only exist because there are two
+receivers — a post-filter that works on the *coherence* between them,
+and a per-bin weight that only makes sense with a spatial map behind
+it. Neither has an equivalent on a single antenna, which is why they
+outlived the FILTER page every other stage on it left before them.
+
+**POST-FILTER** is OFF / V1 / V2, following the gate's own
+`post.enabled`/`post.version`. V1 is the older, always-on-style
+suppressor; V2 learns the noise floor between words and subtracts it,
+worth trying on faint SSB the combiner has already improved but not
+fully cleaned up. The card's measured line shows what V2 is actually
+doing when the gate reports numbers for it — `in 7.7 dB → out 10.8 dB,
+pauses 10 %` — and just `v1` or a dash otherwise.
+
+**SUB-BAND MRC** is one switch. On, the gate gives every bin in the
+passband its own weight from the spatial map instead of one weight for
+the whole channel — a small, situational gain, and a lab switch more
+than a daily one. The measured line shows the gate's own numbers when
+it has them, `+0.2 dB over broadband, 120 bins`, and a dash otherwise.
+
+Both write immediately through `/diversity/set` (`post=off|on|v2`,
+`mrc=on|off`) rather than through `/filter/set`, because both belong to
+the combiner rather than to the slice filter. There is no Apply button
+and no write-hold: the gate's reply is the next `/diversity` poll's
+answer, and a switch simply follows whatever that poll reports.
 
 **PASSBAND** is the filter you actually tune: the digital roof, the
 slice filter, the passband itself, AUTO WIDTH, SHAPE, IF NOTCH,
@@ -762,7 +757,7 @@ its value: the roof, the blanker, the shape, both notches switches, the
 contour, the APF, the EQ, the AGC, and on a dual-tuner pair the
 combiner, SUB-BAND NULL and POST-FILTER too. What is *not* in one is
 anything this window has never been able to move (the antenna port, the
-LNA, the sample rate — those are set on the setup page), and the
+LNA, the sample rate — those are set in the GATE panel), and the
 passband edges themselves, which belong to the band you are on rather
 than to a way of listening.
 
@@ -1129,8 +1124,8 @@ The gate's HTTP control port (default 8731) serves:
   impulses_per_s, impulse_db, periodic[], seconds, window_s,
   impulse_window_s, `kinds[]`}: what kind of noise this is, `post`
   {enabled, version: 1|2, and when v2: snr_in_db, snr_out_db,
-  pause_fraction, hold}: the coherence post-filter (the FILTER page's
-  PAIR STAGES), `mrc` {enabled, gain_over_broadband_db, bins_used}: the
+  pause_fraction, hold}: the coherence post-filter (the CHAIN window's
+  PAIR group), `mrc` {enabled, gain_over_broadband_db, bins_used}: the
   per-bin sub-band weight). Each `kinds`
   row is {kind: "mains"|"impulse"|"periodic"|"tone"|"floor", label, detail,
   db (or null), window_s, action (or null), why (or null), active}, and an
@@ -1199,7 +1194,7 @@ The gate's HTTP control port (default 8731) serves:
 - `python -m aether_gate.replay CAPTURE.npz` (in the gate) — the replay
   lab: a capture through the live combiner path as A / B / wideband /
   per-bin WAVs at one gain, plus `summary.json`.
-- `GET /filter` — the slice filter's status (the FILTER page): `available`,
+- `GET /filter` — the slice filter's status (the CHAIN window): `available`,
   `mode`, `sideband`, `low_hz`/`high_hz` (in force) and
   `set_low_hz`/`set_high_hz` (asked for — they differ while AUTO is on),
   `width_hz`, `shape`, `taps`, `transition_hz`, `notches[]`

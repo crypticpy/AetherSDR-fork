@@ -51,7 +51,7 @@ class DiversityBandPoller;
 // the Diversity one. Owned here rather than by the diversity panel because the
 // chain is a receiver feature and not a two-tuner one: it works on any device
 // the gate fronts. It owns no transport either -- /filter reaches it through
-// the same DiversityBandPoller the FILTER page uses, and its writes come back
+// the same DiversityBandPoller the Diversity window uses, and its writes come back
 // as onChainRequestWrite(). See AetherGateChainWindow.h.
 class AetherGateChainWindow;
 

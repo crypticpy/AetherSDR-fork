@@ -86,7 +86,7 @@ ChainStage toggleRow(const QString& id, const QString& name, const QString& key,
     return row;
 }
 
-// `why` is the short line PRINTED ON THE TILE ("set on the setup page", "gate
+// `why` is the short line PRINTED ON THE TILE ("set in the GATE panel", "gate
 // does not offer this yet"); `tip` is the paragraph in the detail pane's
 // accessible description; `shortTip` is the one line on the hover. An empty
 // tip or shortTip falls back to why, which is already short.
@@ -384,8 +384,8 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
                           "before they smear."));
 
     // 4 -- the passband. Two edges, both movable, which is twin PBT; they are
-    // moved by dragging the curve on the Diversity window's FILTER page, so
-    // this row states them rather than duplicating that control.
+    // moved by dragging the curve on the CHAIN window's VISUAL tab, so this
+    // row states them rather than duplicating that control.
     rows << fixedRow(QStringLiteral("passband"), tr_("PASSBAND"),
                      QStringLiteral("%1–%2 Hz · asked %3–%4")
                          .arg(QString::number(num(f, "low_hz"), 'f', 0),
@@ -395,7 +395,7 @@ QList<ChainStage> chainFallback(const QJsonObject& f)
                      tr_("both edges move on the curve"),
                      tr_("Both edges of the slice filter, independently placed - "
                          "twin PBT, an IC-7851 would call it. Drag them on the "
-                         "FILTER page's curve; the numbers in force can differ from "
+                         "VISUAL tab's curve; the numbers in force can differ from "
                          "the numbers asked for when AUTO WIDTH is fitting them."),
                      tr_("The two edges of what you hear, in Hz. Narrow it to "
                          "shut a neighbour out."));

@@ -31,8 +31,8 @@
 // closed window, or an open one showing SLICE, costs no requests at all -- the
 // same rule AetherGateDiversityPanel::wantsMapPoll() applies to /diversity/map.
 //
-// The FILTER page's /filter is served from here for the same reasons, and it
-// is the one page whose transport also WRITES: /filter/set and /filter/notch
+// The CHAIN window's /filter is served from here for the same reasons, and it
+// is the one route whose transport also WRITES: /filter/set and /filter/notch
 // are GETs on the same manager, with the same timeout, and their reply IS the
 // status object the page redraws from -- so a write and the read-back after it
 // are one request rather than two. sendFilter() is that door; passing it
