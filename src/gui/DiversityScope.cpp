@@ -92,17 +92,17 @@ DiversityScope::DiversityScope(QWidget* parent) : QWidget(parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setObjectName(QStringLiteral("gateDiversityScope"));
     setAccessibleName(tr("Diversity scope"));
+    setToolTip(tr("The dial is loop B's weight: angle is phase, distance is "
+                  "level over A. Read-only."));
     setAccessibleDescription(
-        tr("Live diversity weight, A/B/OUT signal-to-noise, and combiner "
-           "status. Read-only -- nothing here can be edited."));
-    setToolTip(tr("The dial is the combiner's weight on loop B relative to "
-                  "loop A: the angle is the phase shift it is applying, and "
-                  "the distance from the centre is how much louder B is being "
-                  "made than A (centre ring = equal, rim = B twenty decibels "
-                  "up). The filled dot is the weight in use right now, the "
-                  "fading trail is where it has been, and each hollow ring is "
-                  "a talker the gate remembered, numbered to match the "
-                  "TALKERS list."));
+        tr("The dial is the combiner's weight on loop B relative to "
+           "loop A: the angle is the phase shift it is applying, and "
+           "the distance from the centre is how much louder B is being "
+           "made than A (centre ring = equal, rim = B twenty decibels "
+           "up). The filled dot is the weight in use right now, the "
+           "fading trail is where it has been, and each hollow ring is "
+           "a talker the gate remembered, numbered to match the "
+           "TALKERS list. Read-only -- nothing here can be edited."));
 
     // Raw QPainter keyed off ThemeManager::color(), same pattern
     // DiversityMapStrip/MiniPanScope already use for a custom-painted widget

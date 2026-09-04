@@ -9,6 +9,7 @@
 
 #include <QAbstractItemView>
 #include <QComboBox>
+#include <QDateTime>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QJsonArray>
@@ -16,6 +17,7 @@
 #include <QJsonValue>
 #include <QLabel>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QStringList>
@@ -47,6 +49,16 @@ static const char* kShowScopeKey = "AetherGateDiversityPanel_ShowScope";
 static const char* kOpenWindowStyle =
     "QPushButton { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold; "
     "padding: 5px 8px; border: 1px solid {{color.accent}}; border-radius: 4px; "
+    "background: transparent; }"
+    "QPushButton:hover { background: {{color.background.1}}; }"
+    "QPushButton:pressed { background: {{color.background.3}}; }";
+
+// QUICK START: the same accent as the door above it, but small -- it sits
+// beside a status line, not on its own row, and the 244px column has no room
+// to spare.
+static const char* kQuickStartStyle =
+    "QPushButton { color: {{color.accent.bright}}; font-size: 9px; font-weight: bold; "
+    "padding: 2px 6px; border: 1px solid {{color.accent}}; border-radius: 3px; "
     "background: transparent; }"
     "QPushButton:hover { background: {{color.background.1}}; }"
     "QPushButton:pressed { background: {{color.background.3}}; }";
@@ -255,15 +267,60 @@ AetherGateDiversityPanel::AetherGateDiversityPanel(QWidget* parent)
     m_openWindowButton = new QPushButton(tr("Open Diversity window"), this);
     m_openWindowButton->setObjectName(QStringLiteral("gateDiversityOpenWindowButton"));
     m_openWindowButton->setAccessibleName(tr("Open the diversity window"));
-    m_openWindowButton->setToolTip(tr("Everything else about the combiner, in a full "
-                                      "window: a large scope, per-antenna meters, the "
-                                      "noise map and the remembered stations."));
+    m_openWindowButton->setToolTip(tr("Everything else about the combiner, in a window."));
+    m_openWindowButton->setAccessibleDescription(
+        tr("Everything else about the combiner, in a full window: a large scope, "
+           "per-antenna meters, the noise map and the remembered stations."));
     m_openWindowButton->setCursor(Qt::PointingHandCursor);
     ThemeManager::instance().applyStyleSheet(m_openWindowButton,
                                              QString::fromLatin1(kOpenWindowStyle));
     connect(m_openWindowButton, &QPushButton::clicked, this,
             &AetherGateDiversityPanel::toggleWindow);
     root->addWidget(m_openWindowButton);
+
+    // --- the next line + QUICK START ----------------------------------------
+    // "Where do I start?", answered in one glance without opening the window
+    // -- same DiversitySessionModel the window's own START page reads, fed
+    // from the same five payloads this panel already receives regardless of
+    // whether the window has ever been opened (DiversityBandPoller::
+    // attachFilter() wires filter/site/compass/dig straight to this panel).
+    auto* nextRow = new QWidget(this);
+    auto* nextLayout = new QHBoxLayout(nextRow);
+    nextLayout->setContentsMargins(0, 0, 0, 0);
+    nextLayout->setSpacing(4);
+
+    m_nextLine = new QLabel(this);
+    m_nextLine->setObjectName(QStringLiteral("aetherGateDiversityNextLine"));
+    m_nextLine->setAccessibleName(tr("Next diversity step"));
+    styleRowLabel(m_nextLine);
+    m_nextLine->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    m_nextLine->setVisible(false);
+    nextLayout->addWidget(m_nextLine, 1);
+
+    m_quickStartButton = new QPushButton(tr("QUICK START"), this);
+    m_quickStartButton->setObjectName(
+        QStringLiteral("aetherGateDiversityQuickStartButton"));
+    m_quickStartButton->setAccessibleName(tr("Quick start diversity"));
+    m_quickStartButton->setToolTip(tr("Track, hear OUT, AUTO CLEAN on."));
+    m_quickStartButton->setCursor(Qt::PointingHandCursor);
+    ThemeManager::instance().applyStyleSheet(m_quickStartButton,
+                                             QString::fromLatin1(kQuickStartStyle));
+    m_quickStartButton->setVisible(false);
+    connect(m_quickStartButton, &QPushButton::clicked, this, [this] {
+        // quickStartQueries() hands back "key=value" strings -- the same
+        // shape DiversitySessionPage.cpp's own QUICK START splits, one
+        // requestSet() per query so each lands as its own /diversity/set.
+        for (const QString& kv : m_sessionModel.quickStartQueries()) {
+            const int eq = kv.indexOf(QLatin1Char('='));
+            if (eq < 0)
+                continue;
+            QUrlQuery q;
+            q.addQueryItem(kv.left(eq), kv.mid(eq + 1));
+            emit requestSet(q);
+        }
+    });
+    nextLayout->addWidget(m_quickStartButton, 0);
+    root->addWidget(nextRow);
 
     setVisible(false);   // hidden until a poll reports "available": true
 }
@@ -308,6 +365,55 @@ void AetherGateDiversityPanel::toggleWindow()
     m_window->activateWindow();
 }
 
+// ≤26-char "next: ..." text for m_sessionModel's current nextStep() -- see
+// DiversitySessionModel::StepId, whose five steps this switches over in the
+// same RECEIVER/SITE NOISE/BAND/STATION/LISTEN order nextStep() walks.
+QString AetherGateDiversityPanel::nextLineText() const
+{
+    const int next = m_sessionModel.nextStep();
+    if (next < 0)
+        return tr("next: —");
+    switch (next) {
+    case DiversitySessionModel::StepReceiver:
+        return tr("next: realign");
+    case DiversitySessionModel::StepSiteNoise: {
+        // buildSiteNoise() only leaves this step undone once it has a
+        // profile with one or more findings offered, whose count opens its
+        // own state string ("N findings with a button") -- pulled back out
+        // here rather than adding a field just for the sidebar's phrasing.
+        QString count;
+        const QVector<DiversitySessionModel::Step> steps = m_sessionModel.steps();
+        if (next < steps.size()) {
+            static const QRegularExpression re(QStringLiteral("^(\\d+)"));
+            const QRegularExpressionMatch m = re.match(steps.at(next).state);
+            if (m.hasMatch())
+                count = m.captured(1);
+        }
+        return count.isEmpty() ? tr("next: findings")
+                                : tr("next: %1 findings").arg(count);
+    }
+    case DiversitySessionModel::StepBand:
+        return tr("next: beacons");
+    case DiversitySessionModel::StepStation:
+        return tr("next: tune a voice");
+    case DiversitySessionModel::StepListen:
+    default:
+        return tr("next: listen");
+    }
+}
+
+void AetherGateDiversityPanel::refreshNextLine()
+{
+    m_sessionModel.setNowSecs(QDateTime::currentSecsSinceEpoch());
+    m_sessionModel.apply(m_lastDiversity, m_lastFilter, m_lastDig, m_lastBeacons,
+                         m_lastCompass, m_activeSliceHz);
+    const bool show = m_sessionModel.gateAvailable();
+    m_nextLine->setVisible(show);
+    m_quickStartButton->setVisible(show);
+    if (show)
+        m_nextLine->setText(nextLineText());
+}
+
 bool AetherGateDiversityPanel::wantsMapPoll() const
 {
     return m_window && m_window->isVisible();
@@ -345,6 +451,8 @@ void AetherGateDiversityPanel::setPresent(bool present)
     const QSignalBlocker block(m_autoCleanButton);
     m_autoCleanButton->setChecked(false);
     m_autoCleanButton->setText(tr("AUTO CLEAN"));
+    m_nextLine->setVisible(false);
+    m_quickStartButton->setVisible(false);
 }
 
 void AetherGateDiversityPanel::restoreCompareHold()
@@ -372,6 +480,8 @@ void AetherGateDiversityPanel::applyDiversity(const QJsonObject& d, bool isJson)
 
     if (!isJson) {
         setVisible(false);
+        m_nextLine->setVisible(false);
+        m_quickStartButton->setVisible(false);
         return;
     }
 
@@ -384,6 +494,8 @@ void AetherGateDiversityPanel::applyDiversity(const QJsonObject& d, bool isJson)
         const QSignalBlocker block(m_autoCleanButton);
         m_autoCleanButton->setChecked(false);
         m_autoCleanButton->setText(tr("AUTO CLEAN"));
+        m_nextLine->setVisible(false);
+        m_quickStartButton->setVisible(false);
         return;
     }
 
@@ -422,6 +534,9 @@ void AetherGateDiversityPanel::applyDiversity(const QJsonObject& d, bool isJson)
     // AetherGateDiversityPanel_ShowScope keeps it hidden, so turning the key
     // on shows a scope that is already current.
     m_scope->setState(d);
+
+    m_lastDiversity = d;
+    refreshNextLine();
 }
 
 void AetherGateDiversityPanel::applyMap(const QJsonObject& map)
@@ -446,24 +561,32 @@ void AetherGateDiversityPanel::applyBeacons(const QJsonObject& beacons)
 {
     if (m_window)
         m_window->applyBeacons(beacons);
+    m_lastBeacons = beacons;
+    refreshNextLine();
 }
 
 void AetherGateDiversityPanel::applyCompass(const QJsonObject& compass)
 {
     if (m_window)
         m_window->applyCompass(compass);
+    m_lastCompass = compass;
+    refreshNextLine();
 }
 
 void AetherGateDiversityPanel::applyDig(const QJsonObject& dig)
 {
     if (m_window)
         m_window->applyDig(dig);
+    m_lastDig = dig;
+    refreshNextLine();
 }
 
 void AetherGateDiversityPanel::applyFilter(const QJsonObject& filter)
 {
     if (m_window)
         m_window->applyFilter(filter);
+    m_lastFilter = filter;
+    refreshNextLine();
 }
 
 void AetherGateDiversityPanel::applySiteReply(const QJsonObject& reply)

@@ -3,6 +3,7 @@
 #include "core/ThemeManager.h"
 #include "gui/DiversityWindowPanels.h"
 
+#include <QCoreApplication>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -62,6 +63,29 @@ int groupIndex(ChainGroup group)
     return 0;
 }
 
+// chainGroupTip() (AetherGateChainModes.cpp, not owned by this file) runs
+// well past the 90-char tooltip budget for FRONT END, PAIR and PASSBAND. The
+// full text still reaches a screen reader as the accessible description --
+// see the two call sites below -- this is only what the mouse sees first.
+QString chainGroupTipShort(ChainGroup group)
+{
+    switch (group) {
+    case ChainGroup::FrontEnd:
+        return QCoreApplication::translate(
+            "AetherGateChainStrip", "Antenna and receiver, before any filter.");
+    case ChainGroup::Pair:
+        return QCoreApplication::translate(
+            "AetherGateChainStrip", "What the two loops do together.");
+    case ChainGroup::Passband:
+        return QCoreApplication::translate(
+            "AetherGateChainStrip", "The filter you actually tune.");
+    case ChainGroup::Out:
+        return QCoreApplication::translate(
+            "AetherGateChainStrip", "What leaves the receiver for your ears.");
+    }
+    return QString();
+}
+
 } // namespace
 
 AetherGateChainStrip::AetherGateChainStrip(QWidget* parent)
@@ -85,11 +109,12 @@ AetherGateChainStrip::AetherGateChainStrip(QWidget* parent)
     m_foldToggle = new QPushButton(this);
     m_foldToggle->setObjectName(QStringLiteral("gateChainNotForModeToggle"));
     m_foldToggle->setAccessibleName(tr("Show the stages this mode does not use"));
-    m_foldToggle->setToolTip(tr("The stages this mode does not normally reach "
-                                "for. They are still running and still "
-                                "switchable: the mode chooses what is on the "
-                                "diagram, it does not turn anything off."));
-    m_foldToggle->setAccessibleDescription(m_foldToggle->toolTip());
+    m_foldToggle->setToolTip(tr("The stages this mode does not normally reach for."));
+    m_foldToggle->setAccessibleDescription(
+        tr("The stages this mode does not normally reach "
+           "for. They are still running and still "
+           "switchable: the mode chooses what is on the "
+           "diagram, it does not turn anything off."));
     m_foldToggle->setCursor(Qt::PointingHandCursor);
     m_foldToggle->setCheckable(true);
     ThemeManager::instance().applyStyleSheet(m_foldToggle,
@@ -152,8 +177,8 @@ void AetherGateChainStrip::buildColumns(QVBoxLayout* root)
                                                       column.host);
         caption->setObjectName(QStringLiteral("gateChainGroupCaption_") + id);
         caption->setAccessibleName(chainGroupLabel(group));
-        caption->setToolTip(chainGroupTip(group));
-        caption->setAccessibleDescription(caption->toolTip());
+        caption->setToolTip(chainGroupTipShort(group));
+        caption->setAccessibleDescription(chainGroupTip(group));
         box->addWidget(caption);
 
         if (group == ChainGroup::FrontEnd) {
@@ -164,8 +189,8 @@ void AetherGateChainStrip::buildColumns(QVBoxLayout* root)
             auto* card = new QFrame(column.host);
             card->setObjectName(QStringLiteral("gateChainFrontEndCard"));
             card->setAccessibleName(chainGroupLabel(group));
-            card->setToolTip(chainGroupTip(group));
-            card->setAccessibleDescription(card->toolTip());
+            card->setToolTip(chainGroupTipShort(group));
+            card->setAccessibleDescription(chainGroupTip(group));
             card->setFixedWidth(kChainSummaryWidth);
             auto* inner = new QVBoxLayout(card);
             inner->setContentsMargins(7, 5, 7, 5);
@@ -184,11 +209,14 @@ void AetherGateChainStrip::buildColumns(QVBoxLayout* root)
                 tr("THE REST IS SET ON THE SETUP PAGE"), card);
             column.hint->setObjectName(QStringLiteral("gateChainFrontEndHint"));
             column.hint->setAccessibleName(tr("Where the front end is set"));
-            column.hint->setToolTip(tr("The antenna port, the traps, the gain and "
-                                       "the sample rate all belong to the setup "
-                                       "page. GUARD is the one control on this "
-                                       "card."));
-            column.hint->setAccessibleDescription(column.hint->toolTip());
+            column.hint->setToolTip(
+                tr("The rest belongs to the setup page. GUARD is the one "
+                   "control on this card."));
+            column.hint->setAccessibleDescription(
+                tr("The antenna port, the traps, the gain and "
+                   "the sample rate all belong to the setup "
+                   "page. GUARD is the one control on this "
+                   "card."));
             inner->addWidget(column.hint);
 
             // The B23 linearity guard's one caveat: a guard-moved LNA state

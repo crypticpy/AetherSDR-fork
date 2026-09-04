@@ -1,11 +1,13 @@
 #include "gui/DiversityFinderPanel.h"
 
 #include "core/ThemeManager.h"
+#include "gui/DiversityHelp.h"
 #include "gui/DiversityWindowPanels.h"
 
 #include <QAbstractItemView>
 #include <QColor>
 #include <QCoreApplication>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -276,15 +278,15 @@ DiversityActivityStrip::DiversityActivityStrip(QWidget* parent) : QWidget(parent
     setFixedHeight(kStripHeight);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setAccessibleName(tr("Band activity"));
+    setToolTip(tr("Share of the last ten minutes each column carried voice. "
+                  "Read-only."));
     setAccessibleDescription(
-        tr("How much of the last ten minutes each part of the span carried "
-           "voice. Read-only."));
-    setToolTip(tr("The share of the last ten minutes each column of the "
-                  "waterfall above carried voice-shaped energy. A regular net "
-                  "is a solid bar; a single over is a faint one; a dead patch "
-                  "of band is bare. Where the gate has named what it heard, "
-                  "the bar takes that kind's colour -- the same colour the "
-                  "row below carries."));
+        tr("The share of the last ten minutes each column of the "
+           "waterfall above carried voice-shaped energy. A regular net "
+           "is a solid bar; a single over is a faint one; a dead patch "
+           "of band is bare. Where the gate has named what it heard, "
+           "the bar takes that kind's colour -- the same colour the "
+           "row below carries."));
 
     // Raw QPainter keyed off ThemeManager::color(), so applyStyleSheet's
     // reverse map never sees these -- declare them so Inspect mode surfaces
@@ -362,8 +364,18 @@ DiversityFinderPanel::DiversityFinderPanel(QWidget* parent) : QWidget(parent)
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(4);
 
+    // FINDER's own box title lives in DiversityWindowBand.cpp, which this
+    // panel does not own -- the help button goes here instead, at the top of
+    // the panel that fills that box, which reads as beside the title without
+    // reaching into a file that is not this agent's to change.
+    auto* headerRow = new QHBoxLayout;
+    headerRow->setContentsMargins(0, 0, 0, 0);
+    headerRow->setSpacing(4);
     m_strip = new DiversityActivityStrip(this);
-    root->addWidget(m_strip);
+    headerRow->addWidget(m_strip, 1);
+    headerRow->addWidget(DiversityHelp::button(this, DiversityHelp::Topic::Band), 0,
+                         Qt::AlignTop);
+    root->addLayout(headerRow);
 
     // No word wrap anywhere on this page: a wrapping label is height-for-width
     // and makes the whole grid it sits in height-for-width too, which is what
@@ -388,47 +400,60 @@ DiversityFinderPanel::DiversityFinderPanel(QWidget* parent) : QWidget(parent)
     // One hover explanation per column, written for somebody who has never met
     // a diversity combiner. "Phase", not "bearing": two loops give the phase
     // difference between the antennas and nothing more.
-    static const struct { int column; const char* tip; } kHeaderTips[] = {
-        {0, QT_TR_NOOP("Centre frequency of the conversation, in kilohertz. "
+    static const struct { int column; const char* shortTip; const char* tip; } kHeaderTips[] = {
+        {0, QT_TR_NOOP("Centre frequency, in kilohertz. Tune here."),
+         QT_TR_NOOP("Centre frequency of the conversation, in kilohertz. "
                        "Tune here and the receiver goes to this frequency.")},
-        {1, QT_TR_NOOP("What the gate thinks is there -- voice, CW, data (or "
+        {1, QT_TR_NOOP("What the gate thinks is there, and how sure it is."),
+         QT_TR_NOOP("What the gate thinks is there -- voice, CW, data (or "
                        "RTTY/FT8/FT4/PSK31 by name, off the band plan), a "
                        "bare carrier, noise, or plain \"signal\" when the gate "
                        "will not guess further -- and how sure it is, from 0 "
                        "to 1. The colour is the same one the strip above uses "
                        "for this stretch of the band. Hover a row for what "
                        "the verdict was made of.")},
-        {2, QT_TR_NOOP("How confident the gate is that this is a conversation "
+        {2, QT_TR_NOOP("Worth your time: shape, strength and duration combined."),
+         QT_TR_NOOP("How confident the gate is that this is a conversation "
                        "worth your time: voice shape, strength and how long it "
                        "has been going, combined. The table is sorted by it.")},
-        {3, QT_TR_NOOP("Signal-to-noise of the better loop at this frequency, "
+        {3, QT_TR_NOOP("Signal-to-noise of the better loop, in decibels."),
+         QT_TR_NOOP("Signal-to-noise of the better loop at this frequency, "
                        "in decibels.")},
-        {4, QT_TR_NOOP("How speech-shaped the envelope is: human speech "
+        {4, QT_TR_NOOP("How speech-shaped the envelope is. Near 1 is voice."),
+         QT_TR_NOOP("How speech-shaped the envelope is: human speech "
                        "modulates at a few syllables a second, which a carrier, "
                        "a data mode and a noise blanker do not. Near 1 is "
                        "clearly voice.")},
-        {5, QT_TR_NOOP("How long this frequency has carried voice inside the "
+        {5, QT_TR_NOOP("Voice carried here in the last ten minutes."),
+         QT_TR_NOOP("How long this frequency has carried voice inside the "
                        "last ten minutes, as minutes and seconds.")},
-        {6, QT_TR_NOOP("How long ago somebody last spoke here. \"now\" means "
+        {6, QT_TR_NOOP("How long ago somebody last spoke here."),
+         QT_TR_NOOP("How long ago somebody last spoke here. \"now\" means "
                        "the gate is hearing them as you read this.")},
-        {7, QT_TR_NOOP("The phase difference between the two loops for this "
+        {7, QT_TR_NOOP("Phase difference between the two loops. Not a bearing."),
+         QT_TR_NOOP("The phase difference between the two loops for this "
                        "signal. It is a PHASE, not a bearing -- two antennas "
                        "cannot tell which of two directions it came from -- but "
                        "two stations with different phases are in different "
                        "places.")},
-        {8, QT_TR_NOOP("How alike the two loops see this signal. High means one "
+        {8, QT_TR_NOOP("How alike the two loops see this signal."),
+         QT_TR_NOOP("How alike the two loops see this signal. High means one "
                        "direction and a null is available; low means scatter, "
                        "and only maximal-ratio gain is on offer.")},
-        {9, QT_TR_NOOP("The diversity gain the pair can earn here, over the "
+        {9, QT_TR_NOOP("Diversity gain the pair can earn here, over one loop."),
+         QT_TR_NOOP("The diversity gain the pair can earn here, over the "
                        "better single loop. Often near zero on plain sky noise: "
                        "that is the physics, not a fault.")},
-        {10, QT_TR_NOOP("Tune the receiver to this conversation. The combiner "
+        {10, QT_TR_NOOP("Tune here and start tracking this conversation."),
+         QT_TR_NOOP("Tune the receiver to this conversation. The combiner "
                         "is switched to track so it starts solving for whoever "
                         "is talking as soon as you arrive.")},
     };
     for (const auto& entry : kHeaderTips) {
-        if (QTableWidgetItem* header = m_table->horizontalHeaderItem(entry.column))
-            header->setToolTip(tr(entry.tip));
+        if (QTableWidgetItem* header = m_table->horizontalHeaderItem(entry.column)) {
+            header->setToolTip(tr(entry.shortTip));
+            header->setData(Qt::AccessibleDescriptionRole, tr(entry.tip));
+        }
     }
 
     m_table->verticalHeader()->setVisible(false);
@@ -617,8 +642,17 @@ void DiversityFinderPanel::setCandidates(const QJsonObject& finder)
                 ? tr("estimate %1 kHz").arg(rawValue.toDouble() / 1e3, 0, 'f', 2)
                 : QString();
         // The kind cell explains itself instead: what the verdict was made of,
-        // and how sure the gate is that it is the right one.
-        const QString kindTip =
+        // and how sure the gate is that it is the right one. The full
+        // explanation is long by design (see kindExplanation() above), so it
+        // survives as the item's accessible description rather than the
+        // visible tooltip.
+        const QString kindTipShort =
+            kind.isEmpty() ? tr("No verdict from this gate.")
+                           : (confValue.isDouble()
+                                  ? tr("%1, sure %2 of 1.")
+                                        .arg(kindLabel(kind), number(c, "kind_conf", 2))
+                                  : kindLabel(kind));
+        const QString kindTipLong =
             kind.isEmpty()
                 ? tr("This gate does not say what it found. Older gates report "
                      "where a conversation is and leave what it is to you.")
@@ -630,7 +664,9 @@ void DiversityFinderPanel::setCandidates(const QJsonObject& finder)
             auto* item = new QTableWidgetItem(cells[col]);
             item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
             item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-            item->setToolTip(col == kKindColumn ? kindTip : tip);
+            item->setToolTip(col == kKindColumn ? kindTipShort : tip);
+            item->setData(Qt::AccessibleDescriptionRole,
+                         col == kKindColumn ? kindTipLong : tip);
             m_table->setItem(r, col, item);
         }
 

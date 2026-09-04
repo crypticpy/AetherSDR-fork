@@ -57,18 +57,17 @@ DiversityTimeline::DiversityTimeline(QWidget* parent) : QWidget(parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setObjectName(QStringLiteral("diversityWindowTimeline"));
     setAccessibleName(tr("Diversity timeline"));
+    setToolTip(tr("The last two minutes: A, B and combined SNR, and who was "
+                  "talking. Read-only."));
     setAccessibleDescription(
-        tr("The last two minutes of A, B and combined signal-to-noise on a "
-           "fixed -10 to +30 dB scale, with a band along the bottom showing "
-           "which remembered talker was on the air. Read-only."));
-    setToolTip(tr("The last two minutes. Each line is one leg's "
-                  "signal-to-noise: A and B are the two loops, the bright one "
-                  "is what you are hearing. When the bright line sits above "
-                  "both others, the combiner is buying you something; when it "
-                  "tracks the better loop exactly, it is not. The coloured "
-                  "band along the bottom is who was talking, one colour per "
-                  "remembered talker, and the thin band above it marks the "
-                  "stretches where a steady carrier was being nulled."));
+        tr("The last two minutes. Each line is one leg's "
+           "signal-to-noise: A and B are the two loops, the bright one "
+           "is what you are hearing. When the bright line sits above "
+           "both others, the combiner is buying you something; when it "
+           "tracks the better loop exactly, it is not. The coloured "
+           "band along the bottom is who was talking, one colour per "
+           "remembered talker, and the thin band above it marks the "
+           "stretches where a steady carrier was being nulled. Read-only."));
 
     // Raw QPainter keyed off ThemeManager::color(), so applyStyleSheet's
     // reverse map never sees these: declare the tokens actually read so

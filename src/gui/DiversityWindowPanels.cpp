@@ -10,6 +10,7 @@
 
 #include <QAbstractItemView>
 #include <QAccessible>
+#include <QButtonGroup>
 #include <QFont>
 #include <QFontMetrics>
 #include <QFrame>
@@ -295,7 +296,10 @@ QLabel* makeReadoutLine(const QString& objectName, const QString& worstCase,
                                              QString::fromLatin1(kReadoutLineStyle));
     label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     label->setMinimumWidth(label->fontMetrics().horizontalAdvance(worstCase) + 8);
-    label->setToolTip(tip);
+    // H1's 90-char tooltip rule, applied once here for every readout line in
+    // the app that goes through this factory: the full sentence still
+    // reaches a screen reader as the accessible description below.
+    label->setToolTip(tip.length() > 90 ? tip.left(87) + QStringLiteral("…") : tip);
     label->setAccessibleDescription(tip);
     return label;
 }
@@ -384,22 +388,28 @@ QWidget* DiversityWindow::buildAntennasPanel()
     auto* meters = new QHBoxLayout;
     meters->setSpacing(8);
     const auto addMeter = [&](DiversitySnrMeter*& meter, const QString& header,
-                              const QString& objectName, const QString& tip) {
+                              const QString& objectName, const QString& tip,
+                              const QString& description) {
         meter = new DiversitySnrMeter(header, frame);
         meter->setObjectName(objectName);
         meter->setToolTip(tip);
-        meter->setAccessibleDescription(tip);
+        meter->setAccessibleDescription(description);
         meters->addWidget(meter);
     };
     addMeter(m_meterA, tr("A"), QStringLiteral("diversityWindowMeterA"),
+             tr("Loop A alone, -10 to +30 dB. The reference the combiner "
+                "must beat."),
              tr("Signal-to-noise on loop A alone, on a fixed -10 to +30 dB "
                 "scale. This is the reference: whatever the combiner does has "
                 "to beat the better of A and B to be worth having."));
     addMeter(m_meterB, tr("B"), QStringLiteral("diversityWindowMeterB"),
+             tr("Loop B alone, same scale. Far below A means mis-terminated "
+                "or nulled."),
              tr("Signal-to-noise on loop B alone, same fixed scale. A loop that "
                 "reads far below the other is either mis-terminated or pointed "
                 "into a null."));
     addMeter(m_meterOut, tr("OUT"), QStringLiteral("diversityWindowMeterOut"),
+             tr("What you are hearing. Should stand above both A and B."),
              tr("Signal-to-noise on what you are actually hearing. If it does "
                 "not stand above both A and B, the combiner is not buying you "
                 "anything on this signal."));
@@ -416,6 +426,9 @@ QWidget* DiversityWindow::buildAntennasPanel()
     m_manualCaption->setObjectName(QStringLiteral("diversityWindowManualCaption"));
     m_manualCaption->setToolTip(
         tr("The weight applied to loop B before it is added to loop A. Live "
+           "only in MANUAL mode."));
+    m_manualCaption->setAccessibleDescription(
+        tr("The weight applied to loop B before it is added to loop A. Live "
            "only in MANUAL mode -- NULL and TRACK solve for their own weight, "
            "and OFF applies none, so the knobs grey out in those modes rather "
            "than sitting there looking adjustable."));
@@ -427,11 +440,13 @@ QWidget* DiversityWindow::buildAntennasPanel()
     m_phaseKnob->setObjectName(QStringLiteral("diversityWindowPhaseKnob"));
     m_phaseKnob->setAccessibleName(tr("Manual phase"));
     m_phaseKnob->setToolTip(
+        tr("How far loop B is rotated in phase before adding to loop A. "
+           "MANUAL mode only."));
+    m_phaseKnob->setAccessibleDescription(
         tr("How far loop B is rotated in phase before being added to loop A. "
            "Sweep it and a local noise source will null sharply at one "
            "setting; the wanted signal, arriving from a different direction, "
            "will not. MANUAL mode only."));
-    m_phaseKnob->setAccessibleDescription(m_phaseKnob->toolTip());
     m_phaseKnob->setFixedSize(72, 88);
     m_phaseKnob->setLabel(tr("PHASE"));
     m_phaseKnob->setRange(0.0f, 360.0f);
@@ -445,11 +460,13 @@ QWidget* DiversityWindow::buildAntennasPanel()
     m_ratioKnob->setObjectName(QStringLiteral("diversityWindowRatioKnob"));
     m_ratioKnob->setAccessibleName(tr("Manual ratio"));
     m_ratioKnob->setToolTip(
+        tr("How much louder loop B is made before adding to loop A. MANUAL "
+           "mode only."));
+    m_ratioKnob->setAccessibleDescription(
         tr("How much louder loop B is made before being added to loop A. Get "
            "this within a decibel of the level the noise arrives at on both "
            "loops or the null will be shallow no matter what the phase is. "
            "MANUAL mode only."));
-    m_ratioKnob->setAccessibleDescription(m_ratioKnob->toolTip());
     m_ratioKnob->setFixedSize(72, 88);
     m_ratioKnob->setLabel(tr("RATIO"));
     m_ratioKnob->setRange(-20.0f, 20.0f);
@@ -473,45 +490,53 @@ QWidget* DiversityWindow::buildAntennasPanel()
     m_balanceDelta = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowBalanceDeltaLabel"),
         QStringLiteral("A - B: +99.9 dB"),
+        tr("How much better loop A's SNR is than loop B's right now."),
+        frame);
+    m_balanceDelta->setAccessibleName(tr("Loop balance"));
+    m_balanceDelta->setAccessibleDescription(
         tr("How much better loop A's signal-to-noise is than loop B's right "
            "now. Near zero means both loops are contributing; a large number "
            "means one of them is doing all the work and the combiner has "
-           "little to add."),
-        frame);
-    m_balanceDelta->setAccessibleName(tr("Loop balance"));
+           "little to add."));
     body->addWidget(m_balanceDelta);
 
     m_balanceCoherence = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowBalanceCoherenceLabel"),
         QStringLiteral("noise coherence 0.00"),
+        tr("How alike the noise looks on the two loops, from 0 to 1."),
+        frame);
+    m_balanceCoherence->setAccessibleName(tr("Noise coherence"));
+    m_balanceCoherence->setAccessibleDescription(
         tr("How alike the noise looks on the two loops, from 0 to 1. Near zero "
            "is sky noise arriving from every direction at once, which no "
            "combiner can cancel -- the second antenna can only add gain. Near "
-           "one means a single dominant local source, which can be nulled."),
-        frame);
-    m_balanceCoherence->setAccessibleName(tr("Noise coherence"));
+           "one means a single dominant local source, which can be nulled."));
     body->addWidget(m_balanceCoherence);
 
     m_balancePassband = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowBalancePassbandLabel"),
         QStringLiteral("passband flat 0.00 · slope -99.9°/kHz"),
+        tr("How uniform the combined passband is, and how fast phase drifts "
+           "with frequency."),
+        frame);
+    m_balancePassband->setAccessibleName(tr("Passband balance"));
+    m_balancePassband->setAccessibleDescription(
         tr("How uniform the combined passband is across its width, and how "
            "fast the phase between the loops drifts with frequency. A steep "
            "slope means one weight cannot null the whole channel at once, so "
-           "the null will be deep at one edge and shallow at the other."),
-        frame);
-    m_balancePassband->setAccessibleName(tr("Passband balance"));
+           "the null will be deep at one edge and shallow at the other."));
     body->addWidget(m_balancePassband);
 
     m_balanceVerdict = new QLabel(QStringLiteral("—"), frame);
     m_balanceVerdict->setObjectName(QStringLiteral("diversityWindowBalanceVerdictLabel"));
     m_balanceVerdict->setAccessibleName(tr("Balance verdict"));
     m_balanceVerdict->setToolTip(
+        tr("What the three numbers above add up to."));
+    m_balanceVerdict->setAccessibleDescription(
         tr("What the three numbers above add up to. \"Gain only\" means the "
            "noise is isotropic and there is nothing to null -- the second loop "
            "can still help by adding signal. \"Null available\" means one "
            "source dominates and NULL or TRACK has something to bite on."));
-    m_balanceVerdict->setAccessibleDescription(m_balanceVerdict->toolTip());
     ThemeManager::instance().applyStyleSheet(m_balanceVerdict,
                                              QString::fromLatin1(kVerdictStyle));
     body->addWidget(m_balanceVerdict);
@@ -541,12 +566,14 @@ QWidget* DiversityWindow::buildNoisePanel()
     m_nbButton->setObjectName(QStringLiteral("diversityWindowNbButton"));
     m_nbButton->setAccessibleName(tr("Noise blanker"));
     m_nbButton->setToolTip(
+        tr("Mutes short, loud spikes -- ignition, arcing -- before the rest "
+           "of the chain hears them."));
+    m_nbButton->setAccessibleDescription(
         tr("A noise blanker watches for short, loud spikes -- power-line "
            "arcing, ignition noise, some switching supplies -- and mutes the "
            "receiver for the microseconds each spike lasts, before anything "
            "else in the chain hears it. It does nothing at all for a steady "
            "hiss or a carrier; that is what the null is for."));
-    m_nbButton->setAccessibleDescription(m_nbButton->toolTip());
     m_nbButton->setCheckable(true);
     m_nbButton->setFixedHeight(26);
     applyToggleButtonStyle(m_nbButton, ToggleTribe::Warning);
@@ -561,11 +588,13 @@ QWidget* DiversityWindow::buildNoisePanel()
     m_nbKnob->setObjectName(QStringLiteral("diversityWindowNbKnob"));
     m_nbKnob->setAccessibleName(tr("Noise blanker threshold"));
     m_nbKnob->setToolTip(
+        tr("How far above average a sample must jump before the blanker "
+           "mutes it."));
+    m_nbKnob->setAccessibleDescription(
         tr("How far above the running average a sample has to jump before the "
            "blanker calls it an impulse and mutes it. Too low and it chews "
            "holes in speech and strong signals; too high and it never fires. "
            "Start high and wind it down until the crackle stops."));
-    m_nbKnob->setAccessibleDescription(m_nbKnob->toolTip());
     m_nbKnob->setFixedSize(72, 80);
     m_nbKnob->setLabel(tr("THRESH"));
     m_nbKnob->setRange(0.0f, 40.0f);
@@ -592,11 +621,26 @@ QWidget* DiversityWindow::buildNoisePanel()
             "sees, uncombined."),
          tr("Draw loop B's raw spectrum on the panadapter."),
          tr("Draw the combiner's output -- the two loops added with the "
-            "current weight. This is what you are hearing."),
-         tr("Draw the difference the null is removing: what the combiner threw "
-            "away. A tall peak here is the interference being cancelled, which "
-            "is the quickest confirmation that the null is on the right "
-            "thing.")});
+            "current weight."),
+         tr("Draw what the null removed -- confirms it's cancelling the "
+            "right signal.")});
+    // addButtonRow() (DiversityWindow.cpp, not owned here) sets the
+    // accessible description to the same short tip it puts on the button --
+    // these two buttons had the load-bearing longer sentence before the H1
+    // migration, so it is restored here rather than lost.
+    for (QAbstractButton* button : m_panGroup->buttons()) {
+        if (button->objectName() == QLatin1String("diversityWindowPancombined")) {
+            button->setAccessibleDescription(
+                tr("Draw the combiner's output -- the two loops added with the "
+                   "current weight. This is what you are hearing."));
+        } else if (button->objectName() == QLatin1String("diversityWindowPannulled")) {
+            button->setAccessibleDescription(
+                tr("Draw the difference the null is removing: what the combiner "
+                   "threw away. A tall peak here is the interference being "
+                   "cancelled, which is the quickest confirmation that the null "
+                   "is on the right thing."));
+        }
+    }
     pan->addStretch(1);
     body->addWidget(panRow);
 
@@ -606,12 +650,14 @@ QWidget* DiversityWindow::buildNoisePanel()
     m_mapStrip->setAxisMode(true);
     m_mapStrip->setToolTip(
         tr("How alike the two loops look at each frequency across the mapped "
+           "span."));
+    m_mapStrip->setAccessibleDescription(
+        tr("How alike the two loops look at each frequency across the mapped "
            "span. A tall bar means one local source dominates that patch and "
            "the combiner has something it can null; short bars mean noise "
            "arriving from everywhere at once, which nothing can cancel. The "
            "shaded band is the passband you are actually listening through, "
            "and the brackets underneath mark the sources listed below."));
-    m_mapStrip->setAccessibleDescription(m_mapStrip->toolTip());
     body->addWidget(m_mapStrip);
 
     // Broken over two lines by hand rather than word-wrapped: it is the
@@ -633,12 +679,14 @@ QWidget* DiversityWindow::buildNoisePanel()
     m_sourcesList->setObjectName(QStringLiteral("diversityWindowSourcesList"));
     m_sourcesList->setAccessibleName(tr("Diversity sources"));
     m_sourcesList->setToolTip(
+        tr("A patch where both loops see the same source. Select, then "
+           "Null selected."));
+    m_sourcesList->setAccessibleDescription(
         tr("Each row is a patch of the band where both loops see the same "
            "thing at a steady phase -- the signature of one interfering "
            "source rather than sky noise. Select the one that is bothering "
            "you and press Null selected: the gate solves for the weight that "
            "cancels it and applies it. Hover a row for its phase and level."));
-    m_sourcesList->setAccessibleDescription(m_sourcesList->toolTip());
     ThemeManager::instance().applyStyleSheet(m_sourcesList,
                                              QString::fromLatin1(kSourcesListStyle));
     m_sourcesList->setFixedHeight(3 * (fontMetrics().height() + 6));
@@ -654,6 +702,8 @@ QWidget* DiversityWindow::buildNoisePanel()
     m_nullSourceButton->setObjectName(QStringLiteral("diversityWindowNullSourceButton"));
     m_nullSourceButton->setAccessibleName(tr("Null the selected noise source"));
     m_nullSourceButton->setToolTip(
+        tr("Point the combiner's null at the source selected above."));
+    m_nullSourceButton->setAccessibleDescription(
         tr("Point the combiner's null at the source selected above. The gate "
            "solves for the phase and level that cancel it and switches to that "
            "weight; if the source moves or stops, use TRACK instead so the "
@@ -679,14 +729,16 @@ QWidget* DiversityWindow::buildNoisePanel()
     m_noiseStatus = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowNoiseStatusLabel"),
         tr("noise reference: guard band · coherence 0.00"),
+        tr("Where the gate measures \"noise\" from for the SNR figure."),
+        frame);
+    m_noiseStatus->setAccessibleName(tr("Noise reference"));
+    m_noiseStatus->setAccessibleDescription(
         tr("Where the gate measures \"noise\" from when it works out a "
            "signal-to-noise figure. A GUARD BAND is a slice just outside the "
            "passband, which is honest while the band is quiet but wrong if "
            "something is sitting in the guard. IN-BAND means it is estimating "
            "the noise floor underneath the signal itself. The coherence figure "
-           "is the same one the BALANCE block explains."),
-        frame);
-    m_noiseStatus->setAccessibleName(tr("Noise reference"));
+           "is the same one the BALANCE block explains."));
     body->addWidget(m_noiseStatus);
     body->addStretch(1);
     return frame;

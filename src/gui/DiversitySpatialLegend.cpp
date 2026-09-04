@@ -110,14 +110,17 @@ DiversitySpatialLegend::DiversitySpatialLegend(QWidget* parent)
     setAccessibleName(tr("spatial waterfall colour key"));
     // The whole legend in words, because the one operator who most needs a
     // colour key may be the one who cannot see the key.
-    setToolTip(tr("Colour is the phase between the two loops, −180° to +180° "
-                  "once around the colour circle: the same colour twice on the "
-                  "span is one signal arriving from one direction, two colours "
-                  "are two directions. Brightness is how strong the bin is, "
-                  "against that row's own noise floor. Where the loops do not "
-                  "agree well enough to call it a direction the bin is left "
-                  "grey — that is noise, which arrives from everywhere at once "
-                  "and has no one direction to colour."));
+    setToolTip(tr("Colour is direction (phase), brightness is strength, "
+                  "grey is noise."));
+    setAccessibleDescription(
+        tr("Colour is the phase between the two loops, −180° to +180° "
+           "once around the colour circle: the same colour twice on the "
+           "span is one signal arriving from one direction, two colours "
+           "are two directions. Brightness is how strong the bin is, "
+           "against that row's own noise floor. Where the loops do not "
+           "agree well enough to call it a direction the bin is left "
+           "grey — that is noise, which arrives from everywhere at once "
+           "and has no one direction to colour."));
 
     // Raw QPainter keyed off ThemeManager::color(), so applyStyleSheet's
     // reverse map never sees these -- declare the tokens actually read so an

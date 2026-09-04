@@ -6177,3 +6177,83 @@ set_target_properties(diversity_site_dismiss_test PROPERTIES AUTOMOC ON)
 add_test(NAME diversity_site_dismiss_test COMMAND diversity_site_dismiss_test)
 set_tests_properties(diversity_site_dismiss_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# ── the H1 90-char tooltip rule, and the three DiversityHelp buttons WP-D
+# added (Diversity Phase 3a rework) ─────────────────────────────────────────
+#
+# Appended after the sweep above, same reason aether_gate_chain_bypass_test's
+# own block is: no default TIMEOUT or AETHER_WDSP_* environment from the
+# foreach loops above, neither load-bearing for a GUI unit test with no WDSP
+# path in it. The source list mirrors aether_gate_chain_bypass_test's own --
+# same CHAIN window + diversity sidebar closure, standalone-constructible
+# without DiversityWindow itself (see the test file's own header comment for
+# why that constructor is out of reach while DiversityWindow is
+# mid-restructure elsewhere in this rework).
+add_executable(diversity_help_audit_test
+    tests/diversity_help_audit_test.cpp
+    src/gui/AetherGateApplet.cpp
+    src/gui/AetherGateAppletControls.cpp
+    src/gui/AetherGateAppletDiversity.cpp
+    src/gui/AetherGateChainModes.cpp
+    src/gui/AetherGateChainStage.cpp
+    src/gui/AetherGateChainTile.cpp
+    src/gui/AetherGateChainAuto.cpp
+    src/gui/AetherGateChainStrip.cpp
+    src/gui/AetherGateChainRows.cpp
+    src/gui/AetherGateChainWindow.cpp
+    src/gui/AetherGateChainBypass.cpp
+    src/gui/AetherGateChainWindowTabs.cpp
+    src/gui/AetherGateChainPresets.cpp
+    src/gui/AetherGateChainVisual.cpp
+    src/gui/AetherGateDeviceStrip.cpp
+    src/gui/AetherGateDiversityPanel.cpp
+    src/gui/AetherGateDiversityFormat.cpp
+    src/gui/DiversityBandPoller.cpp
+    src/gui/DiversityBeaconControls.cpp
+    src/gui/DiversityBeaconPanel.cpp
+    src/gui/DiversityBeaconPattern.cpp
+    src/gui/DiversityEventLog.cpp
+    src/gui/DiversityFilterControls.cpp
+    src/gui/DiversityHelp.cpp
+    src/gui/DiversityNextStrip.cpp
+    src/gui/DiversitySessionCard.cpp
+    src/gui/DiversitySessionModel.cpp
+    src/gui/DiversitySessionPage.cpp
+    src/gui/DiversitySessionText.cpp
+    src/gui/HelpDialog.cpp
+    src/gui/DiversityFilterPanel.cpp
+    src/gui/DiversityFilterPanelPaint.cpp
+    src/gui/DiversityFilterPanelSqueeze.cpp
+    src/gui/DiversityFilterPanelRoof.cpp
+    src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityNoiseProfileDismiss.cpp
+    src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityScope.cpp
+    src/gui/DiversitySpatialLegend.cpp
+    src/gui/DiversitySpatialWaterfall.cpp
+    src/gui/DiversityTalkerControls.cpp
+    src/gui/DiversityTimeline.cpp
+    src/gui/DiversityWindow.cpp
+    src/gui/DiversityWindowBand.cpp
+    src/gui/DiversityWindowChain.cpp
+    src/gui/DiversityWindowFilter.cpp
+    src/gui/DiversityWindowSite.cpp
+    src/gui/DiversityWindowEvents.cpp
+    src/gui/DiversityWindowPanels.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(diversity_help_audit_test PRIVATE src tests)
+target_compile_definitions(diversity_help_audit_test PRIVATE
+    AETHER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(diversity_help_audit_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(diversity_help_audit_test PROPERTIES AUTOMOC ON)
+add_test(NAME diversity_help_audit_test COMMAND diversity_help_audit_test)
+set_tests_properties(diversity_help_audit_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    TIMEOUT 300)

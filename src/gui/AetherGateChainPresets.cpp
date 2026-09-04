@@ -301,10 +301,11 @@ AetherGateChainPresetBar::AetherGateChainPresetBar(QWidget* parent) : QWidget(pa
 
     auto* caption = DiversityWidgets::makeCaption(tr("PRESETS"), this);
     caption->setObjectName(QStringLiteral("gateChainPresetCaption"));
-    caption->setToolTip(tr("Every stage the receiver lets you change, saved "
-                           "under a name you choose and put back one stage at "
-                           "a time."));
-    caption->setAccessibleDescription(caption->toolTip());
+    caption->setToolTip(tr("Every stage, saved under a name and put back one at a time."));
+    caption->setAccessibleDescription(
+        tr("Every stage the receiver lets you change, saved "
+           "under a name you choose and put back one stage at "
+           "a time."));
     box->addWidget(caption);
 
     m_pick = new QComboBox(this);
@@ -340,20 +341,22 @@ AetherGateChainPresetBar::AetherGateChainPresetBar(QWidget* parent) : QWidget(pa
     m_state = DiversityWidgets::makeReadoutLine(
         QStringLiteral("gateChainPresetState"),
         tr("in force: %1 (edited)").arg(QString(24, QLatin1Char('M'))),
+        tr("The preset the receiver was last set to. \"edited\" means it drifted."),
+        this);
+    m_state->setAccessibleDescription(
         tr("The preset the receiver was last set to. \"edited\" means at least "
            "one stage no longer reads the way that preset says; put it back and "
-           "the word goes away."),
-        this);
+           "the word goes away."));
     m_state->setAccessibleName(tr("Preset in force"));
     box->addWidget(m_state);
 
     const auto makeButton = [&](const QString& text, const QString& name,
-                                const QString& tip) {
+                                const QString& tip, const QString& description) {
         auto* button = new QPushButton(text, this);
         button->setObjectName(name);
         button->setAccessibleName(text);
         button->setToolTip(tip);
-        button->setAccessibleDescription(tip);
+        button->setAccessibleDescription(description);
         button->setCursor(Qt::PointingHandCursor);
         button->setFixedHeight(24);
         ThemeManager::instance().applyStyleSheet(button,
@@ -363,12 +366,17 @@ AetherGateChainPresetBar::AetherGateChainPresetBar(QWidget* parent) : QWidget(pa
     };
 
     m_load = makeButton(tr("LOAD"), QStringLiteral("gateChainPresetLoad"),
+                        tr("Puts these settings back, one stage at a time."),
                         tr("Puts these settings back into the receiver, one "
                            "stage at a time, waiting for it after each one."));
     m_save = makeButton(tr("SAVE AS..."), QStringLiteral("gateChainPresetSave"),
                         tr("Saves every stage the receiver is set to right now "
+                           "under a name of your own."),
+                        tr("Saves every stage the receiver is set to right now "
                            "under a name of your own."));
     m_delete = makeButton(tr("DELETE"), QStringLiteral("gateChainPresetDelete"),
+                          tr("Throws these settings away. You get eight seconds "
+                             "to change your mind."),
                           tr("Throws these settings away. You get eight seconds "
                              "to change your mind."));
     connect(m_load, &QPushButton::clicked, this, &AetherGateChainPresetBar::doLoad);
@@ -489,7 +497,14 @@ void AetherGateChainPresetBar::refreshState()
     else
         text = tr("in force: %1").arg(m_loaded.name);
     m_state->setText(text);
-    m_state->setAccessibleDescription(text);
+    // refreshState() runs from the constructor (reload() below), so the
+    // long explanation the H1 90-char rule pushed off the tooltip has to be
+    // rebuilt here rather than left to survive untouched -- see the short
+    // tooltip set on m_state above.
+    m_state->setAccessibleDescription(
+        tr("%1. \"edited\" means at least one stage no longer reads the way "
+           "that preset says; put it back and the word goes away.")
+            .arg(text));
 }
 
 void AetherGateChainPresetBar::beginSaveAs()

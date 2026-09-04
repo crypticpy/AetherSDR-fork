@@ -1,6 +1,7 @@
 #include "gui/DiversityWindowEvents.h"
 
 #include "core/ThemeManager.h"
+#include "gui/DiversityHelp.h"
 #include "gui/DiversityWindow.h"
 #include "gui/DiversityWindowPanels.h"
 
@@ -156,6 +157,8 @@ QWidget* DiversityWindow::buildTalkersPanel()
     QFrame* frame = DiversityWidgets::makeGroupBox(
         tr("TALKERS"), QStringLiteral("diversityWindowTalkers"), body, this);
     frame->setToolTip(
+        tr("Stations the gate has heard and kept a combiner weight for."));
+    frame->setAccessibleDescription(
         tr("Stations the gate has heard and kept a combiner weight for. When "
            "one of them comes back on the air the gate recalls its weight "
            "instead of solving from scratch, so the first syllable is already "
@@ -165,6 +168,8 @@ QWidget* DiversityWindow::buildTalkersPanel()
     m_talkersCount->setObjectName(QStringLiteral("diversityWindowTalkersCountLabel"));
     m_talkersCount->setAccessibleName(tr("Remembered talker count"));
     m_talkersCount->setToolTip(
+        tr("How many stations are remembered, and who is on the air now."));
+    m_talkersCount->setAccessibleDescription(
         tr("How many stations are in the gate's memory, and which of them is "
            "on the air right now with how long they have been going."));
 
@@ -181,32 +186,41 @@ QWidget* DiversityWindow::buildTalkersPanel()
     // give the phase difference between the antennas and nothing more -- a
     // bearing needs a third baseline to resolve the ambiguity, and calling it
     // one would be claiming a measurement the hardware cannot make.
-    static const struct { int column; const char* tip; } kHeaderTips[] = {
-        {0, QT_TR_NOOP("The gate's own number for this talker. The same number is "
+    static const struct { int column; const char* shortTip; const char* tip; } kHeaderTips[] = {
+        {0, QT_TR_NOOP("The gate's own number for this talker; matches its dial marker."),
+            QT_TR_NOOP("The gate's own number for this talker. The same number is "
                        "printed beside its marker on the dial, so a ring out on "
                        "the rim can be matched to a row here.")},
-        {1, QT_TR_NOOP("Your own label for this station -- a callsign, a name, "
+        {1, QT_TR_NOOP("Your own label for this station. Double-click to type one."),
+            QT_TR_NOOP("Your own label for this station -- a callsign, a name, "
                        "anything. Double-click to type one; clear it to remove it. "
                        "It is stored on the gate, so it comes back the next time "
                        "they do.")},
-        {2, QT_TR_NOOP("The phase difference between the two loops for this "
+        {2, QT_TR_NOOP("The phase difference between the two loops for this station."),
+            QT_TR_NOOP("The phase difference between the two loops for this "
                        "station. It is a PHASE, not a bearing: with only two "
                        "antennas there is no third baseline to resolve which side "
                        "the signal came from, so the same number covers two "
                        "directions.")},
-        {3, QT_TR_NOOP("How much louder loop B is than loop A for this station, "
+        {3, QT_TR_NOOP("How much louder loop B is than loop A for this station, in dB."),
+            QT_TR_NOOP("How much louder loop B is than loop A for this station, "
                        "in decibels. Together with the phase it is the whole "
                        "weight the combiner applies when they come back.")},
-        {4, QT_TR_NOOP("How many separate overs the gate has matched to this "
+        {4, QT_TR_NOOP("How many overs the gate has matched to this weight."),
+            QT_TR_NOOP("How many separate overs the gate has matched to this "
                        "weight. A high count means the weight is well settled.")},
-        {5, QT_TR_NOOP("How long ago this station was last heard.")},
-        {6, QT_TR_NOOP("How long ago the gate first heard this station.")},
-        {7, QT_TR_NOOP("The filter the gate remembers for this station: its "
+        {5, QT_TR_NOOP("How long ago this station was last heard."),
+            QT_TR_NOOP("How long ago this station was last heard.")},
+        {6, QT_TR_NOOP("How long ago the gate first heard this station."),
+            QT_TR_NOOP("How long ago the gate first heard this station.")},
+        {7, QT_TR_NOOP("The filter the gate remembers for this station."),
+            QT_TR_NOOP("The filter the gate remembers for this station: its "
                        "edges in Hz, the skirt shape, and any of auto, eq and "
                        "contour that are on. A filled dot means this is the "
                        "filter in force right now. A dash means the gate has "
                        "not kept one for them and they get the standing filter.")},
-        {8, QT_TR_NOOP("The upper edge of this station's transmitted audio, in "
+        {8, QT_TR_NOOP("This station's TX audio edge. Hover a row for the whole print."),
+            QT_TR_NOOP("The upper edge of this station's transmitted audio, in "
                        "kHz: their rig's TX filter, which stays the same when "
                        "the antennas move and the spatial signature does not. "
                        "Hover a row for the whole print -- both edges, the "
@@ -214,8 +228,10 @@ QWidget* DiversityWindow::buildTalkersPanel()
                        "long their overs run.")},
     };
     for (const auto& entry : kHeaderTips) {
-        if (QTableWidgetItem* header = m_talkers->horizontalHeaderItem(entry.column))
-            header->setToolTip(tr(entry.tip));
+        if (QTableWidgetItem* header = m_talkers->horizontalHeaderItem(entry.column)) {
+            header->setToolTip(tr(entry.shortTip));
+            header->setData(Qt::AccessibleDescriptionRole, tr(entry.tip));
+        }
     }
 
     m_talkers->verticalHeader()->setVisible(false);
@@ -244,6 +260,8 @@ QWidget* DiversityWindow::buildTalkersPanel()
     m_memoryClearButton->setObjectName(QStringLiteral("diversityWindowMemoryClearButton"));
     m_memoryClearButton->setAccessibleName(tr("Clear the remembered talkers"));
     m_memoryClearButton->setToolTip(
+        tr("Forget every remembered talker and their weights, names included."));
+    m_memoryClearButton->setAccessibleDescription(
         tr("Forget every remembered talker and their weights, names included. "
            "The gate starts solving from scratch for whoever comes up next. "
            "Useful after moving band or antenna, when the old weights describe "
@@ -264,6 +282,8 @@ QWidget* DiversityWindow::buildTalkersPanel()
     m_lockButton->setObjectName(QStringLiteral("diversityWindowLockButton"));
     m_lockButton->setAccessibleName(tr("Lock the combiner on the selected talker"));
     m_lockButton->setToolTip(
+        tr("Pin the combiner on the selected station; nulls everyone else."));
+    m_lockButton->setAccessibleDescription(
         tr("Pin the combiner on the selected station. Their overs get the "
            "remembered beam; anyone else who transmits is treated as an "
            "interferer and nulled, so the receiver stays deaf to a pile-up "
@@ -291,6 +311,9 @@ QWidget* DiversityWindow::buildTalkersPanel()
     // Not word-wrapped: see the NOISE caption for why no label in this grid
     // may be. The phrase is short and fixed-shape.
     m_focusLine->setToolTip(
+        tr("Which station is locked, overs steered and nulled, and best "
+           "output SNR."));
+    m_focusLine->setAccessibleDescription(
         tr("Which station the combiner is locked on, how many of their overs "
            "it has steered, how many other overs it has nulled meanwhile, and "
            "the best output SNR it reached on them."));
@@ -301,6 +324,10 @@ QWidget* DiversityWindow::buildTalkersPanel()
     header->addWidget(m_talkersCount, 1);
     header->addWidget(m_lockButton);
     header->addWidget(m_memoryClearButton);
+    // TALKERS' tooltip lost its longer explanation to the H1 90-char rule
+    // (see frame->setToolTip() above); this is where that explanation lives
+    // now that a mouse -- rather than a screen reader -- has to ask for it.
+    header->addWidget(DiversityHelp::button(frame, DiversityHelp::Topic::Slice));
     body->addLayout(header);
     body->addWidget(m_focusLine);
     body->addWidget(m_talkers, 1);
@@ -378,23 +405,28 @@ QWidget* DiversityWindow::buildEventsPanel()
     m_alignLine = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowAlignLabel"),
         QStringLiteral("not aligned · lag -99999 · peak 0.000 · realigning…"),
+        tr("How far apart the two tuner streams are, and how confident. "
+           "REALIGN after retuning."),
+        frame);
+    m_alignLine->setAccessibleName(tr("Tuner alignment"));
+    m_alignLine->setAccessibleDescription(
         tr("The two tuners each start their own sample stream, so before "
            "anything can be combined the gate has to know how far apart they "
            "are. Lag is that offset in samples; the peak is how confident the "
            "correlation was about it (above about 0.5 is solid); realigning "
            "means it is measuring again right now. Press REALIGN after "
-           "changing frequency or sample rate."),
-        frame);
-    m_alignLine->setAccessibleName(tr("Tuner alignment"));
+           "changing frequency or sample rate."));
     body->addWidget(m_alignLine);
 
     m_captureResult = DiversityWidgets::makeReadoutLine(
         QStringLiteral("diversityWindowCaptureLabel"),
         QStringLiteral("capture: 20260901-120000-diversity.wav"),
-        tr("The last raw two-channel capture written by the CAPTURE button, "
-           "or the reason the last one failed. Hover for the full path."),
+        tr("The last raw capture, or why it failed. Hover for the full path."),
         frame);
     m_captureResult->setAccessibleName(tr("Last capture"));
+    m_captureResult->setAccessibleDescription(
+        tr("The last raw two-channel capture written by the CAPTURE button, "
+           "or the reason the last one failed. Hover for the full path."));
     m_captureResult->setText(tr("capture: —"));
     body->addWidget(m_captureResult);
 
@@ -402,11 +434,12 @@ QWidget* DiversityWindow::buildEventsPanel()
     m_events->setObjectName(QStringLiteral("diversityWindowEventsList"));
     m_events->setAccessibleName(tr("Diversity events"));
     m_events->setToolTip(
+        tr("What has changed since you last looked. Newest at the top."));
+    m_events->setAccessibleDescription(
         tr("What has changed since you last looked: stations coming up and "
            "dropping out, the combiner re-solving, a steady carrier being "
            "nulled, the gate going away and coming back. Newest at the top, "
            "last two hundred kept."));
-    m_events->setAccessibleDescription(m_events->toolTip());
     ThemeManager::instance().applyStyleSheet(m_events,
                                              QString::fromLatin1(kEventListStyle));
     m_events->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -419,6 +452,8 @@ QWidget* DiversityWindow::buildEventsPanel()
     m_eventsClearButton->setObjectName(QStringLiteral("diversityWindowEventsClearButton"));
     m_eventsClearButton->setAccessibleName(tr("Clear the event list"));
     m_eventsClearButton->setToolTip(
+        tr("Empty the list. Clears the display only, nothing on the gate."));
+    m_eventsClearButton->setAccessibleDescription(
         tr("Empty the list. It clears the display only -- nothing on the gate "
            "changes, and new events keep arriving."));
     connect(m_eventsClearButton, &QPushButton::clicked, m_events, &QListWidget::clear);

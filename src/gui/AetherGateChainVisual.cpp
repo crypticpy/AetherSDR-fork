@@ -2,6 +2,7 @@
 
 #include "core/ThemeManager.h"
 #include "gui/DiversityFilterPanel.h"
+#include "gui/DiversityHelp.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
 
@@ -71,16 +72,19 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
 
     auto* caption = DiversityWidgets::makeCaption(tr("PASSBAND"), this);
     caption->setObjectName(QStringLiteral("gateChainVisualCaption"));
-    caption->setToolTip(tr("What the filter does to everything arriving, drawn "
-                           "over what is actually arriving. Drag an edge to "
-                           "move it, double-click to notch what is under the "
-                           "pointer, drag a notch mark to move it, right-click "
-                           "one to take it away, click any mark to go to its "
-                           "stage on the CHAIN tab. Shift+click a signal to "
-                           "SQUEEZE a null or notch onto it; Shift+click or "
-                           "right-click the SQUEEZE mark, or press RELEASE, "
-                           "to let it go."));
-    caption->setAccessibleDescription(caption->toolTip());
+    caption->setToolTip(
+        tr("Drag an edge to move it, double-click to notch. See HELP for the "
+           "rest."));
+    caption->setAccessibleDescription(
+        tr("What the filter does to everything arriving, drawn "
+           "over what is actually arriving. Drag an edge to "
+           "move it, double-click to notch what is under the "
+           "pointer, drag a notch mark to move it, right-click "
+           "one to take it away, click any mark to go to its "
+           "stage on the CHAIN tab. Shift+click a signal to "
+           "SQUEEZE a null or notch onto it; Shift+click or "
+           "right-click the SQUEEZE mark, or press RELEASE, "
+           "to let it go."));
 
     // SQUEEZE (B24): the operator's own null or notch, asked for either by
     // pointing (Shift+click on the picture, see DiversityFilterPanel) or, for
@@ -91,14 +95,20 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
     captionRow->setContentsMargins(0, 0, 0, 0);
     captionRow->setSpacing(6);
     captionRow->addWidget(caption);
+    // The caption's own tooltip lost the drag/click/SQUEEZE walkthrough to
+    // the H1 90-char rule (see caption->setAccessibleDescription() above);
+    // this is where that walkthrough lives now that a mouse -- rather than a
+    // screen reader -- has to ask for it.
+    captionRow->addWidget(DiversityHelp::button(this, DiversityHelp::Topic::Chain));
     captionRow->addStretch(1);
     m_squeezeComb = new QPushButton(tr("SQUEEZE: COMB"), this);
     m_squeezeComb->setObjectName(QStringLiteral("gateChainSqueezeComb"));
     m_squeezeComb->setAccessibleName(tr("Squeeze a comb of carriers"));
     m_squeezeComb->setToolTip(
+        tr("Find and squeeze a comb of evenly spaced carriers, not one signal."));
+    m_squeezeComb->setAccessibleDescription(
         tr("Ask the gate to find and squeeze a comb of evenly spaced carriers "
            "in this passband, rather than the one signal a click would pick."));
-    m_squeezeComb->setAccessibleDescription(m_squeezeComb->toolTip());
     m_squeezeComb->setFixedHeight(22);
     applyToggleButtonStyle(m_squeezeComb, ToggleTribe::Warning);
     connect(m_squeezeComb, &QPushButton::clicked, this, [this]() {
@@ -111,10 +121,10 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
     m_squeezeRelease = new QPushButton(tr("RELEASE"), this);
     m_squeezeRelease->setObjectName(QStringLiteral("gateChainSqueezeRelease"));
     m_squeezeRelease->setAccessibleName(tr("Let the SQUEEZE go"));
-    m_squeezeRelease->setToolTip(
+    m_squeezeRelease->setToolTip(tr("Give the passband back, whatever SQUEEZE was holding."));
+    m_squeezeRelease->setAccessibleDescription(
         tr("Take away whatever SQUEEZE is armed or holding -- one signal or a "
            "comb -- and give the passband back."));
-    m_squeezeRelease->setAccessibleDescription(m_squeezeRelease->toolTip());
     m_squeezeRelease->setFixedHeight(22);
     m_squeezeRelease->setEnabled(false);
     applyToggleButtonStyle(m_squeezeRelease, ToggleTribe::Warning);
@@ -162,10 +172,11 @@ AetherGateChainVisual::AetherGateChainVisual(QWidget* parent) : QWidget(parent)
 
     m_readout = DiversityWidgets::makeReadoutLine(
         QStringLiteral("gateChainVisualReadout"), visualReadoutWorstCase(),
+        tr("Passband, noise floor, notches, and the auto-width edges."), this);
+    m_readout->setAccessibleDescription(
         tr("The passband in force, the noise floor the receiver measured, how "
            "many notches are set, and where the automatic width has put the "
-           "edges when it is running."),
-        this);
+           "edges when it is running."));
     m_readout->setAccessibleName(tr("The filter now"));
     box->addWidget(m_readout);
 

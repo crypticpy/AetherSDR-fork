@@ -164,18 +164,17 @@ DiversitySpatialWaterfall::DiversitySpatialWaterfall(QWidget* parent) : QWidget(
     // sees.
     setMouseTracking(true);
     setAccessibleName(tr("Spatial waterfall"));
+    setToolTip(tr("One row per poll; colour is direction, brightness is "
+                  "level. Click to tune."));
     setAccessibleDescription(
         tr("The gate's whole span over time. Colour is the direction a signal "
            "arrives from (the phase between the two loops), how saturated it "
            "is says how coherent the two loops are there, and how bright it is "
            "says how strong it is. Move the pointer over it for the frequency, "
            "phase, coherence and level of one bin; click a column to tune to "
-           "it."));
-    setToolTip(tr("Every bin of the gate's span, one row per poll. Two "
-                  "stations from different directions are different colours; "
-                  "one local noise source is a single flat colour across "
-                  "everything it touches; sky noise has no direction and goes "
-                  "grey. Click a column to tune there."));
+           "it. Two stations from different directions are different colours; "
+           "one local noise source is a single flat colour across everything "
+           "it touches; sky noise has no direction and goes grey."));
 
     // Raw QPainter keyed off ThemeManager::color(), so applyStyleSheet's
     // reverse map never sees these -- declare the tokens actually read so an

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gui/DiversitySessionModel.h"
+
 #include <QPointer>
 #include <QUrlQuery>
 #include <QWidget>
@@ -221,6 +223,16 @@ private:
     // persists which of the two under DiversityWindowVisible.
     void toggleWindow();
 
+    // Re-runs m_sessionModel over the five cached payloads and pushes the
+    // result into m_nextLine/m_quickStartButton. Called from every apply*()
+    // below that touches one of those five payloads -- the panel receives
+    // all five regardless of whether the pop-out window exists (see
+    // DiversityBandPoller::attachFilter()), so this is the one place able to
+    // own the model without depending on the window at all.
+    void refreshNextLine();
+    // The ≤26-char "next: ..." text for the current m_sessionModel state.
+    QString nextLineText() const;
+
     QLabel*      m_statusLine{nullptr};
     QComboBox*   m_mode{nullptr};
     // B25's own switch and indicator, folded into one control per the
@@ -237,6 +249,23 @@ private:
     // AetherGateDiversityPanel_ShowScope is set. A hidden widget does not
     // paint, so feeding it costs nothing but the setState() call itself.
     DiversityScope* m_scope{nullptr};
+
+    // The sidebar's own "where do I start?" line, under the door button --
+    // same DiversitySessionModel DiversityWindow's start page uses, fed from
+    // the same five payloads this panel already receives. See
+    // refreshNextLine().
+    DiversitySessionModel m_sessionModel;
+    QLabel*      m_nextLine{nullptr};
+    QPushButton* m_quickStartButton{nullptr};
+    // Cached verbatim from the matching apply*() below; refreshNextLine()
+    // re-derives the whole model from these five every time one changes,
+    // never carrying derived state between polls (same rule
+    // DiversitySessionModel::apply() itself keeps).
+    QJsonObject m_lastDiversity;
+    QJsonObject m_lastFilter;
+    QJsonObject m_lastDig;
+    QJsonObject m_lastBeacons;
+    QJsonObject m_lastCompass;
 
     // The pop-out window, or null until it has been opened once. QPointer
     // rather than a raw pointer: it is a top-level widget the operator can

@@ -117,7 +117,9 @@ void setElided(QLabel* label, const QString& text, int width)
 {
     const QFontMetrics fm(label->font());
     label->setText(fm.elidedText(text, Qt::ElideRight, width));
-    label->setToolTip(text);
+    // H1's 90-char tooltip rule; the full sentence still reaches a screen
+    // reader below.
+    label->setToolTip(text.length() > 90 ? text.left(87) + QStringLiteral("…") : text);
     label->setAccessibleDescription(text);
 }
 
@@ -238,16 +240,15 @@ void AetherGateChainWindow::buildInspector(QVBoxLayout* hostBox, QWidget* host)
     // 2. What it is doing now -- the card's line, spelled out whole.
     m_detailText = DiversityWidgets::makeReadoutLine(
         QStringLiteral("gateChainDetailText"), QString(),
-        tr("What this stage is set to right now, in full. The card beside it "
-           "shows the short form of the same thing."),
-        pane);
+        tr("What this stage is set to, in full."), pane);
+    m_detailText->setAccessibleDescription(
+        tr("What this stage is set to right now, in full; the card shows the short form."));
     m_detailText->setAccessibleName(tr("Selected stage now"));
     m_detailText->setFixedWidth(kDetailTextWidth);
     paneBox->addWidget(m_detailText);
 
-    // AUTO CLEAN's own two lines, under its own detail line above: its
-    // state and why, then its recent moves newest first. Hidden for every
-    // other stage -- see AetherGateChainAuto.h.
+    // AUTO CLEAN's own two lines: state and why, then recent moves newest
+    // first. Hidden for every other stage -- see AetherGateChainAuto.h.
     m_detailAutoState = DiversityWidgets::makeReadoutLine(
         QStringLiteral("gateChainAutoState"), QString(),
         tr("What AUTO CLEAN is doing right now, and why."), pane);
@@ -281,9 +282,9 @@ void AetherGateChainWindow::buildInspector(QVBoxLayout* hostBox, QWidget* host)
 
     m_detailLevels = DiversityWidgets::makeReadoutLine(
         QStringLiteral("gateChainDetailLevels"), chainLevelWorstCase(),
-        tr("What the receiver measured going into this stage and coming out of "
-           "it. A dash is a leg nothing measures, never a zero."),
-        pane);
+        tr("What the receiver measured in and out of this stage."), pane);
+    m_detailLevels->setAccessibleDescription(
+        tr("What the receiver measured in and out; a dash is a leg nothing measures."));
     m_detailLevels->setAccessibleName(tr("Selected stage levels"));
     paneBox->addWidget(m_detailLevels);
 
@@ -324,8 +325,8 @@ void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
         auto* button = new QPushButton(chainModeLabel(mode), row);
         button->setObjectName(QStringLiteral("gateChainMode_") + chainModeId(mode));
         button->setAccessibleName(tr("Listen in %1").arg(chainModeLabel(mode)));
-        button->setToolTip(chainModeTip(mode));
-        button->setAccessibleDescription(button->toolTip());
+        button->setToolTip(tr("%1: what this mode shows.").arg(chainModeLabel(mode)));
+        button->setAccessibleDescription(chainModeTip(mode));
         button->setCheckable(true);
         button->setCursor(Qt::PointingHandCursor);
         button->setFixedHeight(24);
@@ -342,9 +343,7 @@ void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
         button->setObjectName(QStringLiteral("gateChainSetButton_") + chainModeId(mode));
         button->setAccessibleName(chainSetLabel(mode));
         const QList<ChainPresetWrite> writes = chainPreset(mode);
-        // What the button DOES, in the operator's terms. The first build put
-        // the number of writes and the route here, which is the app talking
-        // to itself about its own plumbing.
+        // What the button DOES, in the operator's terms, not the route count.
         const QString tip = writes.isEmpty()
                                 ? tr("No set for data yet.")
                                 : tr("Sets up the whole chain for %1. It changes "
@@ -352,7 +351,8 @@ void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
                                      "receiver after each one, so you can watch "
                                      "it happen on the diagram.")
                                       .arg(chainModeLabel(mode));
-        button->setToolTip(tip);
+        button->setToolTip(
+            writes.isEmpty() ? tip : tr("Sets up %1.").arg(chainModeLabel(mode)));
         button->setAccessibleDescription(tip);
         button->setCursor(Qt::PointingHandCursor);
         button->setFixedHeight(24);

@@ -96,6 +96,17 @@ talker, the combiner's gain over the better loop), the mode selector, and
 way Aether Voice is hidden until opened. A compact scope can be kept in the
 sidebar with the setting `AetherGateDiversityPanel_ShowScope`.
 
+Under the door sits one more line: the sidebar's own answer to "where do I
+start?", without opening the window at all. It reads `next: realign`,
+`next: beacons`, `next: 2 findings`, `next: tune a voice`, `next: listen`, or
+`next: —` once the gate is gone — the same DiversitySessionModel the
+window's own START page reads, fed from the same five payloads the sidebar
+already polls whether or not the window has ever been opened. Beside it, a
+**QUICK START** button sends the three writes the START page's own QUICK
+START does — `mode=track`, `source=combined`, `auto=on` — in that order, and
+hides along with the line the moment there is no diversity block to answer
+for.
+
 ## The window
 
 Open it from the sidebar button. Its geometry and visibility persist; it
@@ -692,6 +703,11 @@ ticks along the bottom, and the AUTO WIDTH edges as faint lines when
 AUTO is on. The one line under the picture reads what the gate said:
 `350–2400 Hz · floor -70.0 dB · 2 notches`. Hover anywhere and the
 top-right corner reads the frequency and the response there.
+
+Beside that caption sits a small **?** — a `DiversityHelp` button on the
+`Chain` topic. The caption's own tooltip stays short now, so the full
+walkthrough of what is drawn (edges, notches, ANF tones, the roof band,
+CONTOUR and APF ticks, AUTO's edges) lives behind that button instead.
 
 Only the tab in front is fed. With `CHAIN` in front the picture is not
 walked, fingerprinted or painted at all; turn to `VISUAL` and it catches
