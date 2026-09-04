@@ -2,6 +2,7 @@
 
 #include "core/ThemeManager.h"
 #include "gui/AetherGateChainAuto.h"
+#include "gui/AetherGateChainBypass.h"
 #include "gui/AetherGateChainPresets.h"
 #include "gui/AetherGateChainStrip.h"
 #include "gui/AetherGateChainVisual.h"
@@ -582,6 +583,11 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
     if (!looksLikeFilterStatus(filter))
         return;
 
+    // Whatever this body says about `bypass`, including nothing at all --
+    // which is what hides the button for an older gate. See AetherGateChainBypass.h.
+    if (m_hearRaw)
+        m_hearRaw->applyFilter(filter);
+
     bool fromGate = false;
     m_filterStages = chainFromFilter(filter, &fromGate);
     m_fromGate = fromGate;
@@ -645,6 +651,8 @@ void AetherGateChainWindow::setPresent(bool present)
     if (m_present == present)
         return;
     m_present = present;
+    if (m_hearRaw)
+        m_hearRaw->setPresent(present);
     if (present) {
         setLink(ChainLink::Live);
         return;

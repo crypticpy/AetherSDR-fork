@@ -1,11 +1,14 @@
 #include "gui/AetherGateChainWindow.h"
 
+#include "gui/AetherGateChainBypass.h"
 #include "gui/AetherGateChainPresets.h"
 #include "gui/AetherGateChainStrip.h"
 #include "gui/AetherGateChainVisual.h"
 #include "gui/DiversityWindowPanels.h"
 
+#include <QEvent>
 #include <QFrame>
+#include <QHBoxLayout>
 #include <QHideEvent>
 #include <QLabel>
 #include <QScrollArea>
@@ -66,7 +69,24 @@ void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
     autoBanner->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     autoBanner->setMinimumWidth(0);
     autoBanner->setVisible(false);
-    root->addWidget(autoBanner);
+
+    // The banner shares its line with HEAR RAW at the right end -- the
+    // operator's request, verbatim: "a little bypass button where we can
+    // temporarily hear the signal without going through the chain" so they
+    // can A/B how much the chain is doing. See AetherGateChainBypass.h for
+    // the button's own contract; this is only where it lives on screen.
+    auto* headerRow = new QWidget(bodyWidget());
+    headerRow->setObjectName(QStringLiteral("gateChainHeaderRow"));
+    headerRow->setAccessibleName(tr("AUTO CLEAN status and HEAR RAW"));
+    auto* headerBox = new QHBoxLayout(headerRow);
+    headerBox->setContentsMargins(0, 0, 0, 0);
+    headerBox->setSpacing(6);
+    headerBox->addWidget(autoBanner, 1);
+    m_hearRaw = new AetherGateChainHearRawButton(headerRow);
+    connect(m_hearRaw, &AetherGateChainHearRawButton::requestWrite, this,
+            &AetherGateChainWindow::onWriteRequested);
+    headerBox->addWidget(m_hearRaw, 0);
+    root->addWidget(headerRow);
 
     auto* autoTimer = new QTimer(this);
     autoTimer->setObjectName(QStringLiteral("gateChainAutoCleanBannerTimer"));
@@ -216,6 +236,20 @@ void AetherGateChainWindow::hideEvent(QHideEvent* ev)
 {
     QDialog::hideEvent(ev);
     refreshVisualActive();
+    // Covers a plain hide(), a close(), AND Escape -- QDialog's own default
+    // keyPressEvent rejects (closes, which hides) on an unhandled Escape, so
+    // this one hook is also where that release happens.
+    if (m_hearRaw)
+        m_hearRaw->releaseIfHeld();
+}
+
+void AetherGateChainWindow::changeEvent(QEvent* ev)
+{
+    PersistentDialog::changeEvent(ev);
+    // The window is still VISIBLE here -- alt-tabbed away, or another window
+    // raised over it -- which hideEvent() above does not see at all.
+    if (ev->type() == QEvent::ActivationChange && !isActiveWindow() && m_hearRaw)
+        m_hearRaw->releaseIfHeld();
 }
 
 // A preset, or a gesture that is genuinely two writes. Either way it goes into

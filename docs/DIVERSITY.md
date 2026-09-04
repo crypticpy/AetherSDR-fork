@@ -764,6 +764,14 @@ inspector and on the card that asked, and the row does not move — a
 refused value never happened. The status line in the corner says only
 one of three things: `live`, `applying...`, or `no connection`.
 
+At the right of the header, above the diagram, `HEAR RAW` holds the
+whole chain out of circuit for as long as you hold the button — a plain
+A/B for how much of what you hear the chain is actually doing — and
+puts it back the moment you let go, on hide, on Escape or on losing
+focus; it disables itself, reading `CHAIN IS BYPASSED`, when the SLICE
+FILTER row's own toggle already has the chain out, and it is not there
+at all on a gate that has never mentioned `bypass`.
+
 ### ROOFING · DIGITAL — PEAK OFFSET
 
 The digital roof's centre can be dragged off the slice centre, the Icom
@@ -1028,6 +1036,10 @@ audio is enough for the first verdict and it keeps refining. The rows on the
 SITE page *are* its findings, each with the gate's own reasoning and, where
 one exists, the single button that acts on it. There is nothing to start and
 nothing to record.
+
+**How much is the chain actually doing?** Hold `HEAR RAW` on the CHAIN
+window. It takes the whole chain out of circuit while held, so what you
+hear is the raw slice — let go and the chain is back.
 
 ## For scripts: the control port
 

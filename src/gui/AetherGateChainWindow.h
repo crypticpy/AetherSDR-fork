@@ -84,6 +84,7 @@
 #include <QString>
 #include <QUrlQuery>
 
+class QEvent;
 class QFrame;
 class QHideEvent;
 class QJsonObject;
@@ -98,6 +99,7 @@ namespace AetherSDR {
 
 class AetherGateChainStrip;
 class AetherGateChainControl;
+class AetherGateChainHearRawButton;
 class AetherGateChainPresetBar;
 class AetherGateChainVisual;
 
@@ -144,6 +146,12 @@ protected:
     // window costs nothing at all.
     void showEvent(QShowEvent* ev) override;
     void hideEvent(QHideEvent* ev) override;
+    // Releases a held HEAR RAW the moment this window is deactivated (the
+    // operator alt-tabbed away, or another window came to the front) while
+    // it is still visible -- hiding it outright is hideEvent()'s job, this
+    // is the case a held mouse button survives but nobody is looking any
+    // more. See AetherGateChainBypass.h.
+    void changeEvent(QEvent* ev) override;
 
 signals:
     // One write, exactly as the gate authored it: its own route and its own
@@ -201,6 +209,8 @@ private:
     QTabWidget*               m_tabs{nullptr};
     AetherGateChainVisual*    m_visual{nullptr};
     AetherGateChainPresetBar* m_presets{nullptr};
+    // The header's momentary bypass button -- see AetherGateChainBypass.h.
+    AetherGateChainHearRawButton* m_hearRaw{nullptr};
     QLabel*                 m_detailName{nullptr};
     QLabel*                 m_detailText{nullptr};   // what it is doing now
     QLabel*                 m_detailTip{nullptr};    // what it does to the sound
