@@ -23,7 +23,7 @@
 #include "gui/DiversityWindow.h"
 
 #include "gui/DiversityFilterControls.h"
-#include "gui/DiversityFlowStrip.h"
+#include "gui/DiversityNextStrip.h"
 #include "gui/Theme.h"
 
 #include <QFrame>
@@ -83,34 +83,110 @@ bool DiversityWindow::filterPageVisible() const
 
 void DiversityWindow::applyFilter(const QJsonObject& filter)
 {
-    // The FLOW strip's last step states the passband in force, so it is fed
-    // wherever a /filter answer arrives -- including the reply to a write made
-    // from a different page -- rather than only while FILTER is up. Nothing
-    // else on this page reads /filter any more: POST-FILTER and MRC are
-    // /diversity fields, applied from applyDiversity() instead (see
+    // The STATION step is about whose filter is in force, so the session model
+    // is fed wherever a /filter answer arrives -- including the reply to a
+    // write made from a different page -- rather than only while FILTER is up.
+    // Nothing else on this page reads /filter any more: POST-FILTER and MRC
+    // are /diversity fields, applied from applyDiversity() instead (see
     // DiversityWindow.cpp).
-    if (m_flow)
-        m_flow->applyFilter(filter);
+    //
+    // An empty answer or an error is not a filter: it leaves the last one
+    // standing, the same guard the strip this replaced kept, because "the
+    // request failed" is not the same fact as "there is no filter".
+    if (filter.isEmpty() || filter.contains(QStringLiteral("error")))
+        return;
+    m_lastFilter = filter;
+    refreshSession();
 }
 
 // --------------------------------------------------------------------------
 // The dig's own buttons
 // --------------------------------------------------------------------------
 //
-// Three small buttons at the right-hand end of one line. Deliberately NOT a
-// row of pills of their own: the complaint that moved this whole strip off a
-// pill row was that a second row of lit boxes reads as navigation, and three
-// more boxes on a second line would have been exactly that again. On the end
-// of the line they read as what they are -- the control belonging to the last
-// word of the checklist.
+// Two homes, because the dig is two different things at two different moments.
 //
-// A QStackedWidget rather than show/hide, because the strip is the last row
-// above the status bar and the three states have to occupy the same space: a
-// stack is as wide and as tall as its widest page in every one of them.
+//   * The three DURATIONS are an OFFER -- something you may spend a minute on,
+//     never something the checklist is waiting for. They live on the START
+//     page's OFFERS row, beside QUICK START, under the object names they have
+//     always had (buildDigDurations()).
+//   * STOP, and the three verdict words a finished run asks for, are about a
+//     run that is happening NOW. They live on the NEXT strip, at the end of
+//     the one line that is on screen whatever page the operator wandered to
+//     (buildDigControls()).
 //
-// They live on the window rather than on DiversityFlowStrip for the reason
-// every other write in this window does: the strip is a derivation of polled
-// state and owns no transport, and these three buttons are nothing but writes.
+// A QStackedWidget rather than show/hide for the second group, because the
+// strip is the last row above the status bar and the two states have to
+// occupy the same space: a stack is as wide and as tall as its widest page in
+// every one of them.
+//
+// They live on the window rather than on the strip that describes them, for
+// the reason every other write in this window does: the strip is a derivation
+// of polled state and owns no transport, and these buttons are nothing but
+// writes.
+
+namespace {
+
+// One small button on a dig row. The caller wires the click, because what
+// goes on the wire is the window's business and this is a widget.
+QPushButton* makeDigButton(QWidget* row, const QString& text, const QString& objectName,
+                           const QString& accessible, const QString& tip)
+{
+    auto* button = new QPushButton(text, row);
+    button->setObjectName(objectName);
+    button->setAccessibleName(accessible);
+    button->setToolTip(tip);
+    button->setAccessibleDescription(tip);
+    button->setFixedHeight(kDigButtonHeight);
+    applyToggleButtonStyle(button);
+    row->layout()->addWidget(button);
+    return button;
+}
+
+QWidget* makeDigRow(QWidget* parent, const char* objectName)
+{
+    auto* row = new QWidget(parent);
+    row->setObjectName(QString::fromLatin1(objectName));
+    auto* layout = new QHBoxLayout(row);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(4);
+    return row;
+}
+
+} // namespace
+
+QWidget* DiversityWindow::buildDigDurations()
+{
+    QWidget* offer = makeDigRow(this, "diversityWindowFlowDigOffer");
+    const QString seconds = QStringLiteral("seconds");
+    // One button, wired straight to the gate's own query. Nothing between the
+    // click and the wire composes anything: the key and the value are what the
+    // route documents, so a gate that grows a fourth duration needs no build.
+    const auto wire = [this, seconds](QPushButton* button, const QString& value) {
+        connect(button, &QPushButton::clicked, this, [this, seconds, value] {
+            QUrlQuery q;
+            q.addQueryItem(seconds, value);
+            emit requestDig(q);
+        });
+    };
+    wire(makeDigButton(offer, tr("1 MIN"), QStringLiteral("diversityWindowFlowDig60"),
+                       tr("Dig for one minute"),
+                       tr("One minute of trying knobs. Long enough for the two or three "
+                          "changes that usually matter, short enough to do mid-over.")),
+         QStringLiteral("60"));
+    wire(makeDigButton(offer, tr("3 MIN"), QStringLiteral("diversityWindowFlowDig180"),
+                       tr("Dig for three minutes"),
+                       tr("Three minutes. The default: enough trials to get past the "
+                          "first change that helped and find out whether a second one "
+                          "helps on top of it.")),
+         QStringLiteral("180"));
+    wire(makeDigButton(offer, tr("5 MIN"), QStringLiteral("diversityWindowFlowDig300"),
+                       tr("Dig for five minutes"),
+                       tr("Five minutes, for a weak signal that needs a long baseline "
+                          "before a half-decibel means anything. Stop it at any time -- "
+                          "what it has already kept, it keeps.")),
+         QStringLiteral("300"));
+    return offer;
+}
 
 QWidget* DiversityWindow::buildDigControls()
 {
@@ -118,85 +194,55 @@ QWidget* DiversityWindow::buildDigControls()
     m_digStack->setObjectName(QStringLiteral("diversityWindowFlowDigControls"));
     m_digStack->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
-    const auto makeRow = [this](const char* objectName) {
-        auto* row = new QWidget(m_digStack);
-        row->setObjectName(QString::fromLatin1(objectName));
-        auto* layout = new QHBoxLayout(row);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(4);
-        return row;
-    };
-    // One button, wired straight to the gate's own query. Nothing between the
-    // click and the wire composes anything: the key and the value are what the
-    // route documents, so a gate that grows a fourth duration needs no build.
-    const auto makeButton = [this](QWidget* row, const QString& text,
-                                   const QString& objectName, const QString& accessible,
-                                   const QString& tip, const QString& key,
-                                   const QString& value) {
-        auto* button = new QPushButton(text, row);
-        button->setObjectName(objectName);
-        button->setAccessibleName(accessible);
-        button->setToolTip(tip);
-        button->setAccessibleDescription(tip);
-        button->setFixedHeight(kDigButtonHeight);
-        applyToggleButtonStyle(button);
-        connect(button, &QPushButton::clicked, this, [this, key, value] {
-            QUrlQuery q;
-            q.addQueryItem(key, value);
-            emit requestDig(q);
-        });
-        row->layout()->addWidget(button);
-        return button;
-    };
+    // Page 0 is deliberately empty: with the durations moved to START there is
+    // nothing for the footer to offer while no run is out. An empty page
+    // rather than hiding the stack, so the footer is exactly as tall in all
+    // three states -- it is the last row above the status strip and nothing
+    // down there may move when a payload lands.
+    m_digStack->addWidget(makeDigRow(m_digStack, "diversityWindowFlowDigIdle"));
 
-    QWidget* offer = makeRow("diversityWindowFlowDigOffer");
-    const QString seconds = QStringLiteral("seconds");
-    makeButton(offer, tr("1 MIN"), QStringLiteral("diversityWindowFlowDig60"),
-               tr("Dig for one minute"),
-               tr("One minute of trying knobs. Long enough for the two or three "
-                  "changes that usually matter, short enough to do mid-over."),
-               seconds, QStringLiteral("60"));
-    makeButton(offer, tr("3 MIN"), QStringLiteral("diversityWindowFlowDig180"),
-               tr("Dig for three minutes"),
-               tr("Three minutes. The default: enough trials to get past the "
-                  "first change that helped and find out whether a second one "
-                  "helps on top of it."),
-               seconds, QStringLiteral("180"));
-    makeButton(offer, tr("5 MIN"), QStringLiteral("diversityWindowFlowDig300"),
-               tr("Dig for five minutes"),
-               tr("Five minutes, for a weak signal that needs a long baseline "
-                  "before a half-decibel means anything. Stop it at any time -- "
-                  "what it has already kept, it keeps."),
-               seconds, QStringLiteral("300"));
-    m_digStack->addWidget(offer);
-
-    QWidget* running = makeRow("diversityWindowFlowDigRunning");
-    makeButton(running, tr("STOP"), QStringLiteral("diversityWindowFlowDigStop"),
-               tr("Stop digging"),
-               tr("End the run now and put the chain back exactly as you had "
-                  "it. Nothing the dig found is kept."),
-               QStringLiteral("cancel"), QStringLiteral("1"));
+    QWidget* running = makeDigRow(m_digStack, "diversityWindowFlowDigRunning");
+    connect(makeDigButton(running, tr("STOP"), QStringLiteral("diversityWindowFlowDigStop"),
+                          tr("Stop digging"),
+                          tr("End the run now and put the chain back exactly as you had "
+                             "it. Nothing the dig found is kept.")),
+            &QPushButton::clicked, this, [this] {
+                QUrlQuery q;
+                q.addQueryItem(QStringLiteral("cancel"), QStringLiteral("1"));
+                emit requestDig(q);
+            });
     m_digStack->addWidget(running);
 
-    QWidget* verdict = makeRow("diversityWindowFlowDigVerdict");
+    QWidget* verdict = makeDigRow(m_digStack, "diversityWindowFlowDigVerdict");
     const QString word = QStringLiteral("verdict");
-    makeButton(verdict, tr("BETTER"), QStringLiteral("diversityWindowFlowDigBetter"),
-               tr("It sounds better"),
-               tr("Keep the changes and tell the gate they worked. It files the "
-                  "run so the next dig on this kind of signal starts from what "
-                  "helped last time."),
-               word, QStringLiteral("better"));
-    makeButton(verdict, tr("WORSE"), QStringLiteral("diversityWindowFlowDigWorse"),
-               tr("It sounds worse"),
-               tr("Put the chain back on your own settings and tell the gate "
-                  "the run was wrong. The measurement said it helped and your "
-                  "ears say it did not -- yours win, and the gate learns that."),
-               word, QStringLiteral("worse"));
-    makeButton(verdict, tr("KEEP"), QStringLiteral("diversityWindowFlowDigKeep"),
-               tr("Keep it without judging"),
-               tr("Leave the changes in force without saying whether they "
-                  "sounded better. For a run you did not get to listen to."),
-               word, QStringLiteral("keep"));
+    const auto wireVerdict = [this, word](QPushButton* button, const QString& value) {
+        connect(button, &QPushButton::clicked, this, [this, word, value] {
+            QUrlQuery q;
+            q.addQueryItem(word, value);
+            emit requestDig(q);
+        });
+    };
+    wireVerdict(makeDigButton(verdict, tr("BETTER"),
+                              QStringLiteral("diversityWindowFlowDigBetter"),
+                              tr("It sounds better"),
+                              tr("Keep the changes and tell the gate they worked. It files "
+                                 "the run so the next dig on this kind of signal starts "
+                                 "from what helped last time.")),
+                QStringLiteral("better"));
+    wireVerdict(makeDigButton(verdict, tr("WORSE"),
+                              QStringLiteral("diversityWindowFlowDigWorse"),
+                              tr("It sounds worse"),
+                              tr("Put the chain back on your own settings and tell the gate "
+                                 "the run was wrong. The measurement said it helped and "
+                                 "your ears say it did not -- yours win, and the gate "
+                                 "learns that.")),
+                QStringLiteral("worse"));
+    wireVerdict(makeDigButton(verdict, tr("KEEP"),
+                              QStringLiteral("diversityWindowFlowDigKeep"),
+                              tr("Keep it without judging"),
+                              tr("Leave the changes in force without saying whether they "
+                                 "sounded better. For a run you did not get to listen to.")),
+                QStringLiteral("keep"));
     m_digStack->addWidget(verdict);
 
     m_digStack->setCurrentIndex(0);
@@ -205,21 +251,22 @@ QWidget* DiversityWindow::buildDigControls()
 }
 
 // Which of the three faces the control wears, and whether it is there at all.
-// Every fact it switches on is one the FLOW strip has already read off the
+// Every fact it switches on is one the NEXT strip has already read off the
 // same payload -- asked for rather than parsed twice, so the word on the line
 // and the button beside it can never disagree.
 void DiversityWindow::updateDigControls()
 {
-    if (!m_digStack || !m_flow)
+    if (!m_digStack || !m_nextStrip)
         return;
-    m_digStack->setVisible(m_flow->digAvailable());
-    if (!m_flow->digAvailable())
+    m_digStack->setVisible(m_nextStrip->digAvailable());
+    if (!m_nextStrip->digAvailable())
         return;
-    if (m_flow->digRunning())
+    if (m_nextStrip->digRunning())
         m_digStack->setCurrentIndex(1);
     else
-        m_digStack->setCurrentIndex(m_flow->digAwaitingVerdict() ? 2 : 0);
+        m_digStack->setCurrentIndex(m_nextStrip->digAwaitingVerdict() ? 2 : 0);
 }
+
 
 
 // --------------------------------------------------------------------------
@@ -228,8 +275,10 @@ void DiversityWindow::updateDigControls()
 
 void DiversityWindow::applyDig(const QJsonObject& dig)
 {
-    if (m_flow)
-        m_flow->applyDig(dig);
+    if (m_nextStrip)
+        m_nextStrip->applyDig(dig);
+    m_lastDig = dig;
+    refreshSession();
     m_digPrimed = true;
     updateDigControls();
     updateDigPoll();
@@ -239,8 +288,8 @@ void DiversityWindow::applyDig(const QJsonObject& dig)
 // while the window is hidden or the gate is not answering. The window owns
 // this rather than the poller because it is the only object that knows whether
 // a run is still going -- and unlike every other route here the dig is NOT
-// gated on a page, because a run started from the FLOW strip goes on wherever
-// the operator navigates to and the strip is at the foot of every page.
+// gated on a page, because a run started from the START page goes on wherever
+// the operator navigates to and the NEXT strip is at the foot of every page.
 void DiversityWindow::updateDigPoll()
 {
     if (!m_digTimer)
@@ -252,7 +301,8 @@ void DiversityWindow::updateDigPoll()
         m_digPrimed = false;
         return;
     }
-    const bool busy = m_flow && (m_flow->digRunning() || m_flow->digAwaitingVerdict());
+    const bool busy =
+        m_nextStrip && (m_nextStrip->digRunning() || m_nextStrip->digAwaitingVerdict());
     const int want = (busy || !m_digPrimed) ? kDigBusyMs : kDigIdleMs;
     if (m_digTimer->isActive() && m_digTimer->interval() == want)
         return;

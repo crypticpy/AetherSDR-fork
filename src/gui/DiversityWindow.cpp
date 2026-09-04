@@ -5,7 +5,7 @@
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/ClientCompKnob.h"
 #include "gui/DiversityFilterControls.h"
-#include "gui/DiversityFlowStrip.h"
+#include "gui/DiversityNextStrip.h"
 #include "gui/DiversityMapStrip.h"
 #include "gui/DiversityScope.h"
 #include "gui/DiversityTimeline.h"
@@ -200,12 +200,15 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     // but the window can be dragged down to 980x720, and a control that has
     // been squeezed off the right-hand edge with no way to scroll to it is
     // worse than a scrollbar.
-    // Four pages, three shared rows. The BAND page is built here rather than
-    // lazily so its widgets exist for the very first poll -- a page that
+    // Five pages, two shared rows. Every one of them is built here rather
+    // than lazily so its widgets exist for the very first poll -- a page that
     // built itself on first show would miss the payload that arrived while
-    // it did.
+    // it did. START is index 0 because it is where a session starts: the
+    // order is the same as DiversitySessionModel::Page, so a step's own page
+    // number is showPage()'s argument without a translation table.
     m_pages = new QStackedWidget;
     m_pages->setObjectName(QStringLiteral("diversityWindowPages"));
+    m_pages->addWidget(buildStartPage());
     m_pages->addWidget(scroll);
     m_pages->addWidget(buildBandPage());
     m_pages->addWidget(buildSitePage());
@@ -225,49 +228,41 @@ DiversityWindow::DiversityWindow(QWidget* parent)
                                              QString::fromLatin1(kStatusStripStyle));
     setStatusStripBase(tr("gate not answering"), false);
 
-    // The footer: the two lines that are true on every page. FLOW says what to
-    // do next, the status strip says whether the gate is answering at all, and
-    // they sit at the bottom in that order because nothing down here can be
-    // mistaken for the tabs. 4 px between them, the same gap the two sticky
-    // rows at the top share, because they are one block for the same reason.
+    // The footer: the two lines that are true on every page. NEXT says the
+    // one thing left to do, the status strip says whether the gate is
+    // answering at all, and they sit at the bottom in that order because
+    // nothing down here can be mistaken for the tabs. 4 px between them, the
+    // same gap the two sticky rows at the top share, because they are one
+    // block for the same reason.
     auto* footer = new QVBoxLayout;
     footer->setContentsMargins(0, 0, 0, 0);
     footer->setSpacing(4);
-    m_flow = new DiversityFlowStrip(this);
-    connect(m_flow, &DiversityFlowStrip::stepActivated, this,
-            &DiversityWindow::onFlowStep);
-    // B25 AUTO CLEAN's switch and B25 DIG STOP, both on the FLOW strip
-    // itself -- turned into the same writes the sidebar's own AUTO CLEAN
-    // toggle and the dig stack's own STOP button already send, by the one
-    // door every write in this window leaves through (requestSet/requestDig,
-    // wired on to the panel in createFor() below).
-    connect(m_flow, &DiversityFlowStrip::requestAutoCleanToggle, this,
+    m_nextStrip = new DiversityNextStrip(this);
+    connect(m_nextStrip, &DiversityNextStrip::cureActivated, this,
+            &DiversityWindow::onSessionCure);
+    // AUTO CLEAN's switch and DIG STOP, both on the strip itself -- turned
+    // into the same writes the sidebar's own AUTO CLEAN toggle and the dig
+    // stack's own STOP button already send, by the one door every write in
+    // this window leaves through (requestSet/requestDig, wired on to the
+    // panel in createFor() below).
+    connect(m_nextStrip, &DiversityNextStrip::requestAutoCleanToggle, this,
             [this](bool on) {
                 QUrlQuery q;
                 q.addQueryItem(QStringLiteral("auto"),
                                on ? QStringLiteral("on") : QStringLiteral("off"));
                 emit requestSet(q);
             });
-    connect(m_flow, &DiversityFlowStrip::requestDigCancel, this, [this] {
+    connect(m_nextStrip, &DiversityNextStrip::requestDigCancel, this, [this] {
         QUrlQuery q;
         q.addQueryItem(QStringLiteral("cancel"), QStringLiteral("1"));
         emit requestDig(q);
     });
-    // The line is about the page in front of the operator, so it follows the
-    // stack itself rather than the tab buttons: a page switch made from a FLOW
-    // click or a SITE row's button reaches it the same way a tab does.
-    connect(m_pages, &QStackedWidget::currentChanged,
-            m_flow, &DiversityFlowStrip::setCurrentPage);
-    // The dig's three buttons sit at the right-hand end of the FLOW row rather
-    // than on a row of their own: a second row of lit boxes under the tabs is
-    // exactly what this strip exists to have stopped being. They belong to the
-    // window because they write -- see DiversityWindowFilter.cpp.
-    auto* flowRow = new QHBoxLayout;
-    flowRow->setContentsMargins(0, 0, 0, 0);
-    flowRow->setSpacing(6);
-    flowRow->addWidget(m_flow, 1);
-    flowRow->addWidget(buildDigControls());
-    footer->addLayout(flowRow);
+    // The dig's STOP and its three verdict words live on the strip, at the
+    // end of the one line that is on screen whatever page the operator
+    // wandered to. The durations are NOT there -- they are an offer, and
+    // offers are the START page's (see buildDigDurations()).
+    m_nextStrip->setDigControls(buildDigControls());
+    footer->addWidget(m_nextStrip);
     footer->addWidget(m_statusStrip);
     root->addLayout(footer);
 
@@ -406,16 +401,18 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
         setStatusStripBase(m_present ? tr("gate connected · diversity unavailable")
                                      : tr("gate not answering"),
                            m_present);
-        if (m_flow)
-            m_flow->applyDiversity(d, false);
+        if (m_nextStrip)
+            m_nextStrip->applyDiversity(d, false);
         DiversitySnapshot snapshot;
         snapshot.present = m_present;
         addEventLines(m_eventLog.apply(snapshot));
         return;
     }
     setStatusStripBase(tr("gate connected · diversity live"), true);
-    if (m_flow)
-        m_flow->applyDiversity(d, true);
+    if (m_nextStrip)
+        m_nextStrip->applyDiversity(d, true);
+    m_lastDiversity = d;
+    refreshSession();
 
     const QString mode = d.value(QStringLiteral("mode")).toString();
     const QString hear = d.value(QStringLiteral("source")).toString();
@@ -496,8 +493,6 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
     }
     if (d.contains(QStringLiteral("memory")) || haveTalker)
         applyTalkers(memory, haveTalker, talkerId, talkerSinceS);
-    if (m_flow)
-        m_flow->setTalkerNames(memory);
     QString talkerName;
     for (const QJsonValue& v : memory) {
         const QJsonObject entry = v.toObject();
@@ -674,8 +669,13 @@ void DiversityWindow::setPresent(bool present)
 
 void DiversityWindow::clearReadouts()
 {
-    if (m_flow)
-        m_flow->clear();
+    if (m_nextStrip)
+        m_nextStrip->clear();
+    // The session model caches nothing between calls, so forgetting the
+    // payload IS clearing the START page: every card dashes and offers no
+    // cure, which is what the gate being gone means.
+    m_lastDiversity = QJsonObject();
+    refreshSession();
     clearBandReadouts();
     clearSiteReadouts();
     clearFilterReadouts();

@@ -1,9 +1,10 @@
 // The Diversity window's usability round: the two buttons on the pair row that
 // now answer back, the AGC threshold spin the FILTER page grew beside them, and
-// the window's own frame -- three sticky rows' worth of height reclaimed with
-// nothing on any page behind a scrollbar. The FLOW line's own behaviour is
-// tests/diversity_flow_line_test.cpp, split off when this file reached the
-// 800-line budget.
+// the window's own frame -- two sticky rows' worth of height reclaimed with
+// nothing on any of the FIVE pages behind a scrollbar. The START page's own
+// cards and the NEXT strip that quotes one of them are
+// tests/diversity_session_page_test.cpp; what is left here is the dig, whose
+// buttons this window owns wherever they are drawn.
 //
 // Same harness as the other diversity binaries -- a real AetherGateApplet in
 // front of a fake, socket-free QNetworkAccessManager -- and a seventh binary
@@ -24,7 +25,7 @@
 #include "gui/AetherGateApplet.h"
 #include "gui/AetherGateDiversityPanel.h"
 #include "gui/DiversityBandPoller.h"
-#include "gui/DiversityFlowStrip.h"
+#include "gui/DiversityNextStrip.h"
 #include "gui/DiversityWindow.h"
 
 #include <QApplication>
@@ -47,7 +48,7 @@ using AetherSDR::AetherGateApplet;
 using AetherSDR::AetherGateDiversityPanel;
 using AetherSDR::AppSettings;
 using AetherSDR::DiversityBandPoller;
-using AetherSDR::DiversityFlowStrip;
+using AetherSDR::DiversityNextStrip;
 using AetherSDR::DiversityWindow;
 
 using namespace DiversityGateFixture;
@@ -180,15 +181,20 @@ QString stripText(DiversityWindow* w)
     return label ? label->text() : QString();
 }
 
-// The FLOW line at the foot of the window: one label of rich text, six steps.
-DiversityFlowStrip* flowStrip(DiversityWindow* w)
+// The NEXT line at the foot of the window: one step, plus whatever the dig is
+// doing, because a run goes on whichever page the operator wandered to.
+bool nextHas(DiversityWindow* w, const QString& needle)
 {
-    return w->findChild<DiversityFlowStrip*>(QStringLiteral("diversityWindowFlowStrip"));
+    auto* strip = w->findChild<DiversityNextStrip*>(QStringLiteral("diversityWindowNextStrip"));
+    return strip && strip->lineText().contains(needle);
 }
 
-bool flowHas(DiversityWindow* w, const QString& needle)
+// The START page's own one-line summary of the last run -- the same fact the
+// footer carries, said the way an offer says it rather than the way a thing
+// happening now does.
+bool digLineHas(DiversityWindow* w, const QString& needle)
 {
-    auto* line = child<QLabel>(w, "diversityWindowFlowLine");
+    auto* line = child<QLabel>(w, "diversityWindowSessionDigLine");
     return line && line->text().contains(needle);
 }
 
@@ -469,18 +475,25 @@ void testNothingScrollsOnAnyPageAtTheInitialSize()
     settle();
 
     // The tab row and the pair row are separate widgets at the top, and the
-    // FLOW line is at the bottom rather than a third row under them. If any of
+    // NEXT line is at the bottom rather than a third row under them. If any of
     // the three were folded back together this is what would notice.
     CHECK(child<QWidget>(w, "diversityWindowTabRow") != nullptr);
     CHECK(child<QWidget>(w, "diversityWindowChainRow") != nullptr);
-    CHECK(child<QWidget>(w, "diversityWindowFlowStrip") != nullptr);
+    CHECK(child<QWidget>(w, "diversityWindowNextStrip") != nullptr);
     CHECK(child<QLabel>(w, "diversityWindowPairCaption") != nullptr);
     CHECK(w->minimumSizeHint().width() <= 1120);
 
-    const char* pages[][2] = {{"diversityWindowPageSlice", "diversityWindowSliceScroll"},
-                              {"diversityWindowPageBand", "diversityWindowBandScroll"},
-                              {"diversityWindowPageSite", "diversityWindowSiteScroll"},
-                              {"diversityWindowPageFilter", "diversityWindowFilterScroll"}};
+    // With DIVERSITY_RENDER_PREFIX=/tmp/shot set, each page is also written out
+    // as <prefix>-start.png and so on. This loop is already the one place that
+    // puts every page on screen at the size the window opens at, so a picture
+    // taken here is a picture of exactly what this case asserts about.
+    const QString prefix = QString::fromLocal8Bit(qgetenv("DIVERSITY_RENDER_PREFIX"));
+    const char* pages[][3] = {
+        {"diversityWindowPageStart", "diversityWindowStartScroll", "-start.png"},
+        {"diversityWindowPageSlice", "diversityWindowSliceScroll", "-slice.png"},
+        {"diversityWindowPageBand", "diversityWindowBandScroll", "-band.png"},
+        {"diversityWindowPageSite", "diversityWindowSiteScroll", "-site.png"},
+        {"diversityWindowPageFilter", "diversityWindowFilterScroll", "-filter.png"}};
     for (const auto& page : pages) {
         child<QToolButton>(w, page[0])->click();
         settle();
@@ -488,6 +501,8 @@ void testNothingScrollsOnAnyPageAtTheInitialSize()
         filterTick(a);
         settle();
         w->grab();   // forces a full layout pass on an offscreen platform
+        if (!prefix.isEmpty())
+            CHECK(w->grab().save(prefix + QString::fromLatin1(page[2])));
         auto* scroll = child<QScrollArea>(w, page[1]);
         CHECK(scroll != nullptr);
         if (!scroll)
@@ -589,11 +604,13 @@ void testDigOffersThreeDurationsAndWritesTheGatesOwnQuery()
     if (!stack)
         return;
     CHECK(stack->isVisibleTo(w));
-    CHECK(child<QWidget>(w, "diversityWindowFlowDigOffer") == stack->currentWidget());
-    // Drawn as the sixth step of the checklist and never as the next chore:
-    // nothing above it is a prerequisite the strip can check.
-    CHECK(flowStrip(w)->stepTone(DiversityFlowStrip::StepDig) != QStringLiteral("hidden"));
-    CHECK(flowStrip(w)->nextStep() != DiversityFlowStrip::StepDig);
+    // Nothing is out, so the footer's dig control is its empty page: the three
+    // durations are an OFFER and live on the START page's OFFERS row, not at
+    // the foot of every page.
+    CHECK(child<QWidget>(w, "diversityWindowFlowDigIdle") == stack->currentWidget());
+    CHECK(child<QWidget>(w, "diversityWindowFlowDigOffer") != nullptr);
+    CHECK(child<QWidget>(w, "diversityWindowSessionOffers")
+              ->isAncestorOf(child<QPushButton>(w, "diversityWindowFlowDig180")));
 
     child<QPushButton>(w, "diversityWindowFlowDig180")->click();
     settle();
@@ -614,7 +631,7 @@ void testDigOffersThreeDurationsAndWritesTheGatesOwnQuery()
     digRoute(net, QByteArray(R"({"available": false})"));
     digTick(w);
     CHECK(!stack->isVisibleTo(w));
-    CHECK_EQ(flowStrip(w)->stepTone(DiversityFlowStrip::StepDig), QStringLiteral("hidden"));
+    CHECK(digLineHas(w, QStringLiteral("no run yet")));
     w->close();
     settle();
     closedToStart();
@@ -641,7 +658,10 @@ void testDigNarratesTheRunTheReportAndTheVerdict()
     // Elapsed of asked-for, what it has bought so far, and the knob it is on
     // -- which is the knob of the last step it appended, because there is no
     // separate "trying" field and inventing one would be inventing a fact.
-    CHECK(flowHas(w, QStringLiteral("digging 1:12 of 3:00 · +2.1 dB so far · trying width")));
+    // Elapsed of asked-for and what it has bought so far -- the footer says it
+    // as a thing happening now, the START page's offer line as a state.
+    CHECK(nextHas(w, QStringLiteral("DIG 1:12 of 3:00 · +2.1 dB · started by you")));
+    CHECK(digLineHas(w, QStringLiteral("digging · +2.1 dB so far")));
     auto* stack = child<QStackedWidget>(w, "diversityWindowFlowDigControls");
     CHECK(child<QWidget>(w, "diversityWindowFlowDigRunning") == stack->currentWidget());
     child<QPushButton>(w, "diversityWindowFlowDigStop")->click();
@@ -653,7 +673,8 @@ void testDigNarratesTheRunTheReportAndTheVerdict()
     // what it MOVED, not what the chain now is -- in the order the chain runs.
     digRoute(net, kDigDone);
     digTick(w);
-    CHECK(flowHas(w, QStringLiteral("+4.1 dB: post v2, width 100-2400, nb 11 dB")));
+    CHECK(nextHas(w, QStringLiteral("DIG done · +4.1 dB — better or worse?")));
+    CHECK(digLineHas(w, QStringLiteral("+4.1 dB: nb_db, post, width")));
     CHECK(child<QWidget>(w, "diversityWindowFlowDigVerdict") == stack->currentWidget());
     child<QPushButton>(w, "diversityWindowFlowDigWorse")->click();
     settle();
@@ -667,7 +688,9 @@ void testDigNarratesTheRunTheReportAndTheVerdict()
     CHECK(judged != kDigDone);
     digRoute(net, judged);
     digTick(w);
-    CHECK(flowHas(w, QStringLiteral("+4.1 dB: post v2, width 100-2400, nb 11 dB · BETTER")));
+    CHECK(digLineHas(w, QStringLiteral("+4.1 dB: nb_db, post, width")));
+    // Judged: the footer stops asking, because there is nothing left to decide.
+    CHECK(!nextHas(w, QStringLiteral("better or worse?")));
     CHECK(child<QWidget>(w, "diversityWindowFlowDigVerdict") != stack->currentWidget());
 
     // MUTATION: a run that found nothing, and a run put back. Neither is a
@@ -679,48 +702,20 @@ void testDigNarratesTheRunTheReportAndTheVerdict()
     CHECK(nothing != kDigDone);
     digRoute(net, nothing);
     digTick(w);
-    CHECK(flowHas(w, QStringLiteral("nothing beat your settings")));
+    CHECK(digLineHas(w, QStringLiteral("nothing beat your settings")));
 
-    // MUTATION: a run that kept nothing but MEASURED something. The near miss
-    // and the margin it fell short of are on the line, worded like the report
-    // (the gate's "measured_best" is one step, kept or not), and a baseline
-    // that swung while sampling is said in the gate's own number.
-    QByteArray nearMiss = nothing;
-    nearMiss.replace("\"best\": {",
-                     "\"measured_best\": {\"knob\": \"post\", \"to\": \"v2\", "
-                     "\"delta_db\": 4.79, \"kept\": false}, "
-                     "\"measured_best_db\": 4.79, \"margin_db\": 2.0, "
-                     "\"baseline_spread_db\": 7.7, \"unsteady\": true, \"best\": {");
-    CHECK(nearMiss != nothing);
-    digRoute(net, nearMiss);
-    digTick(w);
-    CHECK(flowHas(w, QStringLiteral("nothing cleared the 2.0 dB margin · post v2 measured "
-                                    "+4.8 dB · tentative, band swung 7.7 dB")));
-    // The verdict row stays: a report the operator can still judge.
+    // MUTATION: a run that kept nothing still leaves the verdict row up -- a
+    // report the operator can still judge. (The near-miss and margin wording
+    // the FLOW line used to carry belongs to the gate's own report now; the
+    // START page's offer line quotes only what the model derives.)
     CHECK(child<QWidget>(w, "diversityWindowFlowDigVerdict") == stack->currentWidget());
-
-    // MUTATION: a steady band says nothing about steadiness.
-    QByteArray steady = nearMiss;
-    steady.replace("\"unsteady\": true", "\"unsteady\": false");
-    digRoute(net, steady);
-    digTick(w);
-    CHECK(flowHas(w, QStringLiteral("nothing cleared the 2.0 dB margin · post v2 measured +4.8 dB")));
-    CHECK(!flowHas(w, QStringLiteral("tentative")));
-
-    // MUTATION: a kept step on an unsteady band wears the note too.
-    QByteArray shaky = kDigDone;
-    shaky.replace("\"best\": {", "\"unsteady\": true, \"baseline_spread_db\": 5.2, \"best\": {");
-    CHECK(shaky != kDigDone);
-    digRoute(net, shaky);
-    digTick(w);
-    CHECK(flowHas(w, QStringLiteral("+4.1 dB: post v2, width 100-2400, nb 11 dB · tentative, "
-                                    "band swung 5.2 dB")));
 
     QByteArray cancelled = kDigDone;
     cancelled.replace("\"cancelled\": false", "\"cancelled\": true");
     digRoute(net, cancelled);
     digTick(w);
-    CHECK(flowHas(w, QStringLiteral("found +4.1 dB (put back)")));
+    CHECK(nextHas(w, QStringLiteral("DIG found +4.1 dB (put back)")));
+    CHECK(digLineHas(w, QStringLiteral("found +4.1 dB (put back)")));
     CHECK(child<QWidget>(w, "diversityWindowFlowDigVerdict") != stack->currentWidget());
 
     // MUTATION: a gate that refused. Its own words, and nothing else.
@@ -728,7 +723,8 @@ void testDigNarratesTheRunTheReportAndTheVerdict()
     refused.replace("\"error\": \"\"", "\"error\": \"no talker to measure against\"");
     digRoute(net, refused);
     digTick(w);
-    CHECK(flowHas(w, QStringLiteral("no talker to measure against")));
+    CHECK(nextHas(w, QStringLiteral("no talker to measure against")));
+    CHECK(digLineHas(w, QStringLiteral("no talker to measure against")));
     w->close();
     settle();
     closedToStart();

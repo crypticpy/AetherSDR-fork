@@ -36,7 +36,7 @@
 #include "gui/DiversityWindow.h"
 
 #include "core/ThemeManager.h"
-#include "gui/DiversityFlowStrip.h"
+#include "gui/DiversityHelp.h"
 #include "gui/DiversityWindowPanels.h"
 #include "gui/Theme.h"
 
@@ -140,7 +140,49 @@ QWidget* DiversityWindow::buildTabRow()
                         "every page."));
     hint->setAccessibleDescription(hint->toolTip());
     layout->addWidget(hint);
+
+    // ONE help button, at the right-hand end, retargeted to whichever page is
+    // showing. Five would have been five more lit boxes on the row this
+    // window keeps deliberately quiet -- and the question an operator has is
+    // always about the page in front of them.
+    m_pageHelpButton = DiversityHelp::button(this, DiversityHelp::Topic::Session);
+    m_pageHelpButton->setObjectName(QStringLiteral("diversityHelpButtonPage"));
+    layout->addWidget(m_pageHelpButton);
+    retargetPageHelp(0);
     return row;
+}
+
+// DiversityHelp::button() hard-codes its topic inside the click lambda, so
+// pointing it somewhere else means dropping that connection and making a new
+// one. Nothing else about the button changes -- it is the same widget, under
+// the same name, all session.
+void DiversityWindow::retargetPageHelp(int page)
+{
+    if (!m_pageHelpButton)
+        return;
+    DiversityHelp::Topic topic = DiversityHelp::Topic::Session;
+    switch (page) {
+    case DiversitySessionModel::PageSlice:
+        topic = DiversityHelp::Topic::Slice;
+        break;
+    case DiversitySessionModel::PageBand:
+        topic = DiversityHelp::Topic::Band;
+        break;
+    case DiversitySessionModel::PageSite:
+        topic = DiversityHelp::Topic::Site;
+        break;
+    case DiversitySessionModel::PageFilter:
+        topic = DiversityHelp::Topic::Filter;
+        break;
+    default:
+        break;
+    }
+    QObject::disconnect(m_pageHelpButton, &QPushButton::clicked, nullptr, nullptr);
+    m_pageHelpButton->setToolTip(tr("Help for this page"));
+    m_pageHelpButton->setAccessibleDescription(
+        tr("Opens the help for the page you are on."));
+    connect(m_pageHelpButton, &QPushButton::clicked, this,
+            [this, topic] { DiversityHelp::open(topic, this); });
 }
 
 // --------------------------------------------------------------------------
@@ -350,58 +392,6 @@ QWidget* DiversityWindow::buildChainRow()
             m_captureCountdown->stop();
     });
     return row;
-}
-
-// --------------------------------------------------------------------------
-// The FLOW strip's clicks
-// --------------------------------------------------------------------------
-
-void DiversityWindow::onFlowStep(int step)
-{
-    // Each step goes to the page it is about, and then, where there is exactly
-    // one thing the operator would have done there, does it. Anything with a
-    // choice in it (which mode, which noise finding) is left to the page.
-    switch (step) {
-    case DiversityFlowStrip::StepAlign:
-        showPage(0);
-        startRealign();
-        break;
-    case DiversityFlowStrip::StepMode: {
-        showPage(0);
-        const QAbstractButton* checked = m_modeGroup ? m_modeGroup->checkedButton()
-                                                     : nullptr;
-        const QString mode =
-            checked ? checked->property("diversityValue").toString() : QString();
-        if (mode == QLatin1String("off")) {
-            QUrlQuery q;
-            q.addQueryItem(QStringLiteral("mode"), QStringLiteral("track"));
-            emit requestSet(q);
-        }
-        break;
-    }
-    case DiversityFlowStrip::StepHear: {
-        showPage(0);
-        const QAbstractButton* checked = m_hearGroup ? m_hearGroup->checkedButton()
-                                                     : nullptr;
-        const QString hear =
-            checked ? checked->property("diversityValue").toString() : QString();
-        if (!hear.isEmpty() && hear != QLatin1String("combined")
-            && hear != QLatin1String("stereo")) {
-            QUrlQuery q;
-            q.addQueryItem(QStringLiteral("source"), QStringLiteral("combined"));
-            emit requestSet(q);
-        }
-        break;
-    }
-    case DiversityFlowStrip::StepNoise:
-        showPage(2);
-        break;
-    case DiversityFlowStrip::StepFilter:
-        showPage(3);
-        break;
-    default:
-        break;
-    }
 }
 
 // --------------------------------------------------------------------------

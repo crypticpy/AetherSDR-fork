@@ -123,18 +123,6 @@ DiversityWindow* openWindow(AetherGateApplet& a)
     return w;
 }
 
-// The window on FILTER, which is also what starts the /filter poll.
-DiversityWindow* openOnFilter(AetherGateApplet& a)
-{
-    DiversityWindow* w = openWindow(a);
-    if (!w)
-        return nullptr;
-    child<QToolButton>(w, "diversityWindowPageFilter")->click();
-    settle();
-    settle();
-    return w;
-}
-
 // The window on BAND, likewise for /diversity/finder.
 DiversityWindow* openOnBand(AetherGateApplet& a)
 {
@@ -283,48 +271,11 @@ void testVoiceSplitIsLogged()
     closedToStart();
 }
 
-// (c) The FLOW line's last step quotes whose filter is in force and what the
-// automatic contour has settled on, because "100-2900 soft" is one fact about
-// one station once PER TALKER is on. Read off the line at the foot of the
-// window -- the five steps stopped being five buttons when the row of them
-// under the tabs turned out to read as a second tab bar.
-void testFlowFilterStepQuotesTheTalkerAndContour()
-{
-    closedToStart();
-    FakeGate net;
-    AetherGateApplet a(nullptr, &net);
-    connectGate(a, net);
-    DiversityWindow* w = openOnFilter(a);
-    CHECK(w != nullptr);
-    if (!w)
-        return;
-
-    auto* flow = child<QLabel>(w, "diversityWindowFlowLine");
-    CHECK(flow != nullptr);
-    if (!flow)
-        return;
-    CHECK(flow->text().contains(QStringLiteral("Ted's filter (#3)")));
-    CHECK(flow->text().contains(QStringLiteral("auto contour −3 dB at 550 Hz")));
-
-    // MUTATION: fitting with nothing heard yet says so rather than quoting a
-    // bell at 0 Hz, and an id with no name is quoted as its number.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             kDiversityFilterTalkerNoPrint};
-    bandTick(a);
-    CHECK(flow->text().contains(QStringLiteral("filter #4")));
-    CHECK(flow->text().contains(QStringLiteral("auto contour: no print yet")));
-
-    // PER TALKER off with a manual bell: neither clause appears at all.
-    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError,
-                                             kDiversityFilterTalkerOff};
-    bandTick(a);
-    CHECK(!flow->text().contains(QStringLiteral("filter #")));
-    CHECK(!flow->text().contains(QStringLiteral("auto contour")));
-
-    w->close();
-    settle();
-    closedToStart();
-}
+// (c) was the FLOW line's last step, which quoted whose filter was in force
+// and what the automatic contour had settled on. That line is gone (Phase 3a
+// WP-B): the footer says ONE step now, and the per-talker filter is the
+// STATION card's own state on the START page -- covered by
+// tests/diversity_session_page_test.cpp, against the same /filter fixtures.
 
 // (d) The FINDER shows the number you can tune to, and says on hover what it
 // was rounded from. A row that showed only the estimate would put you 130 Hz
@@ -368,7 +319,6 @@ int main(int argc, char** argv)
 
     testTalkersTableShowsTheRememberedFilter();
     testVoiceSplitIsLogged();
-    testFlowFilterStepQuotesTheTalkerAndContour();
     testFinderShowsTheSnappedFrequencyAndTheEstimate();
 
     std::printf("\n%d diversity talker test(s) failed\n", g_failed);

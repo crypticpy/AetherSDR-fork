@@ -3,10 +3,10 @@
 // visible when we turn that on." This file is the cross-surface proof: the
 // same governor block, read off /diversity and /filter, has to say the same
 // thing on the sidebar's own switch (gui/AetherGateDiversityPanel.cpp), the
-// Diversity window's FLOW strip banner (gui/DiversityFlowStripAuto.cpp) and
+// Diversity window's NEXT strip switch (gui/DiversityNextStrip.cpp) and
 // the CHAIN window's read-only header (gui/AetherGateChainWindowTabs.cpp),
-// plus DIG STOP drawn directly on the FLOW strip's own DIG line
-// (gui/DiversityFlowStripDig.cpp). It does NOT retest chainAutoNoteForStage()
+// plus DIG STOP drawn directly on that same strip
+// (gui/DiversityNextStrip.cpp). It does NOT retest chainAutoNoteForStage()
 // or the AUTO CLEAN card's own inspector -- tests/aether_gate_chain_auto_test
 // .cpp already covers those; this file is the three-surface indicator alone.
 //
@@ -19,7 +19,7 @@
 #include "AetherGateChainFixture.h"
 #include "core/AppSettings.h"
 #include "gui/AetherGateDiversityPanel.h"
-#include "gui/DiversityFlowStrip.h"
+#include "gui/DiversityNextStrip.h"
 #include "gui/DiversityWindow.h"
 
 #include <QApplication>
@@ -36,7 +36,7 @@
 #include <cstdio>
 
 using AetherSDR::AppSettings;
-using AetherSDR::DiversityFlowStrip;
+using AetherSDR::DiversityNextStrip;
 using AetherSDR::DiversityWindow;
 
 using namespace AetherGateChainFixture;
@@ -159,15 +159,15 @@ void fire(QTimer* timer)
     QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection);
 }
 
-DiversityFlowStrip* flowStrip(DiversityWindow* w)
+DiversityNextStrip* nextStrip(DiversityWindow* w)
 {
-    return w->findChild<DiversityFlowStrip*>(QStringLiteral("diversityWindowFlowStrip"));
+    return w->findChild<DiversityNextStrip*>(QStringLiteral("diversityWindowNextStrip"));
 }
 
 bool flowHas(DiversityWindow* w, const QString& needle)
 {
-    auto* line = child<QLabel>(w, "diversityWindowFlowLine");
-    return line && line->text().contains(needle);
+    DiversityNextStrip* strip = nextStrip(w);
+    return strip && strip->lineText().contains(needle);
 }
 
 // The last request whose path starts with `prefix` -- not simply the last
@@ -265,10 +265,10 @@ void testSidebarIndicatorAndToggle()
 }
 
 // --------------------------------------------------------------------------
-// (2) The Diversity window's FLOW strip banner
+// (2) The Diversity window's NEXT strip banner
 // --------------------------------------------------------------------------
 
-void testFlowStripIndicatorAndToggle()
+void testNextStripIndicatorAndToggle()
 {
     closedToStart();
     FakeGate net;
@@ -491,7 +491,7 @@ void testNameHygiene()
     DiversityWindow* w = openWindow(a);
     CHECK(w != nullptr);
     if (w) {
-        DiversityFlowStrip* strip = flowStrip(w);
+        DiversityNextStrip* strip = nextStrip(w);
         CHECK(strip != nullptr);
         if (strip) {
             for (QWidget* kid : strip->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly))
@@ -638,7 +638,7 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
 
     testSidebarIndicatorAndToggle();
-    testFlowStripIndicatorAndToggle();
+    testNextStripIndicatorAndToggle();
     testChainWindowBannerIsReadOnly();
     testDigStopButtonWritesCancel();
     testDigNarratesWhoStartedIt();

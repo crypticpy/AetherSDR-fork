@@ -41,8 +41,11 @@
 // in the sidebar and vice versa: both are views of the same polled state,
 // neither echoes locally.
 //
-// It has four pages, switched by the SLICE/BAND/SITE/FILTER tabs on the top
-// row. SLICE is the window described above -- everything about the
+// It has five pages, switched by the START/SLICE/BAND/SITE/FILTER tabs on
+// the top row. START is the session itself: the four things that have to be
+// true before listening means anything, each with what it buys you and when
+// it has to be redone, derived by DiversitySessionModel and drawn by
+// DiversitySessionPage. SLICE is the window described above -- everything about the
 // frequency you are tuned to. BAND is about the SPAN: the spatial waterfall
 // and the conversation FINDER, both click-to-tune, built on the gate's
 // /diversity/spatial and /diversity/finder routes and polled only while that
@@ -54,13 +57,15 @@
 // Three strips sit above every page and belong to none of them, which is the
 // whole point of them being three rows rather than one (see
 // DiversityWindowChain.cpp):
-//   * tab row    -- SLICE / BAND / SITE / FILTER: where you are.
+//   * tab row    -- START / SLICE / BAND / SITE / FILTER: where you are.
 //   * pair row   -- MODE (off/manual/null/track), HEAR (combined/A/B/stereo),
 //                   the hold-to-compare "Hear A only", REALIGN, and CAPTURE
 //                   with its duration. What the two tuners are doing, on
 //                   every page.
-//   * FLOW strip -- the five steps in the order they have to be done in, with
-//                   the next one lit. See DiversityFlowStrip.h.
+//   * NEXT strip -- ONE step at the foot of the window: the one thing left to
+//                   do, the gate's own words for why, and the one button that
+//                   does it. The whole order is the START page's job. See
+//                   DiversityNextStrip.h.
 //
 // Layout of the SLICE page under those, top to bottom:
 //   * row 0      -- the scope (two columns) and TALKERS beside it.
@@ -76,9 +81,15 @@
 #include "gui/DiversityWindowEvents.h"
 #include "gui/PersistentDialog.h"
 
+#include <QJsonObject>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QUrlQuery>
+
+// A value member, not a pointer: the session model is a pure derivation with
+// no QObject in it, and the window owns exactly one.
+#include "gui/DiversitySessionModel.h"
 
 class QButtonGroup;
 class QCheckBox;
@@ -86,7 +97,6 @@ class QCloseEvent;
 class QHideEvent;
 class QShowEvent;
 class QJsonArray;
-class QJsonObject;
 class QJsonValue;
 class QLabel;
 class QLineEdit;
@@ -107,11 +117,12 @@ class AetherGateDiversityPanel;
 class ClientCompKnob;
 class DiversityBeaconPanel;
 class DiversityFilterControls;
-class DiversityFlowStrip;
+class DiversityNextStrip;
 class DiversityFinderPanel;
 class DiversityNoiseProfilePanel;
 class DiversityMapStrip;
 class DiversityScope;
+class DiversitySessionPage;
 class DiversitySpatialWaterfall;
 class DiversitySnrMeter;
 class DiversityTimeline;
@@ -214,6 +225,12 @@ public:
     // operator opened it, and a dropped poll is not a reason to take it away.
     void setPresent(bool present);
 
+public slots:
+    // Which noise-finding kinds the operator has dismissed on the SITE page.
+    // A slot rather than a plain setter so whoever owns that control can
+    // connect straight to it; nothing in this window connects to it itself.
+    void setDismissedNoiseKinds(const QSet<QString>& kinds);
+
 signals:
     void requestSet(QUrlQuery query);
     void requestCompareRestore(QUrlQuery query);
@@ -272,7 +289,15 @@ private:
     // back rather than only writing.
     QWidget* buildTabRow();
     QWidget* buildChainRow();
-    void     onFlowStep(int step);
+    // A card's cure on the START page, or the NEXT strip's one button. Both
+    // carry a StepId and the query is re-read from the model here -- see
+    // DiversitySessionPage.cpp, where this and the three members below it are
+    // defined.
+    void     onSessionCure(int stepId);
+    // The START page, and the one call that re-derives it and the footer from
+    // the payloads this window has already polled.
+    QWidget* buildStartPage();
+    void     refreshSession();
     void     startRealign();
     void     startCapture();
     void     resetCapture();
@@ -319,14 +344,25 @@ private:
     // follow, applied to a strip that is on every page. Defined in
     // DiversityWindowFilter.cpp beside the rest of the dig seam.
     void     updateDigPoll();
-    // The dig's three-faced control at the right-hand end of the FLOW row: the
-    // durations, the STOP that replaces them while a run is going, and the
-    // verdict row a finished run asks for. Built and switched here rather than
-    // inside DiversityFlowStrip because all three of them WRITE, and that
-    // strip owns no transport. Both defined in DiversityWindowFilter.cpp.
+    // The dig's control at the end of the NEXT row: an empty page while
+    // nothing is out, the STOP a running dig wears, and the verdict row a
+    // finished run asks for. Built and switched here rather than inside
+    // DiversityNextStrip because all of them WRITE, and that strip owns no
+    // transport. All three defined in DiversityWindowFilter.cpp.
     QWidget* buildDigControls();
+    // The 1/3/5 MIN buttons on their own, for the START page's OFFERS row.
+    // Split out of buildDigControls() when the durations moved off the footer:
+    // they are an offer, and the footer is for the step you are on.
+    QWidget* buildDigDurations();
     void     updateDigControls();
-    // Index into m_pages: 0 SLICE, 1 BAND, 2 SITE, 3 FILTER.
+    // Points the tab row's one HELP button at the topic of the page now
+    // showing. DiversityHelp::button() hard-codes its topic in the click
+    // lambda, so this disconnects and re-connects rather than setting a
+    // property.
+    void     retargetPageHelp(int page);
+    // Index into m_pages: 0 START, 1 SLICE, 2 BAND, 3 SITE, 4 FILTER -- the
+    // same order as DiversitySessionModel::Page, so a step's own page number
+    // is this argument without a translation table.
     void     showPage(int page);
     // A click on the waterfall or a FINDER row: emits requestTune() and, when
     // the combiner is not already tracking, asks for mode=track.
@@ -378,10 +414,18 @@ private:
 
     // --- pages ------------------------------------------------------------
     QStackedWidget* m_pages{nullptr};
+    QToolButton*    m_pageStartButton{nullptr};
     QToolButton*    m_pageSliceButton{nullptr};
     QToolButton*    m_pageBandButton{nullptr};
     QToolButton*    m_pageSiteButton{nullptr};
     QToolButton*    m_pageFilterButton{nullptr};
+    // One HELP button at the right-hand end of the tab row, retargeted to
+    // whichever page is showing -- five buttons would have been five more lit
+    // boxes on the row this window keeps deliberately quiet.
+    QPushButton*    m_pageHelpButton{nullptr};
+    // The remembered page is restored once, on the first show -- see
+    // showEvent() in DiversityWindowBand.cpp.
+    bool            m_pageRestored{false};
     DiversitySpatialWaterfall* m_waterfall{nullptr};
     DiversityFinderPanel*      m_finder{nullptr};
 
@@ -441,8 +485,23 @@ private:
     bool    m_captureBusy{false};
     int     m_captureRemaining{0};
 
-    // --- flow -------------------------------------------------------------
-    DiversityFlowStrip* m_flow{nullptr};
+    // --- session ----------------------------------------------------------
+    // The START page and the footer are two views of this one model, refreshed
+    // together by refreshSession() on every poll that touches one of the four
+    // payloads it reads. The payloads are kept because the model caches
+    // nothing between calls: it recomputes every step from scratch, which is
+    // what stops a card and the sentence on it disagreeing.
+    DiversitySessionModel m_session;
+    DiversitySessionPage* m_startPage{nullptr};
+    DiversityNextStrip*   m_nextStrip{nullptr};
+    QJsonObject m_lastDiversity;
+    QJsonObject m_lastFilter;
+    QJsonObject m_lastDig;
+    QJsonObject m_lastBeacons;
+    // The frequency the receiver is on, as last told to setActiveSliceHz().
+    // The BAND step is about the amateur band this is in; 0 means nobody has
+    // said yet.
+    double m_tunedHz{0.0};
     // The dig status poll. The window owns the cadence rather than the poller
     // because it is the thing that knows whether a run is still going; see
     // updateDigPoll().

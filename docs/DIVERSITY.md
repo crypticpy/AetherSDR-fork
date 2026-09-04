@@ -116,8 +116,11 @@ Two strips sit above the pages and one line sits under them. They do three
 different jobs. They are three rows rather than one because as one row they
 read as a single sentence of controls, and half of them are not.
 
-**Row 1 — the pages.** SLICE / BAND / SITE / FILTER, and nothing else;
-`pages` is written at the right end of the row to say so. SLICE, described
+**Row 1 — the pages.** START / SLICE / BAND / SITE / FILTER, and nothing
+else; `pages` is written near the right end of the row to say so, and one
+**?** at the end of the row opens the help for whichever page is showing.
+The window opens on the page you left it on; the first time, on START.
+START, described below, is the session itself written out. SLICE, described
 below, is about the frequency you are tuned to. BAND is about the whole span
 the gate can see, and is where you go to decide where to be tuned. SITE is
 about neither: it is about your station — what kind of noise this address
@@ -155,57 +158,91 @@ gate that has never sent `pan` reads `pan: —`. Kept to a few words
 because the row is already at the window's own 1120 px opening width, with
 the fuller explanation in the readout's tooltip instead.
 
-**The FLOW line — at the foot of the window, not the top.** Five steps in
-the order that gets the best signal, plus a sixth that is not a step at
-all, on one line above the gate status strip:
+**The START page — the session, written out.** Five cards, in the order
+that gets the best signal, each with the reason it is in that order beside
+it:
 
 ```
-FLOW  ✓ align lag −63 · ✓ mode track · ● hear · A only → hear OUT · ○ noise · ○ filter
+✓ 1 · RECEIVER    aligned, track · hearing COMBINED                        
+    Two loops lined up sample-for-sample, one weight solved on whoever is talking,
+    and that combined output in your ears. Nothing below this reads true until it is.
+    Once when you sit down; again after any gate restart — the gate comes back mode off.
+
+● 2 · SITE NOISE  2 findings with a button                            [GO]
+    The shape of your own noise floor named: mains hum and harmonics, impulses per
+    second, periodic modulation, tones — each with the one control that acts on it.
+    It runs by itself. Read it when you sit down and whenever the receiver sounds worse.
 ```
 
 A tick is a step behind you, a filled dot is the one to do next, a hollow
-circle is one still ahead. **Only the next step is clickable**, and clicking
-it goes to the page that step lives on and, where there is a single obvious
-action, also takes it — align realigns, mode sets track when the combiner is
-off, hear switches to the combined output. The noise and filter steps only
-change the page, because there is a choice to make on both and the line
-should not make it for you. Every state on the line is a number or a word
-the gate said; nothing there is computed by the window.
+circle is one still ahead. The three lines under each title never change:
+a step you have finished still says what it bought you, which is what makes
+this a station display rather than a wizard that blanks each page as you
+leave it. The state beside the title is the gate's own words — nothing on
+the card is computed by the window.
 
-It was a strip of five buttons under the page tabs until an operator met it,
-and it read as a second row of tabs: five lit boxes under four lit boxes is
-navigation whatever the words on them say. At the bottom of the window,
-written as a checklist rather than as controls, nothing in the layout can be
-mistaken for the tab bar.
+Where a step has a single obvious action the card carries one button for
+it, on the right of its title: `REALIGN` when the loops are not aligned,
+`TRACK` when the combiner is in `off`, `HEAR OUT` when you are listening to
+one leg, `GO` to the page a choice has to be made on, `DIG 1 MIN` when the
+talker has no filter yet. **`GO` on the BAND card only changes the page**;
+a beacon check costs three minutes off the station and nothing here starts
+one for you.
 
-**The line follows the tab you are on.** The steps that belong to the page in
-front of you are drawn in full and the rest go dim — align, mode and hear on
-SLICE; noise on SITE; filter on FILTER. The step still ahead on the page you
-are standing on also quotes its state, which is the reason you went there:
-on FILTER the last step reads `○ filter 210–2840 soft · AUTO` rather than
-just its name. BAND owns no step, so there everything is dim except the one
-to do next. The next step is never hidden by any of this: when it lives on
-another page its link says which one (`● noise · 2 findings → SITE`), so the
-single thing to do next is readable, and reachable, from all four pages.
+Under the cards, an OFFERS row: **QUICK START**, which sends the three
+writes that make a cold gate listenable (`mode=track`, `source=combined`,
+`auto=on`) in that order, and the three DIG durations with the last run's
+one-line report beside them.
+
+It was a line of five steps at the foot of the window until an operator
+asked it the question one line cannot answer: not *which* step is next, but
+why that order is the order. Five cards have the room for the answer.
+
+**The NEXT line — at the foot of the window, on every page.** One step, and
+the gate's own words for its state:
+
+```
+[AUTO CLEAN ON]  NEXT · SITE NOISE · 2 findings with a button        [GO]
+```
+
+The step is the first one on START that is not done, and the button is that
+card's own cure — the same click, on the row that is visible from all five
+pages. With AUTO CLEAN off the line is status only: no button, no lit card,
+because a station under manual control is not to be nudged. Across a gate
+that has stopped answering it reads `NEXT · — · gate not answering`.
+
+Once all four chores are behind you the line collapses to the one fact left
+worth a row of the window —
+
+```
+● listening · Ann talking · OUT +1.2 dB · 4 remembered
+```
+
+— and a click on it opens it back up. That choice is remembered.
+
 See *A working session* below for what each step is for.
 
-**DIG — the sixth thing on the line, and the only one that is an offer.**
-The five steps are an order of operations; this is not in it. Press `1 MIN`,
-`3 MIN` or `5 MIN` and the gate spends that long moving one knob of the
-chain at a time against a live objective, keeps whatever measurably helped,
-and puts back whatever did not. While it runs the line reads
-`digging 1:12 of 3:00 · +2.1 dB so far · trying width` and the three
-durations become one `STOP`, which ends the run and puts your chain back
-exactly as you had it. When it lands you get one sentence naming only what
-it *moved* — `+4.1 dB: post v2, width 100-2400, nb 11 dB`, or
-`nothing beat your settings` — and three words to answer it with: `BETTER`
-keeps the changes and tells the gate they worked, `KEEP` keeps them without
-judging, and `WORSE` puts the chain back on your own settings and tells the
-gate the measurement was wrong. Your ears win that argument and the gate
-learns from it. The word you gave stays on the line until the next run. A
-gate that cannot dig has no sixth step and no buttons — nothing greyed out
-to wonder about. DIG is never the *next* step and never a tick: it is a
-button that is either worth pressing tonight or not.
+**DIG — an offer, not a step.** The five cards are an order of operations;
+this is not in it, which is why the three durations sit on START's OFFERS
+row rather than among them. Press `1 MIN`, `3 MIN` or `5 MIN` and the gate
+spends that long moving one knob of the chain at a time against a live
+objective, keeps whatever measurably helped, and puts back whatever did
+not. A run goes on whichever page you wander to, so the NEXT line carries
+it: `NEXT · STATION · Ann has no filter yet · DIG 1:12 of 3:00 · +2.1 dB ·
+started by you`, with a `STOP` beside it that ends the run and puts your
+chain back exactly as you had it. START's own offer line says the same fact
+the way an offer says it — `digging · +2.1 dB so far`.
+
+When it lands, one sentence naming only what it *moved* —
+`+4.1 dB: nb_db, post, width`, or `nothing beat your settings` — and three
+words to answer it with: `BETTER` keeps the changes and tells the gate they
+worked, `KEEP` keeps them without judging, and `WORSE` puts the chain back
+on your own settings and tells the gate the measurement was wrong. Your
+ears win that argument and the gate learns from it. Until you say one of
+them the NEXT line asks: `DIG done · +4.1 dB — better or worse?`. A run you
+stopped is not a question — `DIG found +4.1 dB (put back)` — and neither is
+one the gate refused, which is quoted verbatim. A gate that cannot dig has
+no offer and no buttons: nothing greyed out to wonder about.
 
 A trial has to beat the chain you had by a margin before it is kept, and
 the margin comes from how much the band itself swung while the gate was
@@ -962,8 +999,8 @@ While `governor.auto` holds, three surfaces show it, in the same
 emphasised ON tone every other switch in the sidebar wears (not the
 warning gold: AUTO CLEAN on is not an alarm). The sidebar's own **AUTO
 CLEAN** button (a checkable switch, press it to send `auto=on` or
-`auto=off`) and the Diversity window's FLOW strip switch, above the
-checklist, say `AUTO CLEAN ON` and nothing more — no state word, no
+`auto=off`) and the Diversity window's switch at the left of the NEXT line,
+visible from every page, say `AUTO CLEAN ON` and nothing more — no state word, no
 sentence, the operator's own words being that a switch should not carry
 a status message. The switch's tooltip is one short fixed line ("The
 chain is adjusting itself. Click to turn it off." / "Let the chain
@@ -977,20 +1014,20 @@ CLEAN card's inspector and on the CHAIN window's read-only header, which
 has the room for `AUTO CLEAN ON · <state_label> · <why>` and no write
 path of its own. A gate too old to send `state_label` falls back to the
 raw `state` word there instead. Off, or on a gate with no governor block
-at all, the sidebar and FLOW switches collapse to a bare `AUTO CLEAN`
+at all, the sidebar and NEXT-line switches collapse to a bare `AUTO CLEAN`
 toggle and the CHAIN header disappears.
 
 ### DIG STOP, on the line itself
 
-While a dig is running, the FLOW strip's DIG line carries a **STOP**
-button beside the sidebar's dig-stack STOP; either sends
+While a dig is running, the NEXT line carries a **STOP** button beside the
+window's own dig-stack STOP; either sends
 `GET /diversity/dig?cancel=1`. The line also says who started the run:
 "started by AUTO" when the governor is holding or trying `dig`, "started
 by you" otherwise.
 
 ## A working session
 
-This is the order the FLOW line encodes, and the order to work in. Each step
+This is the order the START page encodes, and the order to work in. Each step
 makes the next one mean something: a mode set before the tuners are aligned
 is solving on two signals that are not the same signal, and a filter set
 before you are hearing the combined output is a filter on the wrong audio.

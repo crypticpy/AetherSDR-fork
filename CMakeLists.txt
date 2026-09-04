@@ -1000,18 +1000,21 @@ set(GUI_SOURCES
     src/gui/DiversityBeaconPattern.cpp
     src/gui/DiversityEventLog.cpp
     src/gui/DiversityFilterControls.cpp
-    src/gui/DiversityFlowStrip.cpp
-    src/gui/DiversityFlowStripAuto.cpp
-    src/gui/DiversityFlowStripDig.cpp
     src/gui/DiversityFilterPanel.cpp
     src/gui/DiversityFilterPanelPaint.cpp
     src/gui/DiversityFilterPanelSqueeze.cpp
     src/gui/DiversityFilterPanelRoof.cpp
     src/gui/DiversityFinderPanel.cpp
+    src/gui/DiversityHelp.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
     src/gui/DiversityNoiseProfileDismiss.cpp
     src/gui/DiversityMapStrip.cpp
+    src/gui/DiversityNextStrip.cpp
     src/gui/DiversityScope.cpp
+    src/gui/DiversitySessionCard.cpp
+    src/gui/DiversitySessionModel.cpp
+    src/gui/DiversitySessionPage.cpp
+    src/gui/DiversitySessionText.cpp
     src/gui/DiversitySpatialLegend.cpp
     src/gui/DiversitySpatialWaterfall.cpp
     src/gui/DiversityTalkerControls.cpp
