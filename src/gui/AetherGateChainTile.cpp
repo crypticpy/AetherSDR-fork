@@ -156,9 +156,16 @@ void AetherGateChainTile::buildLine()
 void AetherGateChainTile::setStage(const ChainStage& stage)
 {
     m_stage = stage;
-    const QString tip = stage.tip.isEmpty() ? stage.why : stage.tip;
-    setToolTip(tip);
-    setAccessibleDescription(tip);
+    // The hover is the one-line purpose (shortTip, falling back to why); the
+    // paragraph in `tip` goes to the accessible description only, so a
+    // screen reader still gets the long form without the tile's own hover
+    // reading like a developer note.
+    const QString shortTip = stage.shortTip.isEmpty()
+                                 ? (stage.why.isEmpty() ? stage.tip : stage.why)
+                                 : stage.shortTip;
+    const QString longTip = stage.tip.isEmpty() ? shortTip : stage.tip;
+    setToolTip(shortTip);
+    setAccessibleDescription(longTip);
     refreshPrimary();
     m_control->setStage(stage);
     if (m_shape == ChainTileShape::Line)

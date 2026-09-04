@@ -480,6 +480,21 @@ QString chainModeTip(ChainMode mode)
     return QString();
 }
 
+QString chainModeShortTip(ChainMode mode)
+{
+    switch (mode) {
+    case ChainMode::Phone:
+        return tr_("PHONE: shows the speech-shaping stages; CW-only stages "
+                   "fold away.");
+    case ChainMode::Cw:
+        return tr_("CW: shows the audio peak filter; speech-shaping stages "
+                   "fold away.");
+    case ChainMode::Data:
+        return tr_("DATA: shows only the stages ahead of any mode decision.");
+    }
+    return QString();
+}
+
 // The line under the set button. It is about the SOUND and about nothing
 // else: an operator who presses this wants to know what his receiver will
 // sound like afterwards, not how many parameters moved.

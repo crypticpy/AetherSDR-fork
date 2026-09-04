@@ -1,16 +1,19 @@
 #include "gui/AetherGateChainWindow.h"
 
+#include "core/ThemeManager.h"
 #include "gui/AetherGateChainBypass.h"
 #include "gui/AetherGateChainPresets.h"
 #include "gui/AetherGateChainStrip.h"
 #include "gui/AetherGateChainVisual.h"
 #include "gui/DiversityWindowPanels.h"
+#include "gui/Theme.h"
 
 #include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHideEvent>
 #include <QLabel>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QShowEvent>
 #include <QSizePolicy>
@@ -35,7 +38,150 @@ namespace {
 constexpr int kTabChain = 0;
 constexpr int kTabVisual = 1;
 
+// Mirrors AetherGateChainWindow.cpp's own kModes/kModeCount/kTipWidth: both
+// files build parts of the same MODE row (this one the row itself, that one
+// setMode()'s bookkeeping), and neither is worth a shared header symbol for
+// three constants used inside one function apiece.
+const ChainMode kModes[] = {ChainMode::Phone, ChainMode::Cw, ChainMode::Data};
+constexpr int kModeCount = 3;
+constexpr int kTipWidth = 1020;
+
+// The set button. Deliberately the same shape as the two doors on the applet,
+// because it is the same kind of thing: one press, a lot happens.
+const char* kSetButtonStyle =
+    "QPushButton { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold; "
+    "padding: 4px 10px; border: 1px solid {{color.accent}}; border-radius: 4px; "
+    "background: transparent; }"
+    "QPushButton:hover { background: {{color.background.1}}; }"
+    "QPushButton:pressed { background: {{color.background.3}}; }"
+    "QPushButton:disabled { color: {{color.text.disabled}};"
+    " border: 1px solid {{color.background.1}}; }";
+
 } // namespace
+
+// MODE: a segmented PHONE / CW / DATA, then ONE button that names the mode it
+// would set up. Three mode buttons and three set buttons are built, and only
+// the set for the current mode is visible -- the automation bridge and the
+// screen reader address them by objectName, and a name that existed only in
+// one mode would be a name that sometimes is not there.
+void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
+{
+    auto* row = new QWidget(bodyWidget());
+    row->setObjectName(QStringLiteral("gateChainModeRow"));
+    row->setAccessibleName(tr("Listening mode"));
+    auto* box = new QHBoxLayout(row);
+    box->setContentsMargins(0, 0, 0, 0);
+    box->setSpacing(6);
+
+    auto* caption = DiversityWidgets::makeCaption(tr("MODE"), row);
+    caption->setObjectName(QStringLiteral("gateChainModeCaption"));
+    box->addWidget(caption);
+
+    for (ChainMode mode : kModes) {
+        auto* button = new QPushButton(chainModeLabel(mode), row);
+        button->setObjectName(QStringLiteral("gateChainMode_") + chainModeId(mode));
+        button->setAccessibleName(tr("Listen in %1").arg(chainModeLabel(mode)));
+        button->setToolTip(chainModeShortTip(mode));
+        button->setAccessibleDescription(chainModeTip(mode));
+        button->setCheckable(true);
+        button->setCursor(Qt::PointingHandCursor);
+        button->setFixedHeight(24);
+        applyToggleButtonStyle(button);
+        connect(button, &QPushButton::clicked, this, [this, mode] { setMode(mode); });
+        m_modeButtons.append(button);
+        box->addWidget(button);
+    }
+
+    box->addSpacing(14);
+
+    for (ChainMode mode : kModes) {
+        auto* button = new QPushButton(chainSetLabel(mode), row);
+        button->setObjectName(QStringLiteral("gateChainSetButton_") + chainModeId(mode));
+        button->setAccessibleName(chainSetLabel(mode));
+        const QList<ChainPresetWrite> writes = chainPreset(mode);
+        // What the button DOES, in the operator's terms, not the route count.
+        const QString tip = writes.isEmpty()
+                                ? tr("No set for data yet.")
+                                : tr("Sets up the whole chain for %1. It changes "
+                                     "one stage at a time and waits for the "
+                                     "receiver after each one, so you can watch "
+                                     "it happen on the diagram.")
+                                      .arg(chainModeLabel(mode));
+        button->setToolTip(
+            writes.isEmpty()
+                ? tip
+                : tr("Writes every stage's default for %1, one at a time, "
+                     "watching it land.")
+                      .arg(chainModeLabel(mode)));
+        button->setAccessibleDescription(tip);
+        button->setCursor(Qt::PointingHandCursor);
+        button->setFixedHeight(24);
+        button->setEnabled(!writes.isEmpty());
+        ThemeManager::instance().applyStyleSheet(button,
+                                                 QString::fromLatin1(kSetButtonStyle));
+        connect(button, &QPushButton::clicked, this, [this, button, mode] {
+            // The button says what it is doing while it does it. A set is
+            // thirteen writes and several seconds; a button that still read
+            // "SET UP FOR PHONE" throughout would look like nothing happened.
+            button->setText(chainSetBusyLabel());
+            setSetProgress(chainSetBusyLabel());
+            setNote(QString());
+            m_preset->start(chainPreset(mode), chainSetLabel(mode));
+        });
+        m_setButtons.append(button);
+        box->addWidget(button);
+    }
+
+    box->addStretch(1);
+    root->addWidget(row);
+
+    // One plain line about what the set does to the SOUND. Not a paragraph,
+    // and never a word about the control port.
+    m_modeTip = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("gateChainModeTipLabel"), QString(),
+        tr("What setting up for this mode does to what you hear."), bodyWidget());
+    m_modeTip->setAccessibleName(tr("What this set does"));
+    m_modeTip->setFixedWidth(kTipWidth);
+    root->addWidget(m_modeTip);
+
+    // Where a running set narrates itself, so the status line can stay the
+    // three words it is meant to be.
+    m_setProgress = DiversityWidgets::makeReadoutLine(
+        QStringLiteral("gateChainSetProgressLabel"), QString(),
+        tr("How far a set has got, and which stage it is on."), bodyWidget());
+    m_setProgress->setAccessibleName(tr("Set progress"));
+    m_setProgress->setFixedWidth(kTipWidth);
+    m_setProgress->setVisible(false);
+    root->addWidget(m_setProgress);
+
+    m_preset = new AetherGateChainPreset(this);
+    connect(m_preset, &AetherGateChainPreset::requestWrite, this,
+            &AetherGateChainWindow::onWriteRequested);
+    connect(m_preset, &AetherGateChainPreset::progress, this,
+            [this](const QString& name, int done, int total, const QString& why) {
+                Q_UNUSED(name)
+                setSetProgress(tr("step %1 of %2: %3").arg(done).arg(total).arg(why));
+                setLink(ChainLink::Applying);
+            });
+    connect(m_preset, &AetherGateChainPreset::finished, this,
+            [this](const QString& name, bool ok, const QString& reason) {
+                Q_UNUSED(name)
+                m_loadingPreset = false;
+                if (ok) {
+                    setSetProgress(tr("done"));
+                } else {
+                    // The receiver's own words go where the operator is
+                    // looking, not onto a status line reduced to three states.
+                    setSetProgress(tr("stopped"));
+                    setNote(reason);
+                }
+                for (int i = 0; i < m_setButtons.size() && i < kModeCount; ++i)
+                    m_setButtons.at(i)->setText(chainSetLabel(kModes[i]));
+                setLink(m_present ? ChainLink::Live : ChainLink::Gone);
+            });
+
+    setMode(m_mode);
+}
 
 void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
 {
@@ -57,8 +203,8 @@ void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
         QStringLiteral("gateChainAutoCleanBanner"),
         QStringLiteral("AUTO CLEAN ON · trying a null on the mains hum · "
                        "mains/squeeze backing off until 12:46"),
-        tr("The chain's own governor -- read-only here. Turn it on or off "
-           "from the Diversity window or the sidebar's own AUTO CLEAN switch."),
+        tr("The chain's own governor, read-only here; switch it from the "
+           "sidebar or Diversity window."),
         bodyWidget());
     autoBanner->setAccessibleName(tr("AUTO CLEAN status"));
     // This header has the room the switches lack, so it carries the whole
@@ -187,8 +333,17 @@ void AetherGateChainWindow::buildTabs(QVBoxLayout* root)
                              "double-click to notch, right-click a notch to take "
                              "it away, click any mark to go to its stage."));
 
-    connect(m_tabs, &QTabWidget::currentChanged, this,
-            [this](int) { refreshVisualActive(); });
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this](int index) {
+        refreshVisualActive();
+        // The diagram was withheld while VISUAL was in front (applyFilter()'s
+        // own skip), but m_filterStages itself stayed current the whole
+        // time -- the parse and the presets bar's "edited" comparison are
+        // never gated on tab. So the moment CHAIN comes back to front, a
+        // plain refreshStrip() off what is already parsed is the whole
+        // rebuild; nothing needs re-fetching or re-parsing.
+        if (index == kTabChain && !m_filterStages.isEmpty())
+            refreshStrip();
+    });
     root->addWidget(m_tabs, 1);
 }
 
@@ -222,8 +377,12 @@ void AetherGateChainWindow::setCurrentTab(int index)
 // costs a JSON walk, a fingerprint and a repaint for nobody.
 void AetherGateChainWindow::refreshVisualActive()
 {
+    // A minimised window is still isVisible() on most platforms -- Qt's own
+    // definition of visible is "would be shown if raised", not "on screen
+    // right now" -- so isMinimized() is checked too: nobody is looking at a
+    // minimised window's VISUAL tab either.
     if (m_visual)
-        m_visual->setActive(isVisible() && currentTab() == kTabVisual);
+        m_visual->setActive(isVisible() && !isMinimized() && currentTab() == kTabVisual);
 }
 
 void AetherGateChainWindow::showEvent(QShowEvent* ev)
@@ -250,6 +409,12 @@ void AetherGateChainWindow::changeEvent(QEvent* ev)
     // raised over it -- which hideEvent() above does not see at all.
     if (ev->type() == QEvent::ActivationChange && !isActiveWindow() && m_hearRaw)
         m_hearRaw->releaseIfHeld();
+    // Minimising or restoring does not fire showEvent()/hideEvent() either --
+    // it is neither shown nor hidden, Qt's own state machine calls it a
+    // WindowStateChange -- and refreshVisualActive() is what turns a
+    // minimised VISUAL tab's feed off.
+    if (ev->type() == QEvent::WindowStateChange)
+        refreshVisualActive();
 }
 
 // A preset, or a gesture that is genuinely two writes. Either way it goes into

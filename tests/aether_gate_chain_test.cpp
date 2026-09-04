@@ -425,6 +425,149 @@ void testEveryWidgetTheWindowBuildsHasAName()
         CHECK(sweep(row) == 0);
 }
 
+// H1: the operator could not work out AUTO WIDTH, SHAPE or GUARD from the
+// UI, so every stage's hover must say what it IS and what it is FOR in one
+// line, <=90 characters -- the write-confirmation mechanics belongs in the
+// accessible description, not the tooltip. Covers both the real chain
+// (kChainFilter, gate-authored rows) and the fallback (kChainlessFilter,
+// this window's own 13 rows), tile and inner control alike.
+void testEveryStagesTooltipIsShortAndSaysWhatItIsFor()
+{
+    const auto checkStrip = [](AetherGateChainWindow* w) {
+        AetherGateChainStrip* s = strip(w);
+        CHECK(s != nullptr);
+        if (!s)
+            return;
+        for (int i = 0; i < s->tileCount(); ++i) {
+            AetherGateChainTile* tile = s->tileAt(i);
+            CHECK(tile != nullptr);
+            if (!tile)
+                continue;
+            CHECK(!tile->toolTip().isEmpty());
+            CHECK(tile->toolTip().length() <= 90);
+
+            const AetherSDR::ChainStage& stage = tile->stage();
+            if (stage.kind == QStringLiteral("toggle")) {
+                auto* toggle = w->findChild<QPushButton*>(
+                    QStringLiteral("gateChainToggle_") + stage.id);
+                CHECK(toggle != nullptr);
+                if (toggle) {
+                    CHECK(toggle->toolTip().length() <= 90);
+                    // The old generic mechanics sentence named the write
+                    // behaviour, never the stage's purpose -- exactly what
+                    // the operator could not work anything out from.
+                    CHECK(!toggle->toolTip().contains(
+                        QStringLiteral("stays where you leave it")));
+                }
+            } else if (stage.kind == QStringLiteral("select")) {
+                auto* select = w->findChild<QComboBox*>(
+                    QStringLiteral("gateChainSelect_") + stage.id);
+                CHECK(select != nullptr);
+                if (select) {
+                    CHECK(select->toolTip().length() <= 90);
+                    CHECK(!select->toolTip().contains(
+                        QStringLiteral("does not move until")));
+                }
+            }
+        }
+    };
+
+    {
+        FakeGate net;
+        AetherGateApplet applet(nullptr, &net);
+        connectGate(applet, net, kChainFilter);
+        AetherGateChainWindow* w = openChain(applet);
+        CHECK(w != nullptr);
+        if (w)
+            checkStrip(w);
+    }
+    {
+        FakeGate net;
+        AetherGateApplet applet(nullptr, &net);
+        connectGate(applet, net, kChainlessFilter);
+        AetherGateChainWindow* w = openChain(applet);
+        CHECK(w != nullptr);
+        if (w)
+            checkStrip(w);
+    }
+}
+
+// The diagram is CHAIN-tab work, and a poll landing every 500 ms must not
+// rebuild it for nothing anybody can see. Proxy for "did the rebuild run":
+// AetherGateChainStrip::setStages() re-picks a first-stage selection the
+// instant the selection is empty (see its own trailing `if`), so clearing
+// the selection and then feeding a body back through applyFilter() is a
+// clean, publicly-observable tripwire -- selection recovers if and only if
+// setStages() actually ran.
+void testAnUnchangedFilterBodyDoesNotRebuildTheDiagram()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kChainFilter);
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    AetherGateChainStrip* s = strip(w);
+    CHECK(s != nullptr);
+    if (!s)
+        return;
+    CHECK(!s->selectedId().isEmpty());
+
+    s->selectStage(QString());
+    settle();
+    CHECK(s->selectedId().isEmpty());
+
+    // net.routes["/filter"] still answers with the exact same kChainFilter
+    // bytes -- a poll that changed nothing on the wire.
+    filterTick(applet);
+    CHECK(s->selectedId().isEmpty());
+}
+
+// The VISUAL tab side of the same skip: a body that DOES change is still
+// held rather than rebuilding the diagram under a tab nobody is looking at,
+// and is replayed the moment the operator comes back to CHAIN. Same
+// selection tripwire as above.
+void testABodyArrivingUnderVisualWaitsForTheChainTabToReturn()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net, kChainFilter);
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    AetherGateChainStrip* s = strip(w);
+    CHECK(s != nullptr);
+    if (!s)
+        return;
+    CHECK(s->tileCount() == 5);
+
+    s->selectStage(QString());
+    settle();
+    CHECK(s->selectedId().isEmpty());
+
+    w->setCurrentTab(1);   // VISUAL
+    settle();
+
+    // A genuinely different body -- the 13-row fallback -- so this is not
+    // also exercising the unchanged-body skip above.
+    net.routes[QStringLiteral("/filter")] = {QNetworkReply::NoError, kChainlessFilter};
+    filterTick(applet);
+
+    // Held: the diagram still shows the old 5-tile chain and the cleared
+    // selection was never touched.
+    CHECK(s->tileCount() == 5);
+    CHECK(s->selectedId().isEmpty());
+
+    w->setCurrentTab(0);   // back to CHAIN
+    settle();
+
+    // Replayed: the cached body lands now, and the empty selection proves it.
+    CHECK(s->tileCount() == 13);
+    CHECK(!s->selectedId().isEmpty());
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -442,6 +585,9 @@ int main(int argc, char** argv)
     testSelectingATileFillsTheDetailAreaAndSharesItsAccent();
     testNothingScrollsOnTheChainWindowAtTheInitialSize();
     testEveryWidgetTheWindowBuildsHasAName();
+    testEveryStagesTooltipIsShortAndSaysWhatItIsFor();
+    testAnUnchangedFilterBodyDoesNotRebuildTheDiagram();
+    testABodyArrivingUnderVisualWaitsForTheChainTabToReturn();
 
     std::printf("\n%d aether gate chain test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

@@ -7,7 +7,6 @@
 #include "gui/AetherGateChainStrip.h"
 #include "gui/AetherGateChainVisual.h"
 #include "gui/DiversityWindowPanels.h"
-#include "gui/Theme.h"
 
 #include <QFontMetrics>
 #include <QFrame>
@@ -15,7 +14,6 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QMargins>
-#include <QPushButton>
 #include <QVBoxLayout>
 
 namespace AetherSDR {
@@ -45,6 +43,12 @@ constexpr int kDetailTextWidth = 1020;
 // stayed frozen after that would be the app deciding it knew better than the
 // gate.
 constexpr int kSettleMs = 2500;
+
+// Mirrors AetherGateChainWindowTabs.cpp's own kTabChain: two translation
+// units of one class, and currentTab()'s contract ("0 CHAIN, 1 VISUAL") is
+// the header's own doc comment, not something worth a shared header symbol
+// for one comparison.
+constexpr int kTabChain = 0;
 
 const char* kWindowStyle =
     "QWidget { background: {{color.background.0}}; color: {{color.text.primary}}; }"
@@ -96,17 +100,6 @@ const char* kStatusStyle =
 const char* kSelectedTitleStyle =
     "QLabel { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold;"
     " background: transparent; }";
-
-// The set button. Deliberately the same shape as the two doors on the applet,
-// because it is the same kind of thing: one press, a lot happens.
-const char* kSetButtonStyle =
-    "QPushButton { color: {{color.accent.bright}}; font-size: 11px; font-weight: bold; "
-    "padding: 4px 10px; border: 1px solid {{color.accent}}; border-radius: 4px; "
-    "background: transparent; }"
-    "QPushButton:hover { background: {{color.background.1}}; }"
-    "QPushButton:pressed { background: {{color.background.3}}; }"
-    "QPushButton:disabled { color: {{color.text.disabled}};"
-    " border: 1px solid {{color.background.1}}; }";
 
 QString emDash()
 {
@@ -303,126 +296,6 @@ void AetherGateChainWindow::buildInspector(QVBoxLayout* hostBox, QWidget* host)
     hostBox->addWidget(detailFrame);
 }
 
-// MODE: a segmented PHONE / CW / DATA, then ONE button that names the mode it
-// would set up. Three mode buttons and three set buttons are built, and only
-// the set for the current mode is visible -- the automation bridge and the
-// screen reader address them by objectName, and a name that existed only in
-// one mode would be a name that sometimes is not there.
-void AetherGateChainWindow::buildModeRow(QVBoxLayout* root)
-{
-    auto* row = new QWidget(bodyWidget());
-    row->setObjectName(QStringLiteral("gateChainModeRow"));
-    row->setAccessibleName(tr("Listening mode"));
-    auto* box = new QHBoxLayout(row);
-    box->setContentsMargins(0, 0, 0, 0);
-    box->setSpacing(6);
-
-    auto* caption = DiversityWidgets::makeCaption(tr("MODE"), row);
-    caption->setObjectName(QStringLiteral("gateChainModeCaption"));
-    box->addWidget(caption);
-
-    for (ChainMode mode : kModes) {
-        auto* button = new QPushButton(chainModeLabel(mode), row);
-        button->setObjectName(QStringLiteral("gateChainMode_") + chainModeId(mode));
-        button->setAccessibleName(tr("Listen in %1").arg(chainModeLabel(mode)));
-        button->setToolTip(tr("%1: what this mode shows.").arg(chainModeLabel(mode)));
-        button->setAccessibleDescription(chainModeTip(mode));
-        button->setCheckable(true);
-        button->setCursor(Qt::PointingHandCursor);
-        button->setFixedHeight(24);
-        applyToggleButtonStyle(button);
-        connect(button, &QPushButton::clicked, this, [this, mode] { setMode(mode); });
-        m_modeButtons.append(button);
-        box->addWidget(button);
-    }
-
-    box->addSpacing(14);
-
-    for (ChainMode mode : kModes) {
-        auto* button = new QPushButton(chainSetLabel(mode), row);
-        button->setObjectName(QStringLiteral("gateChainSetButton_") + chainModeId(mode));
-        button->setAccessibleName(chainSetLabel(mode));
-        const QList<ChainPresetWrite> writes = chainPreset(mode);
-        // What the button DOES, in the operator's terms, not the route count.
-        const QString tip = writes.isEmpty()
-                                ? tr("No set for data yet.")
-                                : tr("Sets up the whole chain for %1. It changes "
-                                     "one stage at a time and waits for the "
-                                     "receiver after each one, so you can watch "
-                                     "it happen on the diagram.")
-                                      .arg(chainModeLabel(mode));
-        button->setToolTip(
-            writes.isEmpty() ? tip : tr("Sets up %1.").arg(chainModeLabel(mode)));
-        button->setAccessibleDescription(tip);
-        button->setCursor(Qt::PointingHandCursor);
-        button->setFixedHeight(24);
-        button->setEnabled(!writes.isEmpty());
-        ThemeManager::instance().applyStyleSheet(button,
-                                                 QString::fromLatin1(kSetButtonStyle));
-        connect(button, &QPushButton::clicked, this, [this, button, mode] {
-            // The button says what it is doing while it does it. A set is
-            // thirteen writes and several seconds; a button that still read
-            // "SET UP FOR PHONE" throughout would look like nothing happened.
-            button->setText(chainSetBusyLabel());
-            setSetProgress(chainSetBusyLabel());
-            setNote(QString());
-            m_preset->start(chainPreset(mode), chainSetLabel(mode));
-        });
-        m_setButtons.append(button);
-        box->addWidget(button);
-    }
-
-    box->addStretch(1);
-    root->addWidget(row);
-
-    // One plain line about what the set does to the SOUND. Not a paragraph,
-    // and never a word about the control port.
-    m_modeTip = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainModeTipLabel"), QString(),
-        tr("What setting up for this mode does to what you hear."), bodyWidget());
-    m_modeTip->setAccessibleName(tr("What this set does"));
-    m_modeTip->setFixedWidth(kTipWidth);
-    root->addWidget(m_modeTip);
-
-    // Where a running set narrates itself, so the status line can stay the
-    // three words it is meant to be.
-    m_setProgress = DiversityWidgets::makeReadoutLine(
-        QStringLiteral("gateChainSetProgressLabel"), QString(),
-        tr("How far a set has got, and which stage it is on."), bodyWidget());
-    m_setProgress->setAccessibleName(tr("Set progress"));
-    m_setProgress->setFixedWidth(kTipWidth);
-    m_setProgress->setVisible(false);
-    root->addWidget(m_setProgress);
-
-    m_preset = new AetherGateChainPreset(this);
-    connect(m_preset, &AetherGateChainPreset::requestWrite, this,
-            &AetherGateChainWindow::onWriteRequested);
-    connect(m_preset, &AetherGateChainPreset::progress, this,
-            [this](const QString& name, int done, int total, const QString& why) {
-                Q_UNUSED(name)
-                setSetProgress(tr("step %1 of %2: %3").arg(done).arg(total).arg(why));
-                setLink(ChainLink::Applying);
-            });
-    connect(m_preset, &AetherGateChainPreset::finished, this,
-            [this](const QString& name, bool ok, const QString& reason) {
-                Q_UNUSED(name)
-                m_loadingPreset = false;
-                if (ok) {
-                    setSetProgress(tr("done"));
-                } else {
-                    // The receiver's own words go where the operator is
-                    // looking, not onto a status line reduced to three states.
-                    setSetProgress(tr("stopped"));
-                    setNote(reason);
-                }
-                for (int i = 0; i < m_setButtons.size() && i < kModeCount; ++i)
-                    m_setButtons.at(i)->setText(chainSetLabel(kModes[i]));
-                setLink(m_present ? ChainLink::Live : ChainLink::Gone);
-            });
-
-    setMode(m_mode);
-}
-
 void AetherGateChainWindow::setMode(ChainMode mode)
 {
     m_mode = mode;
@@ -494,6 +367,20 @@ void AetherGateChainWindow::onWriteRequested(const QString& route, const QUrlQue
     emit requestWrite(route, query);
 }
 
+// A stage that has left the chain entirely (the gate stopped sending it), or
+// a write the gate never answered, would otherwise keep its settling-window
+// entry for ever; this is what expires it. Called on every valid poll --
+// see applyFilter() -- not just the ones that go on to rebuild the diagram.
+void AetherGateChainWindow::prunePendingWrites()
+{
+    for (auto it = m_pending.begin(); it != m_pending.end();) {
+        if (it->age.elapsed() > kSettleMs)
+            it = m_pending.erase(it);
+        else
+            ++it;
+    }
+}
+
 // One body's rows, with every stage still inside its settling window held at
 // the setting the strip already shows. Nothing optimistic happens here: the
 // held setting is the one a gate answer put there, not the one that was asked
@@ -502,25 +389,12 @@ QList<ChainStage> AetherGateChainWindow::holdPendingStages(const QList<ChainStag
 {
     if (m_pending.isEmpty())
         return fresh;
-    // A stage that has left the chain entirely (the gate stopped sending it)
-    // would otherwise keep its entry for ever; the window is what expires it.
-    for (auto it = m_pending.begin(); it != m_pending.end();) {
-        if (it->age.elapsed() > kSettleMs)
-            it = m_pending.erase(it);
-        else
-            ++it;
-    }
+    prunePendingWrites();
     QList<ChainStage> out = fresh;
     for (ChainStage& row : out) {
         auto it = m_pending.find(row.id);
         if (it == m_pending.end())
             continue;
-        if (it->age.elapsed() > kSettleMs) {
-            // The write's answer never came. Stop holding: the gate's word,
-            // even a stale one, beats the app's memory.
-            m_pending.erase(it);
-            continue;
-        }
         if (row.settingKey() != it->before) {
             // The gate has answered with something other than the pre-write
             // setting. THIS is the write's effect; take it, and let the
@@ -555,8 +429,18 @@ void AetherGateChainWindow::applyBusyToTiles()
 
 void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
 {
-    if (filter.isEmpty())
+    if (filter.isEmpty()) {
+        // A poll that did not answer. The picture says so -- setStale(true)
+        // -- rather than being blanked: what is on screen was true a moment
+        // ago. The strip itself is left exactly where it was for the same
+        // reason.
+        if (m_visual)
+            m_visual->setStale(true);
         return;
+    }
+    // Any other body is the gate answering, refusal or not -- not stale.
+    if (m_visual)
+        m_visual->setStale(false);
     const QString error = filter.value(QStringLiteral("error")).toString();
     if (!error.isEmpty()) {
         // The gate refused the write. Say so ON THE TILE that asked -- a
@@ -587,24 +471,91 @@ void AetherGateChainWindow::applyFilter(const QJsonObject& filter)
     // which is what hides the button for an older gate. See AetherGateChainBypass.h.
     if (m_hearRaw)
         m_hearRaw->applyFilter(filter);
-
-    bool fromGate = false;
-    m_filterStages = chainFromFilter(filter, &fromGate);
-    m_fromGate = fromGate;
-    m_governor = chainAutoParseGovernor(filter);
-    const QList<ChainStage> stages = refreshStrip();
+    // VISUAL gates its own repaint on setActive()/dragging(); feeding it
+    // every body regardless of what the CHAIN diagram below does is what
+    // lets it catch up the instant the operator switches tabs.
     if (m_visual)
         m_visual->applyFilter(filter);
+
+    // The governor block and the write-settling machinery are read every
+    // 500 ms by the AUTO CLEAN banner and drive the preset stepper -- both
+    // have to stay current regardless of which tab is in front, so neither
+    // is behind the skip below.
+    m_governor = chainAutoParseGovernor(filter);
     if (m_preset->running())
         m_preset->noteFilterBody();
     else
         setLink(ChainLink::Live);
+
+    // A body value-identical to the one this window already drew changes
+    // nothing at all: skip both the parse below and the diagram rebuild it
+    // feeds. Compared as parsed JSON, which is what this method is handed --
+    // QJsonObject's own operator== is a deep, order-independent compare, so
+    // two gate replies read equal here exactly when their bodies were
+    // byte-identical.
+    const bool unchanged = filter == m_lastFilterBody;
+    m_lastFilterBody = filter;
+    // A control's settling window has to expire on its own clock even when
+    // nothing else in the body is moving -- a write the gate never answered
+    // must not stay grey forever just because the rest of the status held
+    // still. Cheap either way (a handful of hash entries and existing
+    // tiles), so it runs whether or not the rest below does.
+    prunePendingWrites();
+    applyBusyToTiles();
+    if (unchanged)
+        return;
+
+    // The parse and the presets bar's "edited" comparison are a JSON walk
+    // and a handful of string compares -- not the widget rebuild below --
+    // so both run on every body that actually changed, regardless of which
+    // tab is in front. A preset that drifted while the operator was looking
+    // at VISUAL must still say so the instant they look back at the
+    // sidebar, not only once they flip back to CHAIN.
+    bool fromGate = false;
+    m_filterStages = chainFromFilter(filter, &fromGate);
+    m_fromGate = fromGate;
+    const QList<ChainStage> stages = mergedStages();
     // Held against the preset in force -- AFTER the sequencer has seen the
     // body, because the last step's own answer is what ends a load, and a
     // chain compared while the load was still running would read as edited
     // by its own hand.
     if (m_presets && !m_loadingPreset)
         m_presets->noteRows(stages);
+
+    // The diagram is CHAIN-tab work: rebuilding it while VISUAL is in front
+    // competes with the picture's own paint for nothing anybody can see.
+    // VISUAL already gates itself this way (setActive()/applyFilter() above);
+    // this mirrors it. m_filterStages is current regardless, so the moment
+    // the tab flips back to CHAIN the tab-changed handler in
+    // AetherGateChainWindowTabs.cpp calls refreshStrip() straight off it --
+    // no re-fetch, no re-parse.
+    // Either skip leaves the diagram behind the body, so the body is not
+    // recorded as drawn: the next poll, identical or not, gets to rebuild.
+    if (currentTab() != kTabChain) {
+        m_lastFilterBody = QJsonObject();
+        return;
+    }
+    // The operator's hand is on the picture on the OTHER tab, but this
+    // window has one diagram: a rebuild landing mid-drag would be exactly as
+    // unwelcome here as it would be under the pointer.
+    if (m_visual && m_visual->dragging()) {
+        m_lastFilterBody = QJsonObject();
+        return;
+    }
+    applyChainBody(stages);
+}
+
+// Turns already-merged stages into strip/tile updates -- the part of a
+// refresh that actually touches widgets, and so the only part gated on
+// CHAIN being the front tab and the picture not being dragged.
+void AetherGateChainWindow::applyChainBody(const QList<ChainStage>& stages)
+{
+    m_strip->setStages(stages);
+    m_strip->setFrontendCalNote(m_frontend.available && !m_frontend.dbmCalibrated,
+                                chainFrontendCalNoteText(m_frontend));
+    chainAutoApplyNotes(m_strip, m_governor);
+    applyBusyToTiles();
+    showStage(m_strip->selectedId());
 }
 
 // GET /device's "frontend" key. Unlike applyFilter() this never carries an
@@ -622,11 +573,11 @@ void AetherGateChainWindow::applyDevice(const QJsonObject& device)
     refreshStrip();
 }
 
-// What applyFilter() and applyDevice() both need done to the strip: merge
-// the gate's own chain[] rows with the frontend guard's two synthetic ones
-// (when the guard is available at all), hold anything still inside its
-// settling window, and hand the result to the strip and the inspector.
-QList<ChainStage> AetherGateChainWindow::refreshStrip()
+// What applyFilter() and applyDevice() both need built before either the
+// strip or the presets bar can be told anything: merge the gate's own
+// chain[] rows with the frontend guard's two synthetic ones (when the guard
+// is available at all), and hold anything still inside its settling window.
+QList<ChainStage> AetherGateChainWindow::mergedStages()
 {
     QList<ChainStage> merged = m_filterStages;
     const QList<ChainStage> frontendRows = chainFrontendRows(m_frontend);
@@ -635,15 +586,26 @@ QList<ChainStage> AetherGateChainWindow::refreshStrip()
         for (int i = 0; i < frontendRows.size(); ++i)
             merged.insert(at + i, frontendRows.at(i));
     }
+    return holdPendingStages(merged);
+}
 
-    const QList<ChainStage> stages = holdPendingStages(merged);
-    m_strip->setStages(stages);
-    m_strip->setFrontendCalNote(m_frontend.available && !m_frontend.dbmCalibrated,
-                                chainFrontendCalNoteText(m_frontend));
-    chainAutoApplyNotes(m_strip, m_governor);
-    applyBusyToTiles();
-    showStage(m_strip->selectedId());
+// The strip half of the merge above: hands mergedStages() to the strip and
+// the inspector. applyDevice() always calls this (a /device poll is not the
+// 2 Hz one); applyFilter() only calls it once the CHAIN-tab/dragging gates
+// in its own comment have passed.
+QList<ChainStage> AetherGateChainWindow::refreshStrip()
+{
+    const QList<ChainStage> stages = mergedStages();
+    applyChainBody(stages);
     return stages;
+}
+
+// See the declaration: this window has no use for the engine, it only
+// reaches VISUAL through it.
+void AetherGateChainWindow::setAudioEngine(AudioEngine* audio)
+{
+    if (m_visual)
+        m_visual->setAudioEngine(audio);
 }
 
 void AetherGateChainWindow::setPresent(bool present)
@@ -653,6 +615,8 @@ void AetherGateChainWindow::setPresent(bool present)
     m_present = present;
     if (m_hearRaw)
         m_hearRaw->setPresent(present);
+    if (m_visual)
+        m_visual->setPresent(present);
     if (present) {
         setLink(ChainLink::Live);
         return;
@@ -664,6 +628,10 @@ void AetherGateChainWindow::setPresent(bool present)
     m_filterStages.clear();
     m_frontend = ChainFrontendStatus();
     m_governor = ChainAutoGovernor();
+    // A gate gone -- the next reconnect's first body must rebuild the strip
+    // even if it happens to match, byte for byte, whatever was on screen
+    // before the gate dropped: the strip below was just cleared.
+    m_lastFilterBody = QJsonObject();
     m_strip->clear();
     m_strip->setFrontendCalNote(false, QString());
     if (m_visual)

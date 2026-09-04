@@ -182,16 +182,25 @@ void AetherGateChainControl::buildToggle(const QString& prefix, bool large)
     else
         m_toggle->setFixedWidth(kSwitchWidth);
     applyToggleButtonStyle(m_toggle);
+    // The hover says what the stage IS and what it is FOR, in one line -- the
+    // write-confirmation mechanics ("the switch stays where you leave it")
+    // moved to the accessible description, where a screen reader still gets
+    // it but the operator hovering the switch is not told a developer note.
+    const QString mechanics =
+        tr("The switch stays where you leave it and moves only when the "
+           "receiver says the stage actually changed.");
     const QString tip = m_stage.actionable()
-                            ? tr("Switches %1. The switch stays where you leave it "
-                                 "and moves only when the receiver says the stage "
-                                 "actually changed.")
-                                  .arg(m_stage.name)
+                            ? (m_stage.shortTip.isEmpty()
+                                   ? tr("Switches %1.").arg(m_stage.name)
+                                   : m_stage.shortTip)
                             : (m_stage.why.isEmpty()
                                    ? tr("Nothing in this window can switch this stage.")
                                    : m_stage.why);
     m_toggle->setToolTip(tip);
-    m_toggle->setAccessibleDescription(tip);
+    m_toggle->setAccessibleDescription(
+        m_stage.actionable()
+            ? (m_stage.tip.isEmpty() ? tip : m_stage.tip) + QLatin1Char(' ') + mechanics
+            : tip);
     connect(m_toggle, &QPushButton::clicked, this, [this] {
         if (!m_stage.actionable() || m_busy) {
             syncToGate();
@@ -232,11 +241,13 @@ void AetherGateChainControl::buildFloor(const QString& prefix, bool large)
     ThemeManager::instance().applyStyleSheet(m_floor, QString::fromLatin1(kSelectStyle));
     for (const ChainOption& opt : m_stage.floorOptions)
         m_floor->addItem(opt.label, opt.value);
-    const QString tip = tr("The lowest LNA state the guard will step down to. "
-                           "It steps the gain back up on its own; it never "
-                           "goes below this floor.");
+    const QString tip = tr("Floor for GUARD's auto LNA step-down - the "
+                           "weakest attenuation it may use.");
+    const QString longTip = tr("The lowest LNA state the guard will step down to. "
+                               "It steps the gain back up on its own; it never "
+                               "goes below this floor.");
     m_floor->setToolTip(tip);
-    m_floor->setAccessibleDescription(tip);
+    m_floor->setAccessibleDescription(longTip);
     connect(m_floor, &QComboBox::activated, this, [this](int index) {
         const QString wire = m_floor->itemData(index).toString();
         if (wire.isEmpty() || m_busy) {
@@ -281,12 +292,13 @@ void AetherGateChainControl::buildChecks(const QString& prefix, bool large)
         box->setAccessibleName(tr("%1 %2").arg(m_stage.name, check.label));
         box->setFixedHeight(large ? kLargeRowHeight : kRowHeight);
         ThemeManager::instance().applyStyleSheet(box, QString::fromLatin1(kCheckStyle));
-        const QString tip =
-            tr("Switches %1. The box moves only when the receiver says the "
-               "check actually changed.")
-                .arg(check.label.isEmpty() ? check.key : check.label);
+        const QString label = check.label.isEmpty() ? check.key : check.label;
+        const QString tip = tr("Turns %1 on or off for %2.").arg(label, m_stage.name);
+        const QString mechanics =
+            tr("The box moves only when the receiver says the check actually "
+               "changed.");
         box->setToolTip(tip);
-        box->setAccessibleDescription(tip);
+        box->setAccessibleDescription(tip + QLatin1Char(' ') + mechanics);
         const QString key = check.key;
         // clicked(), not toggled(): the box goes back where the gate had it
         // and greys until an answer comes back, the same rule every other
@@ -343,15 +355,22 @@ void AetherGateChainControl::buildSelect(const QString& prefix, bool large)
         if (!opt.enabled)
             disableLastItem();
     }
+    const QString selectMechanics =
+        tr("The list does not move until the receiver reports the new "
+           "value.");
     const QString tip = m_stage.actionable()
-                            ? tr("Sets %1. The list does not move until the "
-                                 "receiver reports the new value.")
-                                  .arg(m_stage.name)
+                            ? (m_stage.shortTip.isEmpty()
+                                   ? tr("Sets %1.").arg(m_stage.name)
+                                   : m_stage.shortTip)
                             : (m_stage.why.isEmpty()
                                    ? tr("Nothing in this window can set this stage.")
                                    : m_stage.why);
     m_select->setToolTip(tip);
-    m_select->setAccessibleDescription(tip);
+    m_select->setAccessibleDescription(
+        m_stage.actionable()
+            ? (m_stage.tip.isEmpty() ? tip : m_stage.tip) + QLatin1Char(' ')
+                  + selectMechanics
+            : tip);
     connect(m_select, &QComboBox::activated, this, [this](int index) {
         const QString wire = m_select->itemData(index).toString();
         if (wire.isEmpty() || !m_stage.actionable() || m_busy) {
@@ -410,10 +429,12 @@ void AetherGateChainControl::buildAction(const QString& prefix, bool large)
         m_action->setFixedWidth(kMenuWidth);
     m_action->setCursor(Qt::PointingHandCursor);
     applyToggleButtonStyle(m_action);
-    const QString tip = tr("%1. The card does not move until the receiver says "
-                           "something changed.").arg(m_action->text());
+    const QString tip = tr("%1 now; the card waits for the receiver to confirm "
+                           "it landed.").arg(m_action->text());
+    const QString longTip = tr("%1. The card does not move until the receiver says "
+                               "something changed.").arg(m_action->text());
     m_action->setToolTip(tip);
-    m_action->setAccessibleDescription(tip);
+    m_action->setAccessibleDescription(longTip);
     connect(m_action, &QPushButton::clicked, this, [this] {
         if (!m_stage.actionable() || m_busy)
             return;

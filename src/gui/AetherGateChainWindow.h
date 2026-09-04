@@ -80,6 +80,7 @@
 
 #include <QElapsedTimer>
 #include <QHash>
+#include <QJsonObject>
 #include <QList>
 #include <QString>
 #include <QUrlQuery>
@@ -87,7 +88,6 @@
 class QEvent;
 class QFrame;
 class QHideEvent;
-class QJsonObject;
 class QLabel;
 class QPushButton;
 class QScrollArea;
@@ -102,6 +102,7 @@ class AetherGateChainControl;
 class AetherGateChainHearRawButton;
 class AetherGateChainPresetBar;
 class AetherGateChainVisual;
+class AudioEngine;
 
 class AetherGateChainWindow : public PersistentDialog {
     Q_OBJECT
@@ -127,6 +128,13 @@ public:
     // Gate presence, mirrored from the applet. Losing the gate empties the
     // strip: last minute's numbers must never sit there looking live.
     void setPresent(bool present);
+
+    // Handed straight to VISUAL's own setAudioEngine() -- the second trace on
+    // that tab is the FFT of this application's own receive audio, and
+    // AetherGateChainVisual already decides what a null engine (every test,
+    // a build with no audio device) means. This window has no use for the
+    // engine itself; it is only the pipe the applet reaches VISUAL through.
+    void setAudioEngine(AudioEngine* audio);
 
     // True when the rows on screen came from the gate's own chain[] rather
     // than from the app's built-in fallback.
@@ -183,6 +191,11 @@ private:
     void setNote(const QString& text);
     void setSetProgress(const QString& text);
     void onWriteRequested(const QString& route, const QUrlQuery& query);
+    // Drops any settling-window entry past kSettleMs without an answer.
+    // Cheap, and run on every valid poll -- see applyFilter() -- so a write
+    // the gate never answered does not stay grey just because the rest of
+    // the body held still.
+    void prunePendingWrites();
     // The rows one body describes, with any stage still inside its settling
     // window held at the setting the strip is already showing.
     QList<ChainStage> holdPendingStages(const QList<ChainStage>& fresh);
@@ -190,12 +203,22 @@ private:
     // The merge applyFilter() and applyDevice() share: m_filterStages plus
     // the frontend guard's two synthetic rows, inserted right after the
     // last stage the FRONT END group already owns, held through
-    // holdPendingStages() and handed to the strip -- one merge, whichever
-    // of the two answers is the one that just changed. Returns what it gave
-    // the strip, so a caller that also has to tell the presets bar what
-    // changed (applyFilter() does; applyDevice() does not) is not left
-    // recomputing the same list.
+    // holdPendingStages(). A plain list build plus a handful of hash
+    // lookups -- cheap enough to run on every valid poll regardless of tab,
+    // which is exactly what the presets bar's "edited" comparison needs.
+    QList<ChainStage> mergedStages();
+    // The merge applyDevice() (always) and refreshStrip()'s caller (when the
+    // diagram rebuild is allowed to run) need handed to the strip. Returns
+    // what it gave the strip, so a caller that also has to tell the presets
+    // bar what changed is not left recomputing the same list.
     QList<ChainStage> refreshStrip();
+    // The diagram-touching half of applyFilter(): turns already-merged
+    // stages into strip/tile updates. Split out from the parse and the
+    // presets comparison (both of which run every poll, tab or no tab) so
+    // this -- the part that competes with VISUAL's own paint -- is the only
+    // half gated on CHAIN being the front tab and the picture not being
+    // dragged. See applyFilter()'s own comment for why it may be skipped.
+    void applyChainBody(const QList<ChainStage>& stages);
 
     // One write on the wire, per stage.
     struct PendingWrite {
@@ -240,6 +263,13 @@ private:
     // blank the guard.
     QList<ChainStage>       m_filterStages;
     ChainFrontendStatus     m_frontend;
+    // The last /filter body this window parsed, kept only to skip a rebuild
+    // the poll's own body did not change (QJsonObject's operator== is a
+    // deep, order-independent compare). m_filterStages -- not this -- is
+    // what the tab-changed handler replays the diagram off when the
+    // operator flips back from VISUAL, since the parse itself is never
+    // gated on tab.
+    QJsonObject             m_lastFilterBody;
     // The governor block off this same /filter body -- see
     // gui/AetherGateChainAuto.h. Kept apart like m_frontend so a
     // /device-only refresh can reapply it to the strip without a fresh

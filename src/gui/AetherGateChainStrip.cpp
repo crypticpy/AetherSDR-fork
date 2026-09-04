@@ -2,6 +2,7 @@
 
 #include "core/ThemeManager.h"
 #include "gui/DiversityWindowPanels.h"
+#include "gui/Theme.h"
 
 #include <QCoreApplication>
 #include <QFrame>
@@ -44,15 +45,6 @@ constexpr int kFrontEndCardTextWidth = kChainSummaryWidth - 14;
 const ChainGroup kGroups[] = {ChainGroup::FrontEnd, ChainGroup::Pair,
                               ChainGroup::Passband, ChainGroup::Out};
 constexpr int kGroupCount = 4;
-
-// The header of the collapsed fold. Its own style rather than a toggle button
-// because it is a disclosure, not a switch on the receiver: nothing about it
-// reaches the radio.
-const char* kFoldStyle =
-    "QPushButton { color: {{color.text.secondary}}; font-size: 10px;"
-    " font-weight: bold; background: transparent; border: none;"
-    " text-align: left; padding: 2px 0px; }"
-    "QPushButton:hover { color: {{color.accent.bright}}; }";
 
 int groupIndex(ChainGroup group)
 {
@@ -109,7 +101,9 @@ AetherGateChainStrip::AetherGateChainStrip(QWidget* parent)
     m_foldToggle = new QPushButton(this);
     m_foldToggle->setObjectName(QStringLiteral("gateChainNotForModeToggle"));
     m_foldToggle->setAccessibleName(tr("Show the stages this mode does not use"));
-    m_foldToggle->setToolTip(tr("The stages this mode does not normally reach for."));
+    m_foldToggle->setToolTip(
+        tr("Show or hide the stages this mode skips - they're still on and "
+           "switchable."));
     m_foldToggle->setAccessibleDescription(
         tr("The stages this mode does not normally reach "
            "for. They are still running and still "
@@ -117,8 +111,7 @@ AetherGateChainStrip::AetherGateChainStrip(QWidget* parent)
            "diagram, it does not turn anything off."));
     m_foldToggle->setCursor(Qt::PointingHandCursor);
     m_foldToggle->setCheckable(true);
-    ThemeManager::instance().applyStyleSheet(m_foldToggle,
-                                             QString::fromLatin1(kFoldStyle));
+    applyToggleButtonStyle(m_foldToggle);
     connect(m_foldToggle, &QPushButton::clicked, this, [this] { relayout(); });
     root->addWidget(m_foldToggle);
 

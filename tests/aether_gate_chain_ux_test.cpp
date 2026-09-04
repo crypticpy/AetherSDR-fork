@@ -527,6 +527,15 @@ void testTheModeSetsSendTheirTableInOrderOneWriteAtATime()
     CHECK(sent.size() == voice.size());
     for (int i = 0; i < voice.size() && i < sent.size(); ++i)
         CHECK(sent.at(i) == voice.at(i).query);
+
+    // The last write's own reply -- and AetherGateChainPreset::finished()'s
+    // reaction to it -- is still in flight the instant its request lands in
+    // net.log, so waiting on the log count alone is a race: it was flipping
+    // this CHECK standalone. Give "done" its own bounded wait.
+    for (int i = 0; i < 40
+                    && labelText(w, "gateChainSetProgressLabel") != QStringLiteral("done");
+         ++i)
+        settle();
     CHECK(labelText(w, "gateChainSetProgressLabel") == QStringLiteral("done"));
 
     // The CW table is its own list and reaches the gate the same way.

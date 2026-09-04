@@ -85,7 +85,13 @@ struct ChainStage {
     QString kind;            // toggle | select | value | fixed
     QString detail;          // the gate's own headline value
     QString why;             // why a fixed row cannot be acted on
-    QString tip;             // the sentence on the hover and in the detail pane
+    QString tip;             // the paragraph in the detail pane's accessible description
+    // The one line on the hover: WHAT this stage is and WHAT it is for, <=90
+    // characters (design rule after the operator could not work out AUTO
+    // WIDTH, SHAPE or GUARD from the UI). `tip` is still the long paragraph,
+    // now reserved for accessibleDescription; a row with no shortTip of its
+    // own falls back to `why`, which is already short.
+    QString shortTip;
     bool    fixed{false};
     bool    enabled{false};
     QString value;           // wire form of the value in force, on a select

@@ -388,6 +388,10 @@ AetherGateChainPresetBar::AetherGateChainPresetBar(QWidget* parent) : QWidget(pa
     m_notice = new QPushButton(this);
     m_notice->setObjectName(QStringLiteral("gateChainPresetNotice"));
     m_notice->setAccessibleName(tr("Undo the delete"));
+    m_notice->setToolTip(
+        tr("Bring the deleted preset back; it's still recoverable for a few "
+           "seconds."));
+    m_notice->setAccessibleDescription(m_notice->toolTip());
     m_notice->setCursor(Qt::PointingHandCursor);
     m_notice->setFlat(true);
     m_notice->setVisible(false);

@@ -71,9 +71,14 @@ QString chainModeId(ChainMode mode);
 // middle of one segment is a word nobody parses at 4 AM.
 QString chainModeLabel(ChainMode mode);
 
-// The sentence on the mode button's hover. Longer than the caption, and the
-// only place in this window that is allowed more than one clause.
+// The paragraph in the mode button's accessible description. Longer than the
+// caption, and one of the few places in this window that is allowed more
+// than one clause -- a screen reader gets it, the hover does not.
 QString chainModeTip(ChainMode mode);
+
+// The one line on the mode button's hover: what switching to `mode` does to
+// the diagram, <=90 characters. chainModeTip() above is the long form.
+QString chainModeShortTip(ChainMode mode);
 
 // The ONE plain line under the set button, in terms of what the set does to
 // the sound: "opens the passband to 350-2750, soft edges, ...". Never a
