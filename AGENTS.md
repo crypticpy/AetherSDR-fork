@@ -174,6 +174,35 @@ When in doubt, the agent should implement the fix and note in the PR that
 design decisions need maintainer review. The project maintainer (Jeremy/KK7GWY)
 is the sole authority on visual design and UX direction.
 
+### Keep what the station learned (diversity / Aether-gate)
+
+The diversity work (`docs/DIVERSITY.md`, the Aether-gate bridge) measures a
+**home station**: the location, the loops and the neighbourhood's noise do
+not move between sessions. Band conditions do. Every design decision on that
+surface follows from that split:
+
+- **Measured once is measured forever.** Beacon results, the loop-pair
+  pattern per bearing, the compass fit, the noise profile's findings, talker
+  fingerprints and the filter each talker earned are capital. They persist
+  across app and gate restarts, are shown before they are re-measured, and
+  are never cleared by a page change, a retune or a reconnect.
+- **Key by the world, not by the widget.** Store results against absolute
+  frequency, band, bearing, talker and wall-clock time, never against a bin
+  index, a span or a session. A result must still mean something after the
+  operator tunes away and comes back.
+- **Show the age, not a blank.** Conditions change, so a stored result is
+  stale, not wrong: display it with "3 h ago" and let the operator decide to
+  refresh. A blank table after a relaunch is a bug (B-SITE-1 was one).
+- **Profiling work is done once per loop, not once per click.** Station
+  facts (alignment, headroom, hum, impulses) are per session; band facts
+  (beacons, direction, survey) are per band; station-on-the-air facts
+  (talker, filter) are per station. A step lower in that order never resets a
+  step above it.
+- **Leverage before you ask.** When a new measurement can be seeded from a
+  stored one (a remembered talker's filter, last night's pattern, an outside
+  propagation or spot feed), do that first and let the live measurement
+  refine it. Ask the operator to run a check only when nothing stored applies.
+
 ## C++ Style Guide
 
 - **No `goto`** — use early returns, break, or restructure the logic
