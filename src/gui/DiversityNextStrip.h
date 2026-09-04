@@ -46,6 +46,7 @@
 class QHBoxLayout;
 class QLabel;
 class QPushButton;
+class QResizeEvent;
 
 namespace AetherSDR {
 
@@ -100,8 +101,13 @@ signals:
     void cureActivated(int stepId);
     void requestAutoCleanToggle(bool on);
 
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+
 private:
     void rebuild();
+    // Elides m_plain to the label's width and marks it up; see the .cpp.
+    void applyLineText();
     void updateAutoCleanButton();
     QString digTail() const;
 
@@ -110,6 +116,7 @@ private:
     QPushButton* m_button{nullptr};
     QPushButton* m_autoCleanButton{nullptr};
     QString      m_plain;
+    QString      m_lineColour;
 
     // --- the step, as handed in ------------------------------------------
     bool    m_haveNext{false};

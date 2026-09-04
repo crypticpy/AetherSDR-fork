@@ -17,6 +17,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 
@@ -376,20 +377,8 @@ void DiversityNextStrip::rebuild()
     body += digTail();
 
     m_plain = QStringLiteral("%1 · %2").arg(head, body);
-    // Escaped: talker names, mode words and the gate's own error strings are
-    // all in `body`, and a station called "<b" must not write markup here.
-    const QString escaped = m_plain.toHtmlEscaped();
-    // The whole line is the collapse toggle, but only once there is something
-    // to collapse -- before that a click would have nothing to hide.
-    if (m_allDone) {
-        m_line->setText(QStringLiteral("<a href=\"toggle\" style=\"color:%1;"
-                                       "text-decoration:none;\">%2</a>")
-                            .arg(colour, escaped));
-    } else {
-        m_line->setText(
-            QStringLiteral("<span style=\"color:%1;\">%2</span>").arg(colour, escaped));
-    }
-    m_line->setAccessibleDescription(m_plain);
+    m_lineColour = colour;
+    applyLineText();
 
     if (m_button) {
         const bool offer = !collapsed() && m_haveNext && !m_cureLabel.isEmpty();
@@ -398,6 +387,41 @@ void DiversityNextStrip::rebuild()
         m_button->setAccessibleDescription(m_button->toolTip());
         m_button->setVisible(offer);
     }
+}
+
+// The line is rich text (the collapse toggle is a link in it), and a rich
+// text QLabel neither elides nor wraps: a step sentence longer than the
+// strip -- the dig tail makes them long -- was cut mid-word at the GO
+// button. Elide the plain sentence to the label's own width first, then
+// mark it up; the full sentence stays on the accessible description and on
+// lineText(). Re-run on every resize, since the width is the layout's.
+void DiversityNextStrip::applyLineText()
+{
+    if (!m_line)
+        return;
+    const int room = std::max(0, m_line->width() - 2);
+    const QString shown =
+        m_line->fontMetrics().elidedText(m_plain, Qt::ElideRight, room);
+    // Escaped: talker names, mode words and the gate's own error strings are
+    // all in the sentence, and a station called "<b" must not write markup.
+    const QString escaped = shown.toHtmlEscaped();
+    // The whole line is the collapse toggle, but only once there is something
+    // to collapse -- before that a click would have nothing to hide.
+    if (m_allDone) {
+        m_line->setText(QStringLiteral("<a href=\"toggle\" style=\"color:%1;"
+                                       "text-decoration:none;\">%2</a>")
+                            .arg(m_lineColour, escaped));
+    } else {
+        m_line->setText(QStringLiteral("<span style=\"color:%1;\">%2</span>")
+                            .arg(m_lineColour, escaped));
+    }
+    m_line->setAccessibleDescription(m_plain);
+}
+
+void DiversityNextStrip::resizeEvent(QResizeEvent* event)
+{
+    QWidget::resizeEvent(event);
+    applyLineText();
 }
 
 } // namespace AetherSDR
