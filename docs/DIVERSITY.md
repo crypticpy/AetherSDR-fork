@@ -451,11 +451,16 @@ it was heard.
 
 The page shows only the beacons for the frequency in the gate's span; the
 other bands' results are kept but not drawn, so switching bands does not
-lose them. With no beacon frequency in the span it says so and names the
-five: 14.100, 18.110, 21.150, 24.930 and 28.200 MHz. Beacon phase is worth
-more than it looks — it is the only phase in this window whose right answer
-is already known, which is what a future geometry solve has to calibrate
-itself against.
+lose them. With no beacon frequency in the span it does not go blank: the
+table follows whichever band was checked most recently, and the header says
+so — `showing 20 m · checked 1 min ago · no beacon frequency in the span —
+tune 14.100/18.110/21.150/24.930/28.200`. Only when nothing has ever been
+checked does it fall back to naming the five frequencies with no band shown.
+A relaunch that leaves the slice off a beacon frequency reads as the last
+CHECK or SWEEP's log, not as the night's results having vanished. Beacon
+phase is worth more than it looks — it is the only phase in this window
+whose right answer is already known, which is what a future geometry solve
+has to calibrate itself against.
 
 This table, like the BAND page's, is kept warm in the background — once
 every half minute, from the moment the Diversity window exists, whichever
@@ -537,11 +542,18 @@ band's calls on the line's hover. It is built from the results the gate
 scored *since the run left* (an older day's results are not this run's),
 and it follows the poll for a few seconds after the trip home because the
 last beacon's slot is scored at the slot boundary, up to ten seconds after
-the countdown ends. **The feeds line** under the propagation lines answers
-the other question a check leaves behind — what is done with the numbers:
-today they feed the loop pattern dial (one point per beacon heard on both
-loops, which needs your grid for a bearing) and the propagation lines;
-nothing else reads them yet.
+the countdown ends. A five-band sweep's report can run wider than the
+countdown row has to give it, and rather than clipping mid-word into
+whatever sits beside it, the line elides and the rest goes on a second line
+under the pattern dial — narrower there than the countdown row, so a report
+long enough can still run past *that* and elide a second time, but between
+the two lines more of the report is on screen than the countdown row alone
+could ever hold, and the full detail, every band, is always on the
+countdown line's hover regardless. **The feeds line** under the propagation
+lines answers the other question a check leaves behind — what is done with
+the numbers: today they feed the loop pattern dial (one point per beacon
+heard on both loops, which needs your grid for a bearing) and the
+propagation lines; nothing else reads them yet.
 
 The page is polled while it is on screen and while a check is out — a
 sweep started from SITE keeps reporting from BAND or SLICE — and a gate

@@ -377,6 +377,318 @@ void testThePollStaysWantedOffTheSitePageWhileACheckIsOut()
     closedToStart();
 }
 
+// (e) A /diversity/beacons body carrying exactly one scored result, band_hz
+// either the live one or JSON null (off band) -- the shape the off-band
+// fallback tests need, where the payload's OWN band has nothing to do with
+// which band's rows the table falls back to showing.
+QByteArray oneResultBeacons(bool bandLive, double bandHz, const QString& call,
+                            double resultBandHz, qint64 atEpoch)
+{
+    QByteArray body = R"({"available": true, "band_hz": BANDHZ, "slot": 1,
+        "now": null, "station_grid": "EM10", "propagation": [], "pattern": [],
+        "last": null,
+        "results": [{"call": "CALL", "band_hz": RESULTHZ, "heard": true,
+                     "snr_db": 6.0, "lowest_w": 1.0, "at": AT}]})";
+    body.replace("BANDHZ",
+                bandLive ? QByteArray::number(bandHz, 'f', 1) : QByteArray("null"));
+    body.replace("CALL", call.toUtf8());
+    body.replace("RESULTHZ", QByteArray::number(resultBandHz, 'f', 1));
+    body.replace("AT", QByteArray::number(atEpoch));
+    return body;
+}
+
+// (f) All five bands sampled, ages spread out -- the fixed height under
+// buildPatternColumn() has to hold all five real lines without clipping into
+// the feeds line below it, at the window's own opening size (2026-09-03, on
+// the air: the propagation block's last line or two overlapped "feeds ->
+// pattern dial ..." on the real display).
+QByteArray fiveBandPropagationBeacons()
+{
+    QByteArray body = R"({"available": true, "band_hz": 14100000.0, "slot": 12,
+        "station_grid": "EM10",
+        "now": {"call": "4X6TU", "location": "Tel Aviv, Israel", "seconds_left": 9.4},
+        "results": [], "last": null,
+        "propagation": [
+          {"band_hz": 14100000.0, "sampled": 18, "heard": 5, "of": 18, "best_w": 0.1,
+           "median_snr_db": 7.3, "updated": AT0},
+          {"band_hz": 18110000.0, "sampled": 18, "heard": 0, "of": 18, "updated": AT1},
+          {"band_hz": 21150000.0, "sampled": 18, "heard": 0, "of": 18, "updated": AT2},
+          {"band_hz": 24930000.0, "sampled": 18, "heard": 0, "of": 18, "updated": AT3},
+          {"band_hz": 28200000.0, "sampled": 18, "heard": 0, "of": 18, "updated": AT4}
+        ],
+        "pattern": []})";
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    body.replace("AT0", QByteArray::number(now - 60));
+    body.replace("AT1", QByteArray::number(now - 4 * 3600));
+    body.replace("AT2", QByteArray::number(now - 5 * 3600));
+    body.replace("AT3", QByteArray::number(now - 6 * 3600));
+    body.replace("AT4", QByteArray::number(now - 15 * 3600));
+    return body;
+}
+
+// (a) No beacon frequency in the span, results stored on two bands: the
+// table follows whichever one was checked most recently, and says so.
+// Mutation: revert renderRows()/applyBeacons() to read m_bandHz instead of
+// m_shownBandHz and this table goes back to all dashes with the header
+// giving no band name.
+void testOffBandShowsTheNewestStoredBandAndNamesItInTheHeader()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityStatusWithKinds, kDiversityBeaconsNoBand);
+    DiversityWindow* w = openOnSite(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* table = child<QTableWidget>(w, "diversityWindowBeaconTable");
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+    // 20 m, checked (and left) a while ago.
+    net.routes[QStringLiteral("/diversity/beacons")] = {
+        QNetworkReply::NoError,
+        oneResultBeacons(true, 14100000.0, QStringLiteral("4U1UN"), 14100000.0,
+                         now - 200)};
+    siteTick(a);
+    CHECK(cell(table, 0, 2) == QStringLiteral("●")); // 4U1UN heard, 20 m
+
+    // Off band now, but 15 m was checked more recently than 20 m was.
+    net.routes[QStringLiteral("/diversity/beacons")] = {
+        QNetworkReply::NoError,
+        oneResultBeacons(false, 0.0, QStringLiteral("W6WX"), 21150000.0, now)};
+    siteTick(a);
+
+    const QString header = labelText(w, "diversityWindowBeaconHeaderLabel");
+    CHECK(header.contains(QStringLiteral("showing 15 m")));
+    CHECK(header.contains(QStringLiteral("checked")));
+    CHECK(header.contains(QStringLiteral("no beacon frequency in the span")));
+    CHECK(header.contains(QStringLiteral("14.100")));
+    CHECK(header.contains(QStringLiteral("28.200")));
+    // The table followed the newer band: 15 m's W6WX is heard, and 4U1UN
+    // (still in memory, but only ever heard on 20 m) is a dash on this band.
+    CHECK(cell(table, 2, 2) == QStringLiteral("●")); // W6WX, row for it
+    CHECK(cell(table, 0, 2) == kDash);
+    closedToStart();
+}
+
+// (b) A live beacon frequency in the span wins over any other band's more
+// recent history: the table shows the band you are tuned to, not merely the
+// newest one on file. Mutation: drop the `m_bandHz <= 0.0` guard around the
+// newestStoredBandHz() fallback and this starts showing 15 m instead of 20 m
+// even while 20 m is live.
+void testALiveBandBeatsNewerHistoryOnAnotherBand()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityStatusWithKinds, kDiversityBeaconsNoBand);
+    DiversityWindow* w = openOnSite(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* table = child<QTableWidget>(w, "diversityWindowBeaconTable");
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+    // 15 m stored off band, most recently of anything on file.
+    net.routes[QStringLiteral("/diversity/beacons")] = {
+        QNetworkReply::NoError,
+        oneResultBeacons(false, 0.0, QStringLiteral("W6WX"), 21150000.0, now)};
+    siteTick(a);
+    CHECK(labelText(w, "diversityWindowBeaconHeaderLabel")
+              .contains(QStringLiteral("showing 15 m")));
+
+    // The span is now live on 20 m, with a fresh 20 m result -- the table
+    // must show THAT, not 15 m, even though 15 m is still the newer check.
+    net.routes[QStringLiteral("/diversity/beacons")] = {
+        QNetworkReply::NoError,
+        oneResultBeacons(true, 14100000.0, QStringLiteral("4U1UN"), 14100000.0,
+                         now)};
+    siteTick(a);
+    const QString header = labelText(w, "diversityWindowBeaconHeaderLabel");
+    CHECK(!header.contains(QStringLiteral("no beacon frequency in the span")));
+    CHECK(cell(table, 0, 2) == QStringLiteral("●")); // 4U1UN, 20 m, live
+    CHECK(cell(table, 2, 2) == kDash);                    // W6WX not on 20 m
+    closedToStart();
+}
+
+// (c) A newer check on a different band moves the table off the one it was
+// showing -- the fallback tracks the latest check, not just whatever it
+// first landed on. Mutation: cache m_shownBandHz once and never refresh it
+// from a later newestStoredBandHz() call, and the table stays on 20 m.
+void testANewerCheckOnAnotherBandMovesTheTable()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityStatusWithKinds, kDiversityBeaconsNoBand);
+    DiversityWindow* w = openOnSite(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* table = child<QTableWidget>(w, "diversityWindowBeaconTable");
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+    // 20 m checked first, off band throughout.
+    net.routes[QStringLiteral("/diversity/beacons")] = {
+        QNetworkReply::NoError,
+        oneResultBeacons(false, 0.0, QStringLiteral("4U1UN"), 14100000.0,
+                         now - 200)};
+    siteTick(a);
+    CHECK(cell(table, 0, 2) == QStringLiteral("●"));
+    CHECK(labelText(w, "diversityWindowBeaconHeaderLabel")
+              .contains(QStringLiteral("showing 20 m")));
+
+    // 12 m checked more recently -- the table follows it.
+    net.routes[QStringLiteral("/diversity/beacons")] = {
+        QNetworkReply::NoError,
+        oneResultBeacons(false, 0.0, QStringLiteral("ZL6B"), 24930000.0, now)};
+    siteTick(a);
+    CHECK(labelText(w, "diversityWindowBeaconHeaderLabel")
+              .contains(QStringLiteral("showing 12 m")));
+    CHECK(cell(table, 4, 2) == QStringLiteral("●")); // ZL6B, 12 m
+    CHECK(cell(table, 0, 2) == kDash);                    // 4U1UN not on 12 m
+    closedToStart();
+}
+
+// (d) The propagation label's five real lines fit inside its own fixed
+// height at the window's opening size, with a real margin rather than
+// exactly the bare minimum -- and the SITE page's no-scroll contract still
+// holds. Mutation: revert buildPatternColumn() to size the label off a
+// placeholder's sizeHint() (the pre-fix approach) and prop->height() comes
+// back down to exactly fm.lineSpacing() * 5, failing the margin check even
+// though it still equals the bare minimum needed on this platform's fonts --
+// which is exactly how the real clipping shipped unnoticed under offscreen
+// rendering in the first place.
+void testThePropagationLabelsFiveLinesFitItsHeightAtTheOpeningSize()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net, kDiversityStatusWithKinds, fiveBandPropagationBeacons());
+    DiversityWindow* w = openOnSite(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    settle();
+    w->grab(); // offscreen platforms only finish layout on a real paint pass
+
+    auto* prop = child<QLabel>(w, "diversityWindowBeaconPropagationLabel");
+    auto* feeds = child<QLabel>(w, "diversityWindowBeaconFeedsLine");
+    CHECK(prop != nullptr && feeds != nullptr);
+    if (!prop || !feeds)
+        return;
+
+    // Five real lines, one per band -- not the placeholder "00 m" sizeHint()
+    // used to be fixed against.
+    CHECK(prop->text().count(QChar('\n')) == 4);
+
+    const QFontMetrics fm(prop->fontMetrics());
+    CHECK(prop->height() > fm.lineSpacing() * 5);
+    CHECK(prop->geometry().bottom() <= feeds->geometry().top());
+
+    // The no-scroll contract this page runs under (tests/diversity_site_test.cpp
+    // owns the full version): the extra headroom still has to fit inside the
+    // SITE page's own budget.
+    auto* scroll = w->findChild<QScrollArea*>(QStringLiteral("diversityWindowSiteScroll"));
+    CHECK(scroll != nullptr);
+    if (scroll) {
+        CHECK(scroll->widget()->minimumSizeHint().width() <= scroll->viewport()->width());
+        CHECK(!scroll->horizontalScrollBar()->isVisible());
+        CHECK(!scroll->verticalScrollBar()->isVisible());
+    }
+    closedToStart();
+}
+
+// (g) A SWEEP report that does not fit the countdown row's real width elides
+// there rather than clipping into whatever is beside it, and more of it goes
+// on beside the pattern dial rather than only on hover. Mutation: revert
+// renderReport() to set m_checkLine's text unconditionally and leave
+// m_reportOverflow hidden, and the first two checks below fail -- the row
+// would hold the whole unelided string (this test's very reason for using
+// 18-of-18 on every band: it is the widest line renderReport() ever builds,
+// wider than the row has left of 1120 px once the caption, five band
+// buttons, SWEEP ALL and CANCEL have theirs). Mutation: give m_reportOverflow
+// the checkLine ROW's own width instead of the (narrower) pattern column's --
+// both labels would then elide identically and the last check (10 m absent
+// from even the wider overflow line) would stop being a fact about the
+// column's real, narrower budget.
+void testASweepReportThatDoesNotFitTheRowShowsInFullBesideThePatternDial()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    connectGate(a, net);
+    DiversityWindow* w = openOnSite(a);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    settle();
+    w->grab(); // offscreen platforms only finish layout on a real paint pass,
+               // and m_checkLine's width() (what elidedText() below measures
+               // against) is only real once that pass has happened.
+
+    auto* checkLine = child<QLabel>(w, "diversityWindowBeaconCheckLine");
+    auto* overflow = child<QLabel>(w, "diversityWindowBeaconReportOverflow");
+    CHECK(checkLine != nullptr && overflow != nullptr);
+    if (!checkLine || !overflow)
+        return;
+    CHECK(!overflow->isVisible());
+
+    const double bandsHz[5] = {14100000.0, 18110000.0, 21150000.0, 24930000.0,
+                               28200000.0};
+    a.diversityPanel()->setActiveSliceHz(3860000.0);
+    child<QPushButton>(w, "diversityWindowBeaconSweep")->click();
+    for (int leg = 0; leg < 5; ++leg) {
+        QByteArray body = R"({"available": true, "band_hz": HZ, "slot": 1,
+            "now": null, "station_grid": "EM10", "propagation": [], "pattern": [],
+            "last": null, "results": [)";
+        for (int c = 0; c < 18; ++c) {
+            if (c)
+                body += ",";
+            body += QByteArray("{\"call\": \"C") + QByteArray::number(c)
+                  + "\", \"band_hz\": HZ, \"heard\": true, \"snr_db\": 5.0, "
+                    "\"lowest_w\": 0.1, \"at\": AT}";
+        }
+        body += "]}";
+        body.replace("HZ", QByteArray::number(bandsHz[leg], 'f', 1));
+        body.replace("AT", QByteArray::number(QDateTime::currentSecsSinceEpoch()));
+        net.routes[QStringLiteral("/diversity/beacons")] = {QNetworkReply::NoError,
+                                                             body};
+        for (int i = 0; i < 190; ++i) {
+            checkTick(w);
+            if (i % 20 == 0)
+                siteTick(a);
+        }
+        siteTick(a);
+    }
+    settle();
+    w->grab();
+
+    CHECK(checkLine->text().endsWith(QChar(0x2026))); // ellipsis: elided
+    CHECK(overflow->isVisible());
+    CHECK(overflow->text().startsWith(QStringLiteral("home at ")));
+    // The pattern column is its own, narrower budget than the checkLine row
+    // (measured ~366 px against the row's 579): this report reaches further
+    // into the five bands there than the row alone ever could, but a five-
+    // band 18-of-18 report still runs past even that, so it elides too --
+    // 20 m and 17 m fit, 10 m does not, and the full five-band detail is
+    // still in checkLine's tooltip regardless.
+    CHECK(overflow->text().contains(QStringLiteral("20 m: 18 of 18 heard")));
+    CHECK(overflow->text().contains(QStringLiteral("17 m: 18 of 18 heard")));
+    // The column's real ~366 px, not the wider ~579 px checkLine's row has:
+    // 15 m does not fit either. Distinguishes this from a mutation that gives
+    // m_reportOverflow the ROW's width instead of the column's -- at 579 px
+    // both labels would elide identically (15 m and 12 m both fit checkLine's
+    // own row) and this line, and the != check below, would stop being a
+    // fact about the column's own, narrower budget.
+    CHECK(!overflow->text().contains(QStringLiteral("15 m: 18 of 18 heard")));
+    CHECK(!overflow->text().contains(QStringLiteral("10 m: 18 of 18 heard")));
+    CHECK(overflow->text().endsWith(QChar(0x2026)));
+    CHECK(overflow->text() != checkLine->text());
+    CHECK(checkLine->toolTip().contains(QStringLiteral("10 m: 18 of 18 heard")));
+    closedToStart();
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -388,6 +700,11 @@ int main(int argc, char** argv)
     testTheReportListsWhatWasHeardThisRun();
     testCancelMidSweepComesHomeAndReportsTheBandsDone();
     testThePollStaysWantedOffTheSitePageWhileACheckIsOut();
+    testOffBandShowsTheNewestStoredBandAndNamesItInTheHeader();
+    testALiveBandBeatsNewerHistoryOnAnotherBand();
+    testANewerCheckOnAnotherBandMovesTheTable();
+    testThePropagationLabelsFiveLinesFitItsHeightAtTheOpeningSize();
+    testASweepReportThatDoesNotFitTheRowShowsInFullBesideThePatternDial();
 
     std::printf("\n%d diversity beacon sweep test(s) failed\n", g_failed);
     return g_failed == 0 ? 0 : 1;

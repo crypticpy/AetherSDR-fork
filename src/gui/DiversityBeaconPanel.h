@@ -37,7 +37,12 @@
 // many of the eighteen were heard on each band the gate has sampled, the lowest
 // power step that made it, the median signal-to-noise, and how stale the answer
 // is. The table stays on the band you are tuned to, because a row from 20 m
-// would be a lie about 15 m.
+// would be a lie about 15 m -- and when you are not tuned to any of the five,
+// it stays on the band it showed last rather than going blank: newestStoredBandHz()
+// picks whichever band's results are the most recent of any this panel has kept,
+// and the header says so ("showing 20 m · checked 1 min ago"). A relaunch that
+// leaves the slice off a beacon frequency must not read as the night's log
+// having been lost.
 //
 // BEACON CHECK. The five beacon frequencies are the only place in the hobby
 // where "go and listen for three minutes" is a complete measurement procedure.
@@ -47,10 +52,10 @@
 // NOTHING else -- not the mode, not the combiner, not the filter -- because a
 // check that changed the receiver would not be measuring the receiver you use.
 //
-// Results for other bands stay in memory but are not drawn in the table: the
-// gate reports per (band, call) and the schedule frequency changes when you
-// retune. Nothing here is invented; a beacon that has not been heard on this
-// band is dashes, not zeros.
+// Results for bands other than the one shown stay in memory but are not drawn
+// in the table: the gate reports per (band, call) and only one band's worth of
+// rows fits. Nothing here is invented; a beacon that has not been heard on the
+// shown band is dashes, not zeros.
 //
 // It owns no transport: DiversityWindow feeds it one applyBeacons() per
 // /diversity/beacons poll, which the applet's DiversityBandPoller makes only
@@ -155,6 +160,13 @@ private:
     QWidget* buildStatusLine();
     // Redraws all eighteen rows from m_results for the current band.
     void renderRows();
+    // The band whose stored results carry the newest "at" of any this panel
+    // has kept, or 0 when it has kept none, with that "at" written to atOut
+    // when given. When there is no live beacon frequency in the span this is
+    // what the table falls back to showing -- the operator's last CHECK or
+    // SWEEP did not vanish just because the slice moved off a beacon
+    // frequency.
+    double newestStoredBandHz(double* atOut = nullptr) const;
     // One line per band the gate has sampled, from the "propagation" array.
     void renderPropagation(const QJsonValue& propagation);
     // CHECK <band>: one band, then home. SWEEP ALL: the five in a row, then
@@ -188,12 +200,21 @@ private:
     QPushButton*  m_checkCancelButton{nullptr};
     QPushButton*  m_sweepButton{nullptr};
     QLabel*       m_feedsLine{nullptr};
+    // The rest of the BEACON CHECK report when it does not fit m_checkLine's
+    // row (a SWEEP's five-band report, mainly) -- hidden the rest of the
+    // time, since the countdown row already carries it when it fits.
+    QLabel*       m_reportOverflow{nullptr};
     DiversityBeaconPattern* m_pattern{nullptr};
 
     // Keyed "<band_hz>|<call>" -- the gate reports per (band, call) and a
     // result is only ever about the band it was heard on.
     QHash<QString, QJsonObject> m_results;
     double  m_bandHz{0.0};
+    // The band renderRows() actually draws: m_bandHz while it is live, or
+    // newestStoredBandHz() when it is not -- a table that went blank the
+    // instant the slice left a beacon frequency would read as lost data
+    // rather than as the same log it was a second before.
+    double  m_shownBandHz{0.0};
     QString m_nowCall;
     // The gate's own answer, or empty when it has none. The edit box shows it
     // whenever the operator is not typing into it.

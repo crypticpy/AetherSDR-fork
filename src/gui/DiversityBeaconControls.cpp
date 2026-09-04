@@ -25,6 +25,7 @@
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -273,9 +274,30 @@ QWidget* DiversityBeaconPanel::buildPatternColumn()
     // Explicit line breaks, never word wrap -- and a height fixed at the full
     // five lines whether or not they are all filled, so a block that fills up
     // as the night goes on cannot move the table beside it.
-    m_propagation->setText(
-        QStringList(kPropagationLines, QStringLiteral("00 m")).join(QChar('\n')));
-    m_propagation->setFixedHeight(m_propagation->sizeHint().height());
+    //
+    // Sized off the font's own metrics rather than off a placeholder's
+    // sizeHint(): sizeHint() and the QLabel::paintEvent() that later draws
+    // the real text ask QFontMetrics two different questions (the tight
+    // bounding box of the string vs. where drawText() actually lays lines
+    // out), and on the real display the answers do not quite agree -- the
+    // fifth line's descenders clipped into the feeds line under it
+    // (2026-09-03, on the air). Zero slack was always the wrong amount of
+    // slack for a fixed-height multi-line label; half a line of headroom
+    // below the last line costs nothing here (the column has room to spare:
+    // it is the table's fixed 330 px that sets this box's height, not the
+    // other way round).
+    //
+    // ensurePolished() first: this label's QSS (10 px bold, kFieldLabelStyle)
+    // has not been applied to its QFont yet at construction time, so an
+    // unpolished fontMetrics() answers for whatever font it inherited from
+    // its parent instead -- a bigger one, on this style, which would have
+    // made the fixed height float loose of the font it is actually sized
+    // for rather than short of it. Forcing the polish here is what makes
+    // this box's height a fact about the font that draws into it.
+    m_propagation->ensurePolished();
+    const QFontMetrics propFm(m_propagation->fontMetrics());
+    m_propagation->setFixedHeight(propFm.lineSpacing() * kPropagationLines
+                                  + propFm.lineSpacing() / 2);
     layout->addWidget(m_propagation);
 
     // What the results are used for, because the operator asked on the air
@@ -292,6 +314,33 @@ QWidget* DiversityBeaconPanel::buildPatternColumn()
         column);
     m_feedsLine->setAccessibleName(tr("What the beacon results feed"));
     layout->addWidget(m_feedsLine);
+
+    // The rest of what BEACON CHECK's report line could not fit on its own
+    // row (buildCheckRow() sits above five band buttons, SWEEP ALL and
+    // CANCEL, so the report gets whatever width is left of 1120 px and a
+    // SWEEP's five-band report does not fit it). This is the spare room
+    // renderReport() said it would use rather than leaving the rest of the
+    // sentence in a tooltip nobody thought to hover (the operator's own
+    // word for the old behaviour: "truncated").
+    m_reportOverflow = DiversityWidgets::makeFieldLabel(QString(), column);
+    m_reportOverflow->setObjectName(QStringLiteral("diversityWindowBeaconReportOverflow"));
+    m_reportOverflow->setAccessibleName(tr("Beacon check report, in full"));
+    m_reportOverflow->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    // Ignored, horizontally: a five-band SWEEP report is one un-wrapped line
+    // and can run to 600+ px, and this label's OWN sizeHint() is exactly
+    // that string's width with nothing capping it. Left at the default
+    // Preferred policy, setting that text once made the column ask the row
+    // it sits in for its full width, which the window granted -- the whole
+    // DiversityWindow grew past 1120 px on the very next layout pass to fit
+    // a label that was supposed to fit in the column's existing spare room,
+    // and every OTHER row's width computed on the next render (checkLine's
+    // among them) inherited the wider window. Ignored tells the layout this
+    // label's content is not a demand on its neighbours' room; renderReport()
+    // still elides its text to whatever width that leaves it, the same way
+    // it elides m_checkLine's.
+    m_reportOverflow->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_reportOverflow->hide();
+    layout->addWidget(m_reportOverflow);
     layout->addStretch(1);
     return column;
 }
@@ -428,7 +477,15 @@ QWidget* DiversityBeaconPanel::buildCheckRow()
            "heard, band by band, and hovering it gives every band's calls."),
         row);
     m_checkLine->setAccessibleName(tr("Beacon check countdown and report"));
-    layout->addWidget(m_checkLine);
+    // Stretch 1, and no trailing addStretch(1) below: this label's own
+    // sizeHint() tracks whatever text it last had, not the row's actual
+    // budget, so a checkLine left at the default stretch of 0 just sits at
+    // its own width forever and every byte of slack goes to an invisible
+    // spacer at the row's end -- which is also why elidedText() against
+    // width() only ever worked by accident before this. Letting the label
+    // itself claim the leftover space is what makes width() a fact about
+    // the row rather than about the string that happened to be in it last.
+    layout->addWidget(m_checkLine, 1);
 
     m_checkCancelButton = new QPushButton(tr("CANCEL"), row);
     m_checkCancelButton->setObjectName(QStringLiteral("diversityWindowBeaconCheckCancel"));
@@ -442,7 +499,6 @@ QWidget* DiversityBeaconPanel::buildCheckRow()
     connect(m_checkCancelButton, &QPushButton::clicked, this,
             &DiversityBeaconPanel::cancelCheck);
     layout->addWidget(m_checkCancelButton);
-    layout->addStretch(1);
     m_settleTimer = new QTimer(this);
     m_settleTimer->setSingleShot(true);
     connect(m_settleTimer, &QTimer::timeout, this, [this] { emit checkStateChanged(); });
@@ -589,6 +645,13 @@ void DiversityBeaconPanel::renderReport()
     if (m_swept.isEmpty()) {
         m_checkLine->setText(tr("idle — a check tunes away for %1 s and comes back")
                                  .arg(kCheckSeconds));
+        // Null during buildCheckRow()'s own construction-time call: this row
+        // is built before buildPatternColumn() makes the widget the overflow
+        // would show in.
+        if (m_reportOverflow) {
+            m_reportOverflow->hide();
+            m_reportOverflow->setText(QString());
+        }
         return;
     }
     QStringList lines;      // one per band, with the calls: the hover text
@@ -638,10 +701,40 @@ void DiversityBeaconPanel::renderReport()
     // A single band has room for its calls on the line; a sweep gives counts
     // and keeps the calls for the hover. Never wrapped: a wrapping label is
     // height-for-width and would put a scrollbar on a page that fits.
-    m_checkLine->setText(when + QStringLiteral(" · ")
-                         + (m_swept.size() == 1 ? lines : brief).join(QStringLiteral(" · ")));
+    const QString full = when + QStringLiteral(" · ")
+                         + (m_swept.size() == 1 ? lines : brief).join(QStringLiteral(" · "));
+    // The row has whatever is left of 1120 px once the caption, five band
+    // buttons, SWEEP ALL and CANCEL have theirs, and a five-band SWEEP report
+    // can run past it (measured: 688 px wanted, 579 px to give it, worst
+    // case). Eliding here rather than letting the label paint past its own
+    // width is what stops it clipping mid-word into whatever is beside it;
+    // the sentence eliding took is never simply lost, though -- it goes to
+    // the spare room under the pattern dial (2026-09-03, on the air: the
+    // operator's word for the old clipped line was "truncated"). width() is
+    // 0 before this row has ever been laid out, which only happens before
+    // any check has run -- m_swept.isEmpty() already returned above by then.
+    const QFontMetrics checkFm(m_checkLine->fontMetrics());
+    const QString elided = checkFm.elidedText(full, Qt::ElideRight, m_checkLine->width());
+    m_checkLine->setText(elided);
     lines.prepend(when);
     m_checkLine->setToolTip(lines.join(QChar('\n')));
+    const bool overflowed = elided != full;
+    // The column's own width, not this label's: with Ignored set above, this
+    // label no longer has a sizeHint()-driven width of its own to measure --
+    // it gets whatever the column (m_propagation's own, stable width, ~366 px
+    // measured) leaves it. That is narrower than the checkLine row's own 579,
+    // so a five-band SWEEP report still elides here too rather than showing
+    // whole -- but it is a SECOND line of real estate the row alone never
+    // had, so even a two-and-a-half-band elide is strictly more of the
+    // report than the row could ever have shown on its own, and the tooltip
+    // still carries every band in full for whichever one this line stops
+    // short of.
+    const QString overflowElided = overflowed
+        ? m_reportOverflow->fontMetrics().elidedText(full, Qt::ElideRight,
+                                                      m_propagation->width())
+        : QString();
+    m_reportOverflow->setText(overflowElided);
+    m_reportOverflow->setVisible(overflowed);
 }
 
 void DiversityBeaconPanel::renderFeeds(const QJsonObject& beacons)

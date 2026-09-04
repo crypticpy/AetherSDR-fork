@@ -63,6 +63,39 @@ constexpr Beacon kSchedule[] = {
 
 constexpr int kBeaconCount = int(sizeof(kSchedule) / sizeof(kSchedule[0]));
 
+// The five beacon frequencies, named. bandName() below is DiversityBeaconPanel
+// duplicating the same tiny lookup DiversityBeaconControls.cpp's bandName()
+// carries -- see integerField()'s comment above for why a header for a
+// five-line table would be the worse trade.
+struct BeaconBandName {
+    double      hz;
+    const char* name;
+};
+
+constexpr BeaconBandName kBandNames[] = {
+    {14100000.0, "20 m"}, {18110000.0, "17 m"}, {21150000.0, "15 m"},
+    {24930000.0, "12 m"}, {28200000.0, "10 m"},
+};
+
+// "20 m" for one of the five, the frequency itself for anything else -- a
+// gate that grows a sixth band must not print a wrong one of the five.
+QString bandName(double hz)
+{
+    for (const BeaconBandName& band : kBandNames) {
+        if (std::abs(band.hz - hz) < 1000.0)
+            return QString::fromLatin1(band.name);
+    }
+    return QCoreApplication::translate("DiversityBeaconPanel", "%1 MHz")
+        .arg(hz / 1.0e6, 0, 'f', 3);
+}
+
+// No spaces round the slashes: with a stored band's name and age ahead of it
+// ("showing 20 m · checked 1 min ago · no beacon frequency in the span --
+// tune ..."), the header is the longest line on the page and has to stay on
+// one line at the window's opening width.
+const QString kTuneHint =
+    QStringLiteral("14.100/18.110/21.150/24.930/28.200");
+
 // Call, location, last pass, SNR, A, B, phase, coherence, gain, steps, age,
 // bearing, distance, heard-of-samples. The first eleven are in the order they
 // have always been in: the three the station grid made possible are appended
@@ -124,14 +157,14 @@ QString signedNumber(const QJsonObject& obj, const char* key, int decimals)
     return QString::asprintf("%+.*f", decimals, v.toDouble());
 }
 
-// "2 min ago". Beacons come round every three minutes, so a result older than
-// a couple of cycles is history rather than news and the units say which.
-QString ageText(const QJsonObject& result)
+// "2 min ago" from an absolute epoch stamp. Beacons come round every three
+// minutes, so a result older than a couple of cycles is history rather than
+// news and the units say which. Split out of ageText() so the header's
+// "checked N ago" (which has an epoch but no result object to hand it) reads
+// the same clock rather than a second copy of it.
+QString ageSince(double atEpoch)
 {
-    const QJsonValue v = result.value(QStringLiteral("at"));
-    if (!v.isDouble())
-        return emDash();
-    const qint64 age = QDateTime::currentSecsSinceEpoch() - qint64(v.toDouble());
+    const qint64 age = QDateTime::currentSecsSinceEpoch() - qint64(atEpoch);
     if (age < 0)
         return QCoreApplication::translate("DiversityBeaconPanel", "now");
     if (age < 60)
@@ -140,6 +173,14 @@ QString ageText(const QJsonObject& result)
         return QCoreApplication::translate("DiversityBeaconPanel", "%1 min ago")
             .arg(age / 60);
     return QCoreApplication::translate("DiversityBeaconPanel", "%1 h ago").arg(age / 3600);
+}
+
+QString ageText(const QJsonObject& result)
+{
+    const QJsonValue v = result.value(QStringLiteral("at"));
+    if (!v.isDouble())
+        return emDash();
+    return ageSince(v.toDouble());
 }
 
 // "●●○○": the power ladder, lit from the top down. The lowest lit step is the
@@ -334,6 +375,7 @@ void DiversityBeaconPanel::clear()
 {
     m_results.clear();
     m_bandHz = 0.0;
+    m_shownBandHz = 0.0;
     m_nowCall.clear();
     m_stationGrid.clear();
     m_actionPending = false;
@@ -364,6 +406,7 @@ void DiversityBeaconPanel::applyBeacons(const QJsonObject& beacons)
         // being made -- and keep the results, because they are still true about
         // the bands they were heard on.
         m_bandHz = 0.0;
+        m_shownBandHz = 0.0;
         m_nowCall.clear();
         m_header->setText(tr("beacon watch: not available from this gate"));
         renderRows();
@@ -414,12 +457,25 @@ void DiversityBeaconPanel::applyBeacons(const QJsonObject& beacons)
     m_nowCall = now.value(QStringLiteral("call")).toString();
 
     if (m_bandHz <= 0.0) {
-        m_header->setText(
-            tr("no beacon frequency in the span — tune 14.100 / 18.110 / "
-               "21.150 / 24.930 / 28.200"));
+        // No beacon frequency in the span right now -- but a CHECK or a
+        // SWEEP taken earlier this session left real rows behind, keyed by
+        // the band they were heard on, and the operator's last question was
+        // "did my results just disappear?" (2026-09-03: seen after a
+        // relaunch). The table follows whichever band was checked most
+        // recently rather than going blank the instant the slice is
+        // somewhere else -- that band's rows are still true.
+        double checkedAt = 0.0;
+        m_shownBandHz = newestStoredBandHz(&checkedAt);
+        m_header->setText(m_shownBandHz > 0.0
+                              ? tr("showing %1 · checked %2 · no beacon "
+                                   "frequency in the span — tune %3")
+                                    .arg(bandName(m_shownBandHz), ageSince(checkedAt), kTuneHint)
+                              : tr("no beacon frequency in the span — tune %1")
+                                    .arg(kTuneHint));
         renderRows();
         return;
     }
+    m_shownBandHz = m_bandHz;
 
     QStringList parts;
     parts << tr("%1 MHz").arg(m_bandHz / 1e6, 0, 'f', 3);
@@ -454,7 +510,8 @@ void DiversityBeaconPanel::renderRows()
         const QString call = QString::fromLatin1(kSchedule[row].call);
         const QString where = QString::fromLatin1(kSchedule[row].location);
         const QJsonObject result =
-            m_bandHz > 0.0 ? m_results.value(resultKey(m_bandHz, call)) : QJsonObject();
+            m_shownBandHz > 0.0 ? m_results.value(resultKey(m_shownBandHz, call))
+                                : QJsonObject();
         const bool haveResult = !result.isEmpty();
         const bool heard = result.value(QStringLiteral("heard")).toBool();
 
@@ -518,6 +575,25 @@ void DiversityBeaconPanel::renderRows()
                                   : tr("no step heard on this band yet"));
         }
     }
+}
+
+double DiversityBeaconPanel::newestStoredBandHz(double* atOut) const
+{
+    double bestBand = 0.0;
+    double bestAt = -1.0;
+    for (auto it = m_results.cbegin(); it != m_results.cend(); ++it) {
+        const QJsonValue atValue = it.value().value(QStringLiteral("at"));
+        const QJsonValue bandValue = it.value().value(QStringLiteral("band_hz"));
+        if (!atValue.isDouble() || !bandValue.isDouble())
+            continue;
+        if (atValue.toDouble() > bestAt) {
+            bestAt = atValue.toDouble();
+            bestBand = bandValue.toDouble();
+        }
+    }
+    if (atOut)
+        *atOut = bestAt;
+    return bestBand;
 }
 
 } // namespace AetherSDR
