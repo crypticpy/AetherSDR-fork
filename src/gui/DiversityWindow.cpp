@@ -240,10 +240,9 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     m_nextStrip = new DiversityNextStrip(this);
     connect(m_nextStrip, &DiversityNextStrip::cureActivated, this,
             &DiversityWindow::onSessionCure);
-    // AUTO CLEAN's switch and DIG STOP, both on the strip itself -- turned
-    // into the same writes the sidebar's own AUTO CLEAN toggle and the dig
-    // stack's own STOP button already send, by the one door every write in
-    // this window leaves through (requestSet/requestDig, wired on to the
+    // AUTO CLEAN's switch, on the strip itself -- turned into the same write
+    // the sidebar's own AUTO CLEAN toggle already sends, by the one door
+    // every write in this window leaves through (requestSet, wired on to the
     // panel in createFor() below).
     connect(m_nextStrip, &DiversityNextStrip::requestAutoCleanToggle, this,
             [this](bool on) {
@@ -252,14 +251,12 @@ DiversityWindow::DiversityWindow(QWidget* parent)
                                on ? QStringLiteral("on") : QStringLiteral("off"));
                 emit requestSet(q);
             });
-    connect(m_nextStrip, &DiversityNextStrip::requestDigCancel, this, [this] {
-        QUrlQuery q;
-        q.addQueryItem(QStringLiteral("cancel"), QStringLiteral("1"));
-        emit requestDig(q);
-    });
     // The dig's STOP and its three verdict words live on the strip, at the
     // end of the one line that is on screen whatever page the operator
-    // wandered to. The durations are NOT there -- they are an offer, and
+    // wandered to. buildDigControls() wires its own STOP straight to
+    // requestDig(cancel=1); the strip does not carry a second one any more
+    // (it did once, and a run out live showed both at once -- REALIGN ·
+    // STOP · [ STOP ]). The durations are NOT here -- they are an offer, and
     // offers are the START page's (see buildDigDurations()).
     m_nextStrip->setDigControls(buildDigControls());
     footer->addWidget(m_nextStrip);
@@ -566,13 +563,7 @@ void DiversityWindow::applyDiversity(const QJsonObject& d, bool isJson)
     const bool haveLag = jsonNumber(d, "lag_samples", &lag);
     double peak = 0.0;
     const bool havePeak = jsonNumber(d, "corr_peak", &peak);
-    m_alignLine->setText(
-        tr("%1 · lag %2 · peak %3 · %4")
-            .arg(aligned ? tr("aligned") : tr("not aligned"),
-                 haveLag ? QString::number(qint64(std::llround(lag))) : QStringLiteral("—"),
-                 havePeak ? QString::number(peak, 'f', 3) : QStringLiteral("—"),
-                 realigning ? tr("realigning…") : tr("steady")));
-    DiversityWidgets::setLive(m_alignLine, realigning);
+    applyAlign(d, aligned, realigning, haveLag, lag, havePeak, peak);
 
     // REALIGN's answer and the gate's own capture state, both of which belong
     // to the pair row -- see DiversityWindowChain.cpp.

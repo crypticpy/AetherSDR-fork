@@ -135,10 +135,13 @@ QWidget* DiversityWindow::buildTabRow()
     QLabel* hint = DiversityWidgets::makeFieldLabel(tr("pages"), row);
     hint->setObjectName(QStringLiteral("diversityWindowPagesHint"));
     hint->setAccessibleName(tr("Pages"));
-    hint->setToolTip(tr("These four buttons choose which page is shown. The "
-                        "row under them is the pair itself and applies on "
-                        "every page."));
-    hint->setAccessibleDescription(hint->toolTip());
+    // Five pages now (START, SLICE, BAND, SITE, FILTER): the tooltip stays
+    // under the 90-char budget with just the first sentence, and the full
+    // two-sentence explanation moves to the accessible description.
+    hint->setToolTip(tr("These five buttons choose which page is shown."));
+    hint->setAccessibleDescription(
+        tr("These five buttons choose which page is shown. The row under "
+           "them is the pair itself and applies on every page."));
     layout->addWidget(hint);
 
     // ONE help button, at the right-hand end, retargeted to whichever page is

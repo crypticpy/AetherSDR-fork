@@ -91,6 +91,11 @@ inline QJsonObject makeGovernor(bool autoOn, const QString& holdTool = QString()
 // The full /diversity payload. Every argument defaults to "this tick is
 // fine": aligned, tracking, hearing the combined output, no talker yet, an
 // empty (clean) noise profile, AUTO CLEAN on with nothing held.
+// The trailing five params are the gate's new align_held/align_note/
+// align_retry_s keys (haveAlignExtras defaults to false, which omits all
+// three from the payload -- an old gate that has never heard of them).
+// haveAlignRetry gates align_retry_s alone, since the gate sends align_held
+// and align_note together but align_retry_s only while nothing is locked.
 inline QJsonObject makeDiversity(bool available = true, const QString& mode = QStringLiteral("track"),
                                  const QString& source = QStringLiteral("combined"),
                                  bool aligned = true, bool realigning = false, bool haveTalker = false,
@@ -99,7 +104,10 @@ inline QJsonObject makeDiversity(bool available = true, const QString& mode = QS
                                  const QVector<QJsonObject>& kinds = QVector<QJsonObject>(),
                                  bool governorAuto = true, const QString& holdTool = QString(),
                                  const QString& holdKind = QString(), const QString& holdWhy = QString(),
-                                 bool talking = false, double outDb = 0.0)
+                                 bool talking = false, double outDb = 0.0,
+                                 bool haveAlignExtras = false, bool alignHeld = false,
+                                 const QString& alignNote = QString(), bool haveAlignRetry = false,
+                                 double alignRetryS = 0.0)
 {
     QJsonObject o;
     o["available"] = available;
@@ -110,6 +118,12 @@ inline QJsonObject makeDiversity(bool available = true, const QString& mode = QS
     o["source"] = source;
     o["aligned"] = aligned;
     o["realigning"] = realigning;
+    if (haveAlignExtras) {
+        o["align_held"] = alignHeld;
+        o["align_note"] = alignNote;
+        if (haveAlignRetry)
+            o["align_retry_s"] = alignRetryS;
+    }
 
     if (haveTalker) {
         QJsonObject t;

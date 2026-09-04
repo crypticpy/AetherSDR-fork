@@ -20,9 +20,11 @@
 //   * the governor block, for the AUTO CLEAN switch (moved here verbatim from
 //     DiversityFlowStripAuto.cpp, object name and all -- the operator was
 //     explicit that the switch carries the two words and nothing else);
-//   * /diversity/dig, for the STOP button and for the run's own clock, which
-//     is quoted after the step because a run is the thing happening NOW on
-//     whatever page the operator wandered to.
+//   * /diversity/dig, for the run's own clock, quoted after the step because
+//     a run is the thing happening NOW on whatever page the operator
+//     wandered to. The STOP button itself is the window's (setDigControls()
+//     below just gives it a home at the end of this row) -- there used to be
+//     a second one here too, and a run out live showed both at once.
 //
 // COLLAPSE. Once RECEIVER, SITE NOISE, BAND and STATION are all done there is
 // no next step to nudge about, so the line collapses to the one fact worth a
@@ -97,19 +99,16 @@ signals:
     // window re-reads the model rather than trusting a label a poll old.
     void cureActivated(int stepId);
     void requestAutoCleanToggle(bool on);
-    void requestDigCancel();
 
 private:
     void rebuild();
     void updateAutoCleanButton();
-    void updateDigStopButton();
     QString digTail() const;
 
     QHBoxLayout* m_row{nullptr};
     QLabel*      m_line{nullptr};
     QPushButton* m_button{nullptr};
     QPushButton* m_autoCleanButton{nullptr};
-    QPushButton* m_digStopButton{nullptr};
     QString      m_plain;
 
     // --- the step, as handed in ------------------------------------------

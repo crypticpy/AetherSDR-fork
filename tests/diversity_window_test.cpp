@@ -180,6 +180,9 @@ void testFullAndNullPayloadsApplyAndTheScopeAgrees()
     auto* align = w->findChild<QLabel*>(QStringLiteral("diversityWindowAlignLabel"));
     CHECK(align
           && align->text() == QStringLiteral("aligned · lag 3 · peak 0.910 · steady"));
+    // The tab row grew a fifth page (FILTER); the hint beside it must not.
+    auto* pagesHint = w->findChild<QLabel*>(QStringLiteral("diversityWindowPagesHint"));
+    CHECK(pagesHint && !pagesHint->toolTip().contains(QStringLiteral("four")));
 
     // Now the same window fed a payload whose every optional leg is null.
     net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityNulls};
@@ -189,6 +192,51 @@ void testFullAndNullPayloadsApplyAndTheScopeAgrees()
     // A null lag is "unknown", not zero.
     CHECK(align
           && align->text() == QStringLiteral("not aligned · lag — · peak — · steady"));
+    closedToStart();
+}
+
+// (b2) align_held renders "aligned · held · lag N · peak P" with the gate's
+// own note in the tooltip (elided to <= 90 chars, full note in the
+// accessible description), and reverts cleanly once held clears.
+void testAlignHeldRendersNoteAndClearsWhenHeldEnds()
+{
+    closedToStart();
+    FakeGate net;
+    AetherGateApplet a(nullptr, &net);
+    const QString note = QStringLiteral(
+        "held lag 3 through overflow on channel A while the background "
+        "re-measure keeps looking for a better window (peak 0.910, need 0.500)");
+    QByteArray held = kDiversityFull;
+    held.replace("\"aligned\": true, \"corr_peak\": 0.91,",
+                 QByteArray("\"aligned\": true, \"align_held\": true, \"align_note\": \"")
+                     + note.toUtf8() + "\", \"corr_peak\": 0.91,");
+    connectGate(a, net, held);
+    openButton(a)->click();
+    settle();
+    tick(a);
+
+    DiversityWindow* w = a.diversityPanel()->window();
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    auto* align = w->findChild<QLabel*>(QStringLiteral("diversityWindowAlignLabel"));
+    CHECK(align != nullptr);
+    if (!align) {
+        closedToStart();
+        return;
+    }
+    CHECK(align->text() == QStringLiteral("aligned · held · lag 3 · peak 0.910"));
+    CHECK(align->toolTip().size() <= 90);
+    CHECK(align->toolTip().endsWith(QStringLiteral("…")));
+    CHECK(note.startsWith(align->toolTip().chopped(1)));
+    CHECK(align->accessibleDescription() == note);
+
+    // MUTATION: the same gate, held clears -- the line and its tooltip go
+    // back to the plain four-field sentence, no stale note left behind.
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError, kDiversityFull};
+    tick(a);
+    CHECK(align->text() == QStringLiteral("aligned · lag 3 · peak 0.910 · steady"));
+    CHECK(!align->toolTip().contains(QStringLiteral("channel A")));
     closedToStart();
 }
 
@@ -783,6 +831,7 @@ int main(int argc, char** argv)
 
     testOpenButtonBuildsTheWindowAndPersistsItsVisibility();
     testFullAndNullPayloadsApplyAndTheScopeAgrees();
+    testAlignHeldRendersNoteAndClearsWhenHeldEnds();
     testWindowModeButtonSendsTheSameQueryAsTheSidebarCombo();
     testPhaseKnobDisabledInTrackModeAndNotWrittenByAPoll();
     testMapPollRunsOnlyWhileWindowVisible();

@@ -238,6 +238,17 @@ DiversitySessionModel::Step DiversitySessionModel::buildReceiver() const
 
     const bool realigning = m_diversity.value(QStringLiteral("realigning")).toBool(false);
     const bool aligned = m_diversity.value(QStringLiteral("aligned")).toBool(false);
+    // align_held/align_note/align_retry_s are new gate-side keys (older gates
+    // send none of the three): a held lock the receiver is still combining on
+    // while a background re-measure looks for something better. held only
+    // means anything when the gate also says aligned -- a gate naming both
+    // held and !aligned would be contradicting itself, and this model never
+    // acts on a contradiction (see the header's "never invents a fact").
+    const bool alignHeld =
+        aligned && m_diversity.value(QStringLiteral("align_held")).toBool(false);
+    const QString alignNote = m_diversity.value(QStringLiteral("align_note")).toString();
+    const QJsonValue alignRetryVal = m_diversity.value(QStringLiteral("align_retry_s"));
+    const bool haveAlignRetry = alignRetryVal.isDouble();
     const QString mode = m_diversity.value(QStringLiteral("mode")).toString();
     const QString source = m_diversity.value(QStringLiteral("source")).toString();
     // TODO(gate): no headroom/guard key exists on /diversity or /filter yet
@@ -249,13 +260,32 @@ DiversitySessionModel::Step DiversitySessionModel::buildReceiver() const
 
     const bool sourceOk = source == QLatin1String("combined")
                           || source == QLatin1String("stereo");
-    s.done = aligned && !realigning && !mode.isEmpty() && mode != QLatin1String("off")
+    // A held lock is still a lock the receiver is combining on -- the
+    // background re-measure realigining alongside it must not read as "no
+    // lock at all" the way a fresh !aligned realign does.
+    const bool alignmentOk = aligned && (!realigning || alignHeld);
+    s.done = alignmentOk && !mode.isEmpty() && mode != QLatin1String("off")
              && sourceOk && headroomClear;
 
-    if (realigning) {
+    if (alignHeld) {
+        s.state = alignNote.isEmpty()
+                      ? QStringLiteral("aligned · held, re-measuring")
+                      : alignNote;
+        // No cure: the gate is already re-measuring by itself, so offering
+        // REALIGN would just restart what is already running.
+    } else if (realigning) {
         s.state = QStringLiteral("aligning…");
     } else if (!aligned) {
-        s.state = QStringLiteral("not aligned");
+        if (haveAlignRetry) {
+            s.state = alignNote.isEmpty()
+                          ? QStringLiteral("no lock yet · re-measuring in %1 s")
+                                .arg(qint64(std::llround(alignRetryVal.toDouble())))
+                          : alignNote;
+        } else {
+            s.state = QStringLiteral("not aligned");
+        }
+        // An operator may want it now rather than waiting on the next
+        // background re-measure.
         s.cure = Cure{QStringLiteral("REALIGN"), QStringLiteral("align"), QString()};
     } else if (mode.isEmpty() || mode == QLatin1String("off")) {
         s.state = QStringLiteral("mode is off — the second loop is doing nothing · ")

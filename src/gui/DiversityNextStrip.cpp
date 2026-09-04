@@ -1,4 +1,4 @@
-// The NEXT strip's drawing and its two carried-over controls. See
+// The NEXT strip's drawing and its one carried-over control. See
 // DiversityNextStrip.h for why the footer says one step instead of five.
 //
 // The one rule this file keeps, inherited from the strip it replaces: it
@@ -135,7 +135,6 @@ DiversityNextStrip::DiversityNextStrip(QWidget* parent)
             [this] { rebuild(); });
 
     updateAutoCleanButton();
-    updateDigStopButton();
     rebuild();
 }
 
@@ -187,7 +186,6 @@ void DiversityNextStrip::applyDig(const QJsonObject& dig)
     m_digGainDb = dig.value(QStringLiteral("gain_db")).toDouble();
     m_digElapsedS = dig.value(QStringLiteral("elapsed_s")).toDouble();
     m_digSeconds = dig.value(QStringLiteral("seconds")).toDouble();
-    updateDigStopButton();
     rebuild();
 }
 
@@ -218,12 +216,11 @@ void DiversityNextStrip::clear()
     m_digSeconds = 0.0;
     m_governor = ChainAutoGovernor();
     updateAutoCleanButton();
-    updateDigStopButton();
     rebuild();
 }
 
 // --------------------------------------------------------------------------
-// The two carried-over controls
+// The one carried-over control
 // --------------------------------------------------------------------------
 //
 // AUTO CLEAN's switch, moved here whole from DiversityFlowStripAuto.cpp when
@@ -270,32 +267,6 @@ void DiversityNextStrip::updateAutoCleanButton()
     m_autoCleanButton->setChecked(m_governor.available && m_governor.autoOn);
     chainAutoSetButtonIndicator(m_autoCleanButton, chainAutoIndicatorLine(m_governor),
                                 chainAutoStateWord(m_governor));
-}
-
-// DIG STOP on the footer itself, kept from DiversityFlowStripDig.cpp. The
-// window's own dig stack carries a second STOP under the object name
-// diversityWindowFlowDigStop; that redundancy is deliberate and predates this
-// package -- the stack is easy to miss while reading the line that says a run
-// is out at all.
-void DiversityNextStrip::updateDigStopButton()
-{
-    if (!m_digStopButton) {
-        m_digStopButton = new QPushButton(tr("STOP"), this);
-        m_digStopButton->setObjectName(
-            QStringLiteral("diversityWindowFlowStripDigStopButton"));
-        m_digStopButton->setAccessibleName(tr("Stop the running dig"));
-        m_digStopButton->setToolTip(
-            tr("End the run now and put the chain back exactly as you had "
-               "it. Nothing the dig found is kept."));
-        m_digStopButton->setCursor(Qt::PointingHandCursor);
-        m_digStopButton->setFixedHeight(kButtonHeight);
-        applyToggleButtonStyle(m_digStopButton);
-        connect(m_digStopButton, &QPushButton::clicked, this,
-                &DiversityNextStrip::requestDigCancel);
-        if (m_row)
-            m_row->addWidget(m_digStopButton);
-    }
-    m_digStopButton->setVisible(m_digRunning);
 }
 
 // --------------------------------------------------------------------------

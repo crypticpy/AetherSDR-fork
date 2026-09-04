@@ -623,18 +623,27 @@ void autoCleanSwitchTextIsOnlyTwoStrings()
 }
 
 // A dig goes on wherever the operator wandered to, so its STOP is on the one
-// row every page keeps on screen.
+// row every page keeps on screen -- and there is exactly one of it. (Live,
+// with a dig running, this once read REALIGN · STOP · [ STOP ]: the strip's
+// own STOP sat beside the dig stack's, which carries the same button.)
 void digStopStaysVisibleOnEveryPageWhileARunIsOut()
 {
     Bench b(kindsAuto());
     REQUIRE(b.w != nullptr);
     digTick(b, kDigRunning);
-    auto* stop = child<QPushButton>(b.w, "diversityWindowFlowStripDigStopButton");
+    auto* stop = child<QPushButton>(b.w, "diversityWindowFlowDigStop");
     REQUIRE(stop != nullptr);
     for (const char* page : kPageButtons) {
         child<QToolButton>(b.w, page)->click();
         settle();
         CHECK(stop->isVisibleTo(b.w));
+        int stopCount = 0;
+        for (QPushButton* btn : strip(b.w)->findChildren<QPushButton*>()) {
+            if (btn->isVisibleTo(b.w) && btn->isEnabled()
+                && btn->text() == QStringLiteral("STOP"))
+                ++stopCount;
+        }
+        CHECK(stopCount == 1);
     }
     CHECK(nextLine(b.w).contains(QStringLiteral("DIG 1:12 of 3:00")));
 

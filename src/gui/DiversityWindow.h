@@ -393,6 +393,13 @@ private:
     void applyFocus(const QJsonValue& focus, bool haveTalker, int talkerId,
                     const QString& talkerName);
     void updateLockButton();
+    // The EVENTS panel's one-line alignment readout: aligned/lag/peak, and
+    // (when the gate says align_held) the gate's own held-lock note in place
+    // of "realigning…". Every fixed string this line can show lives here,
+    // beside the widget buildEventsPanel() builds -- applyDiversity() only
+    // hands in the fields it already parsed off the same payload.
+    void applyAlign(const QJsonObject& d, bool aligned, bool realigning, bool haveLag, double lag,
+                    bool havePeak, double peak);
     int  selectedTalkerId() const;
     // Re-applies the live-talker row brush after a theme switch -- the
     // highlight is a token-backed QBrush on the items, which a stylesheet

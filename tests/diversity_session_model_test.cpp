@@ -73,6 +73,99 @@ void receiverNotDoneUntilAllTicks()
     CHECK(stepById(m.steps(), DiversitySessionModel::StepReceiver).done == true);
 }
 
+// A held lock (aligned && align_held) is done, quotes the gate's own note
+// verbatim, and offers no cure -- the gate is already re-measuring on its
+// own, so REALIGN would only restart what is running.
+// MUTATION GUARD: reading align_held while !aligned, or still offering
+// REALIGN once held is true.
+void receiverHeldAlignmentIsDoneWithNoCure()
+{
+    DiversitySessionModel m;
+    m.setNowSecs(1000);
+
+    const QString note = QStringLiteral(
+        "held lag 0 through overflow on channel A; re-measuring (peak 2.9, need 10)");
+    m.apply(F::makeDiversity(true, QStringLiteral("track"), QStringLiteral("combined"), true,
+                             /*realigning=*/true, false, -1, {}, true, {}, true, QString(),
+                             QString(), QString(), false, 0.0,
+                             /*haveAlignExtras=*/true, /*alignHeld=*/true, note),
+            F::makeFilter(), F::makeDig(false, false, QString(), 0.0), F::makeBeacons(false),
+            F::makeCompass(), F::kHz20m);
+    const DiversitySessionModel::Step receiver =
+        stepById(m.steps(), DiversitySessionModel::StepReceiver);
+    CHECK(receiver.done == true);
+    CHECK(receiver.state == note);
+    CHECK(receiver.cure.kind.isEmpty());
+
+    // MUTATION: held with an empty note falls back to the fixed sentence,
+    // never a blank line.
+    m.apply(F::makeDiversity(true, QStringLiteral("track"), QStringLiteral("combined"), true, true,
+                             false, -1, {}, true, {}, true, QString(), QString(), QString(), false,
+                             0.0, true, true, QString()),
+            F::makeFilter(), F::makeDig(false, false, QString(), 0.0), F::makeBeacons(false),
+            F::makeCompass(), F::kHz20m);
+    CHECK(stepById(m.steps(), DiversitySessionModel::StepReceiver).state
+          == QStringLiteral("aligned · held, re-measuring"));
+}
+
+// !aligned with a numeric align_retry_s keeps the REALIGN cure (an operator
+// may want it now) but quotes the gate's own note instead of the bare "not
+// aligned".
+// MUTATION GUARD: dropping the cure once a retry is pending, or ignoring
+// align_retry_s and always printing "not aligned".
+void receiverRetryPendingKeepsCureWithNote()
+{
+    DiversitySessionModel m;
+    m.setNowSecs(1000);
+
+    const QString note = QStringLiteral("no lock yet (peak 2.9, need 10); next re-measure in 21 s");
+    m.apply(F::makeDiversity(true, QStringLiteral("track"), QStringLiteral("combined"), false, false,
+                             false, -1, {}, true, {}, true, QString(), QString(), QString(), false,
+                             0.0, true, false, note, true, 21.0),
+            F::makeFilter(), F::makeDig(false, false, QString(), 0.0), F::makeBeacons(false),
+            F::makeCompass(), F::kHz20m);
+    const DiversitySessionModel::Step receiver =
+        stepById(m.steps(), DiversitySessionModel::StepReceiver);
+    CHECK(receiver.done == false);
+    CHECK(receiver.state == note);
+    CHECK(receiver.cure.kind == QStringLiteral("align"));
+
+    // MUTATION: no note, still builds the retry sentence rather than the
+    // bare "not aligned".
+    m.apply(F::makeDiversity(true, QStringLiteral("track"), QStringLiteral("combined"), false, false,
+                             false, -1, {}, true, {}, true, QString(), QString(), QString(), false,
+                             0.0, true, false, QString(), true, 21.0),
+            F::makeFilter(), F::makeDig(false, false, QString(), 0.0), F::makeBeacons(false),
+            F::makeCompass(), F::kHz20m);
+    CHECK(stepById(m.steps(), DiversitySessionModel::StepReceiver).state
+          == QStringLiteral("no lock yet · re-measuring in 21 s"));
+}
+
+// An old gate that has never heard of align_held/align_note/align_retry_s
+// (the fixture's default) reads exactly as it did before this fix: the bare
+// "not aligned" and "aligning…" sentences, cure unaffected.
+// MUTATION GUARD: a new branch firing on absent keys (toBool(false)/
+// toString() defaults read as "held" or "retry pending" instead of nothing).
+void receiverOldGateWithNoAlignKeysIsUnchanged()
+{
+    DiversitySessionModel m;
+    m.setNowSecs(1000);
+
+    m.apply(F::makeDiversity(true, QStringLiteral("track"), QStringLiteral("combined"), false, false),
+            F::makeFilter(), F::makeDig(false, false, QString(), 0.0), F::makeBeacons(false),
+            F::makeCompass(), F::kHz20m);
+    const DiversitySessionModel::Step notAligned =
+        stepById(m.steps(), DiversitySessionModel::StepReceiver);
+    CHECK(notAligned.state == QStringLiteral("not aligned"));
+    CHECK(notAligned.cure.kind == QStringLiteral("align"));
+
+    m.apply(F::makeDiversity(true, QStringLiteral("track"), QStringLiteral("combined"), true, true),
+            F::makeFilter(), F::makeDig(false, false, QString(), 0.0), F::makeBeacons(false),
+            F::makeCompass(), F::kHz20m);
+    CHECK(stepById(m.steps(), DiversitySessionModel::StepReceiver).state
+          == QStringLiteral("aligning…"));
+}
+
 // RECEIVER's cure is the first unticked thing, in the order the FLOW line
 // checks them: not aligned before mode-off before source-not-combined.
 // MUTATION GUARD: offering TRACK while still unaligned, or HEAR OUT while
@@ -423,6 +516,9 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
 
     receiverNotDoneUntilAllTicks();
+    receiverHeldAlignmentIsDoneWithNoCure();
+    receiverRetryPendingKeepsCureWithNote();
+    receiverOldGateWithNoAlignKeysIsUnchanged();
     receiverCureIsTheFirstUnticked();
     bandFreshWithin30Min();
     bandNotApplicableOffBand();

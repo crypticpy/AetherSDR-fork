@@ -468,6 +468,53 @@ QWidget* DiversityWindow::buildEventsPanel()
     return frame;
 }
 
+// align_held only means anything when the gate also says aligned -- a gate
+// naming both held and !aligned would be contradicting itself, and this line
+// never acts on a contradiction (the same guard DiversitySessionModel's
+// RECEIVER step keeps). An old gate sends neither align_held nor align_note;
+// toBool(false)/toString() read that absence as "nothing held", so this
+// falls straight back to the line's pre-existing four-field sentence.
+void DiversityWindow::applyAlign(const QJsonObject& d, bool aligned, bool realigning, bool haveLag,
+                                 double lag, bool havePeak, double peak)
+{
+    if (!m_alignLine)
+        return;
+
+    const bool alignHeld = aligned && d.value(QStringLiteral("align_held")).toBool(false);
+    const QString alignNote = d.value(QStringLiteral("align_note")).toString();
+    const QString lagText =
+        haveLag ? QString::number(qint64(std::llround(lag))) : QStringLiteral("—");
+    const QString peakText =
+        havePeak ? QString::number(peak, 'f', 3) : QStringLiteral("—");
+
+    if (alignHeld) {
+        m_alignLine->setText(
+            tr("aligned · held · lag %1 · peak %2").arg(lagText, peakText));
+        // <= 90 chars on the control itself; the full note always goes to the
+        // accessible description, which has no such budget.
+        m_alignLine->setToolTip(alignNote.size() > 90
+                                     ? alignNote.left(89) + QStringLiteral("…")
+                                     : alignNote);
+        m_alignLine->setAccessibleDescription(alignNote);
+    } else {
+        m_alignLine->setText(
+            tr("%1 · lag %2 · peak %3 · %4")
+                .arg(aligned ? tr("aligned") : tr("not aligned"), lagText, peakText,
+                     realigning ? tr("realigning…") : tr("steady")));
+        m_alignLine->setToolTip(
+            tr("How far apart the two tuner streams are, and how confident. "
+               "REALIGN after retuning."));
+        m_alignLine->setAccessibleDescription(
+            tr("The two tuners each start their own sample stream, so before "
+               "anything can be combined the gate has to know how far apart they "
+               "are. Lag is that offset in samples; the peak is how confident the "
+               "correlation was about it (above about 0.5 is solid); realigning "
+               "means it is measuring again right now. Press REALIGN after "
+               "changing frequency or sample rate."));
+    }
+    DiversityWidgets::setLive(m_alignLine, realigning);
+}
+
 
 // --------------------------------------------------------------------------
 // The whole voice/rig print as one hover, or nothing for a talker the gate

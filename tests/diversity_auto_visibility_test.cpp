@@ -5,8 +5,9 @@
 // thing on the sidebar's own switch (gui/AetherGateDiversityPanel.cpp), the
 // Diversity window's NEXT strip switch (gui/DiversityNextStrip.cpp) and
 // the CHAIN window's read-only header (gui/AetherGateChainWindowTabs.cpp),
-// plus DIG STOP drawn directly on that same strip
-// (gui/DiversityNextStrip.cpp). It does NOT retest chainAutoNoteForStage()
+// plus DIG STOP, which the strip hosts at the end of its own row but does
+// not build itself (gui/DiversityWindowFilter.cpp's buildDigControls()). It
+// does NOT retest chainAutoNoteForStage()
 // or the AUTO CLEAN card's own inspector -- tests/aether_gate_chain_auto_test
 // .cpp already covers those; this file is the three-surface indicator alone.
 //
@@ -377,7 +378,7 @@ void testChainWindowBannerIsReadOnly()
 }
 
 // --------------------------------------------------------------------------
-// (4) DIG STOP on the FLOW strip's own line
+// (4) DIG STOP, hosted on the strip's own line
 // --------------------------------------------------------------------------
 
 const QByteArray kDigIdle = R"({"available": true, "running": false,
@@ -403,7 +404,7 @@ void testDigStopButtonWritesCancel()
     fire(child<QTimer>(w, "diversityWindowDigTimer"));
     settle();
 
-    auto* stop = child<QPushButton>(w, "diversityWindowFlowStripDigStopButton");
+    auto* stop = child<QPushButton>(w, "diversityWindowFlowDigStop");
     CHECK(stop != nullptr);
     if (!stop) {
         w->close();
@@ -502,12 +503,15 @@ void testNameHygiene()
                   && strip->findChild<QPushButton*>(autoBtn->objectName(),
                                                     Qt::FindDirectChildrenOnly)
                          == autoBtn);
-            QPushButton* stopBtn = child<QPushButton>(w, "diversityWindowFlowStripDigStopButton");
-            CHECK(stopBtn != nullptr);
-            CHECK(stopBtn
-                  && strip->findChild<QPushButton*>(stopBtn->objectName(),
-                                                    Qt::FindDirectChildrenOnly)
-                         == stopBtn);
+            // The dig controls (STOP among them) are hosted rather than built
+            // by the strip -- setDigControls() parents the whole stack onto
+            // it directly, so that stack is the direct child worth naming.
+            QWidget* digControls = child<QWidget>(w, "diversityWindowFlowDigControls");
+            CHECK(digControls != nullptr);
+            CHECK(digControls
+                  && strip->findChild<QWidget*>(digControls->objectName(),
+                                                Qt::FindDirectChildrenOnly)
+                         == digControls);
         }
         w->close();
         settle();
