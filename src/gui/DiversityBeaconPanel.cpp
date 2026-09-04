@@ -249,6 +249,11 @@ DiversityBeaconPanel::DiversityBeaconPanel(QWidget* parent) : QWidget(parent)
            "eighteen takes three minutes."),
         this);
     m_header->setAccessibleName(tr("Beacon schedule"));
+    // makeReadoutLine() set toolTip and accessibleDescription to the same
+    // long sentence above; the accessibleDescription is exactly right, but
+    // AGENTS.md caps a tooltip literal at one 90-char line, so the tooltip
+    // itself gets overridden short here.
+    m_header->setToolTip(tr("Which beacon is on the air now, worked out from UTC, and how long is left."));
     root->addWidget(m_header);
 
     root->addWidget(buildGridRow());

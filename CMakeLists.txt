@@ -1009,6 +1009,7 @@ set(GUI_SOURCES
     src/gui/DiversityFilterPanelRoof.cpp
     src/gui/DiversityFinderPanel.cpp
     src/gui/DiversityNoiseProfilePanel.cpp
+    src/gui/DiversityNoiseProfileDismiss.cpp
     src/gui/DiversityMapStrip.cpp
     src/gui/DiversityScope.cpp
     src/gui/DiversitySpatialLegend.cpp

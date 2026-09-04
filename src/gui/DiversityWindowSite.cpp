@@ -32,6 +32,7 @@
 
 #include "core/ThemeManager.h"
 #include "gui/DiversityBeaconPanel.h"
+#include "gui/DiversityHelp.h"
 #include "gui/DiversityNoiseProfilePanel.h"
 #include "gui/DiversityWindowPanels.h"
 
@@ -43,6 +44,7 @@
 #include <QJsonValue>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QToolButton>
@@ -89,6 +91,44 @@ QString degreesText(double deg)
     return QString::number(qint64(std::llround(deg)));
 }
 
+// Moves a group box's caption label into a row with a HELP button beside it.
+// makeGroupBox() (DiversityWindowPanels.cpp) puts the caption QLabel directly
+// into the frame's own QVBoxLayout, found here by the objectName it assigns
+// rather than by index, so a caller error surfaces as a missing button
+// instead of a captionless header. Kept local to this file rather than
+// folded into makeGroupBox() itself: not every group box on every Diversity
+// page wants a help button, only the two on this one -- and DiversityHelp::
+// button() assigns the same objectName for every call with the same Topic,
+// so the caller renames it to keep NOISE PROFILE's and BEACONS' buttons
+// distinguishable.
+void addHelpButtonBesideTitle(QFrame* frame, const QString& captionObjectName,
+                              const QString& helpObjectName)
+{
+    auto* outer = qobject_cast<QVBoxLayout*>(frame->layout());
+    auto* caption = frame->findChild<QLabel*>(captionObjectName, Qt::FindDirectChildrenOnly);
+    if (!outer || !caption)
+        return;
+    outer->removeWidget(caption);
+
+    auto* row = new QHBoxLayout;
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(6);
+    row->addWidget(caption);
+    row->addStretch(1);
+    auto* help = DiversityHelp::button(frame, DiversityHelp::Topic::Site);
+    help->setObjectName(helpObjectName);
+    row->addWidget(help);
+    outer->insertLayout(0, row);
+
+    // DiversityHelp::button() is a fixed 18px square, taller than the
+    // caption label's own 13px sizeHint -- stretching the row to fit it
+    // costs 5px this box did not have in its budget before. `outer` is this
+    // one frame's own QVBoxLayout (makeGroupBox() makes a fresh one per
+    // call), so trimming its single caption-to-content gap here does not
+    // touch any other page's group boxes.
+    outer->setSpacing(1);
+}
+
 } // namespace
 
 QWidget* DiversityWindow::buildSubbandRow(QWidget* parent)
@@ -102,7 +142,7 @@ QWidget* DiversityWindow::buildSubbandRow(QWidget* parent)
     m_subbandCheck = new QCheckBox(tr("Per-bin weights"), row);
     m_subbandCheck->setObjectName(QStringLiteral("diversityWindowSubbandCheck"));
     m_subbandCheck->setAccessibleName(tr("Per-bin weight refinement"));
-    m_subbandCheck->setToolTip(
+    m_subbandCheck->setAccessibleDescription(
         tr("Solve a separate weight for every bin of the passband instead of "
            "one weight for the whole channel. Two loops give one degree of "
            "freedom AT ONE FREQUENCY -- across a 2.7 kHz channel there is a "
@@ -111,7 +151,8 @@ QWidget* DiversityWindow::buildSubbandRow(QWidget* parent)
            "arrives from several directions at once; on one clean source it is "
            "worth about nothing, and the figure beside it says so. The talker "
            "is held distortionless either way."));
-    m_subbandCheck->setAccessibleDescription(m_subbandCheck->toolTip());
+    m_subbandCheck->setToolTip(
+        tr("One weight per passband bin instead of one for the whole channel."));
     ThemeManager::instance().applyStyleSheet(m_subbandCheck,
                                              QString::fromLatin1(kSubbandCheckStyle));
     // clicked(), not toggled(): applySite() checks the box back from the poll
@@ -128,10 +169,12 @@ QWidget* DiversityWindow::buildSubbandRow(QWidget* parent)
         QStringLiteral("diversityWindowSubbandValueLabel"),
         QStringLiteral("9999 bins · +99.9 dB"), row);
     m_subbandValue->setAccessibleName(tr("Per-bin refinement gain"));
-    m_subbandValue->setToolTip(
+    m_subbandValue->setAccessibleDescription(
         tr("How many passband bins got their own weight on the last solve, and "
            "what that earned over the single-weight answer. A dash means the "
            "gate is too old to report it."));
+    m_subbandValue->setToolTip(
+        tr("Bins refined and dB gained on the last per-bin solve."));
     layout->addWidget(m_subbandValue);
     layout->addStretch(1);
     return row;
@@ -167,7 +210,7 @@ QWidget* DiversityWindow::buildAntennaRow(QWidget* parent)
     m_antennaEdit->setAccessibleName(tr("Antenna note"));
     m_antennaEdit->setMaxLength(kAntennaMaxChars);
     m_antennaEdit->setPlaceholderText(tr("which loops, box band + gain"));
-    m_antennaEdit->setToolTip(
+    m_antennaEdit->setAccessibleDescription(
         tr("What is on the end of the coax tonight, in your own words: which "
            "loops, and where their control boxes are set. \"SW both, gain 12 "
            "o'clock\" is the whole idea -- the box's band switch and gain knob "
@@ -175,7 +218,8 @@ QWidget* DiversityWindow::buildAntennaRow(QWidget* parent)
            "be compared with tonight's if you wrote down what they were on. It "
            "is filed with every line of the site log. Press Enter or click "
            "away to save; empty it to clear the note."));
-    m_antennaEdit->setAccessibleDescription(m_antennaEdit->toolTip());
+    m_antennaEdit->setToolTip(
+        tr("Which loops, and their control boxes' band + gain, in your own words."));
     ThemeManager::instance().applyStyleSheet(m_antennaEdit,
                                              QString::fromLatin1(kNoteEditStyle));
     // returnPressed and editingFinished both, because either is how somebody
@@ -214,12 +258,15 @@ QWidget* DiversityWindow::buildSitePage()
     QFrame* noiseFrame = DiversityWidgets::makeGroupBox(
         tr("NOISE PROFILE"), QStringLiteral("diversityWindowNoiseProfileBox"),
         noiseBody, page);
-    noiseFrame->setToolTip(
+    noiseFrame->setAccessibleDescription(
         tr("What KIND of noise this address makes, as opposed to how much. The "
            "gate measures the shape of the noise floor -- a mains-locked comb, "
            "an impulse rate, the strongest lines that are not mains harmonics "
            "-- because the shape is what tells you which appliance to go and "
            "unplug."));
+    noiseFrame->setToolTip(tr("What KIND of noise this site makes, not just how much."));
+    addHelpButtonBesideTitle(noiseFrame, QStringLiteral("diversityWindowNoiseProfileBoxCaption"),
+                             QStringLiteral("diversityHelpButtonSiteNoise"));
     m_noiseProfile = new DiversityNoiseProfilePanel(noiseFrame);
     // The row buttons quote the gate's own route and query back at it. Nothing
     // between here and the wire inspects either -- a gate that grows a new kind
@@ -234,12 +281,16 @@ QWidget* DiversityWindow::buildSitePage()
     QVBoxLayout* beaconBody = nullptr;
     QFrame* beaconFrame = DiversityWidgets::makeGroupBox(
         tr("BEACONS"), QStringLiteral("diversityWindowBeaconBox"), beaconBody, page);
-    beaconFrame->setToolTip(
+    beaconFrame->setAccessibleDescription(
         tr("The NCDXF/IARU International Beacon Project: eighteen known "
            "transmitters sharing one frequency on a three-minute rota. Because "
            "the transmitters and the paths are known, what you read here is a "
            "measurement of YOUR station -- the antennas, the feedline, the "
            "noise floor -- rather than a report about somebody else's."));
+    beaconFrame->setToolTip(
+        tr("NCDXF/IARU beacons: a known-good measurement of your own antennas."));
+    addHelpButtonBesideTitle(beaconFrame, QStringLiteral("diversityWindowBeaconBoxCaption"),
+                             QStringLiteral("diversityHelpButtonSiteBeacons"));
     m_beacons = new DiversityBeaconPanel(beaconFrame);
     // The antenna note sits beside the station locator, on the locator's own
     // row: both are facts about THIS station that the operator tells the gate,
@@ -289,6 +340,10 @@ void DiversityWindow::applyBeacons(const QJsonObject& beacons)
 {
     if (m_beacons)
         m_beacons->applyBeacons(beacons);
+    // The START page's BAND step is derived from this same payload -- this is
+    // the only place it enters the window (Phase 3a WP-B).
+    m_lastBeacons = beacons;
+    refreshSession();
 }
 
 void DiversityWindow::applySiteReply(const QJsonObject& reply)
@@ -313,6 +368,10 @@ void DiversityWindow::setActiveSliceHz(double hz)
 {
     if (m_beacons)
         m_beacons->setActiveSliceHz(hz);
+    // Which amateur band the BAND step is about -- same reasoning as
+    // applyBeacons() above, and the only place the tuned frequency arrives.
+    m_tunedHz = hz;
+    refreshSession();
 }
 
 // --------------------------------------------------------------------------

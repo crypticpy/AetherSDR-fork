@@ -1,8 +1,12 @@
 #include "gui/DiversityNoiseProfilePanel.h"
 
+// DISMISS (persistence + the Do column's cell widgets) and rebuildKindsTable()
+// live in DiversityNoiseProfileDismiss.cpp -- split out to keep this file
+// under the project's ~800-line budget. Both files define methods of the
+// same class; see that file's header comment for the split boundary.
+
 #include "core/ThemeManager.h"
 #include "gui/DiversityWindowPanels.h"
-#include "gui/Theme.h"
 
 #include <QAbstractItemView>
 #include <QColor>
@@ -16,7 +20,6 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPointF>
-#include <QPushButton>
 #include <QRectF>
 #include <QSizePolicy>
 #include <QStringList>
@@ -62,10 +65,15 @@ constexpr int kMaxPeriodicLines = 3;
 constexpr int kTransientMs = 5000;
 
 // Kind, what it is, the detail the gate wrote, the window it was measured over,
-// its size, and the one button.
-constexpr int kKindColumnWidths[] = {70, 178, 300, 62, 52, 88};
+// its size, and the Do column -- the one action button, or the action button
+// plus a small DISMISS, or "dismissed" plus UNDO. Do's width grew from 88 to
+// 108 for the DISMISS/UNDO pairing; Detail gave up the 20 px (the gate's
+// sentence is always fully available on the cell's own hover regardless of
+// where it gets cut).
+constexpr int kKindColumnWidths[] = {70, 178, 280, 62, 52, 108};
 constexpr int kKindColumnCount = int(sizeof(kKindColumnWidths) / sizeof(kKindColumnWidths[0]));
-constexpr int kKindActionColumn = kKindColumnCount - 1;
+// The Do column's own index is DiversityNoiseProfileDismiss.cpp's
+// kKindActionColumn now that rebuildKindsTable() lives there.
 constexpr int kKindRowHeight = 22;
 constexpr int kKindHeaderHeight = 22;
 
@@ -93,8 +101,6 @@ const char* kStatusStyle =
     "QLabel { color: {{color.text.secondary}}; font-size: 11px;"
     " background: transparent; }"
     "QLabel[live=\"true\"] { color: {{color.accent.warning}}; }";
-
-constexpr int kActionButtonHeight = 18;
 
 QString emDash()
 {
@@ -137,11 +143,8 @@ DiversityNoiseHistoryStrip::DiversityNoiseHistoryStrip(QWidget* parent) : QWidge
     setAccessibleDescription(
         tr("The last two minutes of impulse rate and mains hum, as a picture "
            "of the two numbers stated beside it. Read-only."));
-    setToolTip(tr("Two minutes of this site's noise. The bars are impulses a "
-                  "second and the line is the mains hum in decibels. Watch it "
-                  "while you switch things off at the consumer unit: the "
-                  "offender shows up as a step, which no single reading can "
-                  "tell you."));
+    setToolTip(tr("The last two minutes: bars are impulses/s, the line is "
+                  "hum in dB."));
 
     // Raw QPainter keyed off ThemeManager::color(), so applyStyleSheet's
     // reverse map never sees these -- declare them so Inspect mode surfaces the
@@ -274,6 +277,11 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
            "charger. The more harmonics, the harsher the switching edge."),
         this);
     m_verdict->setAccessibleName(tr("Mains hum verdict"));
+    // makeReadoutLine() set toolTip and accessibleDescription to the same
+    // long sentence above; the accessibleDescription is exactly right, but
+    // AGENTS.md caps a tooltip literal at one 90-char line, so the tooltip
+    // itself gets overridden short here.
+    m_verdict->setToolTip(tr("A comb of hum locked to the mains frequency; more harmonics means a harsher source."));
     headline->addWidget(m_verdict);
 
     m_impulses = DiversityWidgets::makeReadoutLine(
@@ -286,6 +294,9 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
            "vehicle ignition. This is what the noise blanker works on."),
         this);
     m_impulses->setAccessibleName(tr("Impulse noise"));
+    // Same override as m_verdict above: the long form stays the
+    // accessibleDescription makeReadoutLine() already set.
+    m_impulses->setToolTip(tr("Spikes per second and how loud; what the noise blanker works on."));
     headline->addWidget(m_impulses);
 
     m_seconds = DiversityWidgets::makeReadoutLine(
@@ -296,6 +307,8 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
            "grows."),
         this);
     m_seconds->setAccessibleName(tr("Profile measurement window"));
+    // Same override as m_verdict above.
+    m_seconds->setToolTip(tr("How long the profile above was measured over; short means still settling."));
     headline->addWidget(m_seconds);
     headline->addStretch(1);
     root->addLayout(headline);
@@ -314,6 +327,8 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
            "more about it than any amount of combining."),
         this);
     m_periodic->setAccessibleName(tr("Periodic noise lines"));
+    // Same override as m_verdict above.
+    m_periodic->setToolTip(tr("The strongest tones that are not mains harmonics, strongest first."));
     lines->addWidget(m_periodic);
 
     m_subband = DiversityWidgets::makeReadoutLine(
@@ -327,6 +342,8 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
            "so."),
         this);
     m_subband->setAccessibleName(tr("Per-bin weight refinement"));
+    // Same override as m_verdict above.
+    m_subband->setToolTip(tr("Per-bin combiner weights: on/off, bins refined, dB gained over one weight."));
     lines->addWidget(m_subband);
 
     // On this row rather than on one of its own: the SITE page has no spare
@@ -345,6 +362,9 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
            "held."),
         this);
     m_bearing->setAccessibleName(tr("Noise bearing"));
+    // The long form makeReadoutLine() set stays the accessibleDescription
+    // base setBearing() rebuilds from; the tooltip itself gets a short
+    // static line there instead (AGENTS.md's 90-char rule).
     m_bearingTip = m_bearing->toolTip();
     lines->addWidget(m_bearing);
     lines->addStretch(1);
@@ -441,19 +461,30 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
     m_status->setText(QString());
     root->addWidget(m_status);
 
+    loadDismissed();
     clear();
 }
+
+// DISMISS (persistence + rebuildKindsTable()) is defined in
+// DiversityNoiseProfileDismiss.cpp.
 
 void DiversityNoiseProfilePanel::setBearing(const QString& text, const QString& reason)
 {
     if (!m_bearing)
         return;
     m_bearing->setText(text);
-    const QString tip = reason.isEmpty()
+    // The long explanation and the gate's own (short, one-line) reason are
+    // both worth having, but only the accessibleDescription is unbounded --
+    // the tooltip stays one short static line per AGENTS.md's 90-char rule,
+    // with the gate's reason (already documented as one line, see
+    // DiversityWindowSite.cpp) appended when there is one.
+    const QString desc = reason.isEmpty()
                             ? m_bearingTip
                             : m_bearingTip + QStringLiteral("\n\n") + reason;
-    m_bearing->setToolTip(tip);
-    m_bearing->setAccessibleDescription(tip);
+    m_bearing->setAccessibleDescription(desc);
+    const QString shortTip = tr("Which way this noise arrives from, once the beacon compass has a fit.");
+    m_bearing->setToolTip(reason.isEmpty() ? shortTip
+                                            : shortTip + QStringLiteral(" ") + reason);
 }
 
 void DiversityNoiseProfilePanel::clear()
@@ -471,6 +502,7 @@ void DiversityNoiseProfilePanel::clear()
     m_status->setText(QString());
     DiversityWidgets::setLive(m_status, false);
     m_kindRows.clear();
+    m_keptRows.clear();
     m_kinds->setRowCount(0);
 }
 
@@ -503,6 +535,25 @@ void DiversityNoiseProfilePanel::applyKinds(const QJsonValue& kinds)
 {
     const QJsonArray rows = kinds.toArray();
 
+    // Expire dismissals BEFORE building the display rows: a finding that
+    // moved more than kDismissExpiryDb dB, or vanished from this poll's array
+    // altogether, no longer counts as handled. Runs over every row the gate
+    // sent, not just the kMaxKindRows kept for display -- a dismissal must
+    // not survive on a technicality of the display cap.
+    QHash<QString, double> currentDb;
+    QSet<QString> currentKinds;
+    for (const QJsonValue& v : rows) {
+        if (!v.isObject())
+            continue;
+        const QJsonObject row = v.toObject();
+        const QString kind = row.value(QStringLiteral("kind")).toString();
+        currentKinds.insert(kind);
+        double db = 0.0;
+        if (jsonNumber(row, "db", &db))
+            currentDb.insert(kind, db);
+    }
+    expireDismissed(currentDb, currentKinds);
+
     QStringList packed;
     QVector<QJsonObject> keep;
     for (const QJsonValue& v : rows) {
@@ -528,68 +579,21 @@ void DiversityNoiseProfilePanel::applyKinds(const QJsonValue& kinds)
                                : QStringLiteral("0"));
         keep.push_back(row);
     }
+    // Kept regardless of whether packed changed: a DISMISS/UNDO click needs
+    // each row's raw kind and dB to act on, and rebuildKindsTable() reads
+    // from here rather than re-parsing.
+    m_keptRows = keep;
 
     // Rebuild only on change -- see the header. The `why` text is not part of
     // the key on purpose: it is a hover on a button that cannot be pressed, and
     // rebuilding the table for a reworded reason would be spending a rebuild on
-    // something nobody can see.
+    // something nobody can see. Dismiss state is not part of the key either --
+    // dismissKind()/undismissKind() rebuild directly, at the moment they act,
+    // rather than waiting for the next poll.
     if (packed == m_kindRows)
         return;
     m_kindRows = packed;
-
-    m_kinds->setRowCount(packed.size());
-    for (int row = 0; row < packed.size(); ++row) {
-        const QStringList cells = packed.at(row).split(QChar(0x1f));
-        for (int col = 0; col < kKindActionColumn; ++col) {
-            QTableWidgetItem* item = new QTableWidgetItem(cells.at(col));
-            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-            item->setTextAlignment(col >= 3 ? (Qt::AlignRight | Qt::AlignVCenter)
-                                            : (Qt::AlignLeft | Qt::AlignVCenter));
-            // The detail is the gate's sentence and can be longer than the
-            // column: the hover is where the rest of it lives, because a
-            // column wide enough for the worst one would be most of the page.
-            if (col == 2)
-                item->setToolTip(cells.at(col));
-            m_kinds->setItem(row, col, item);
-        }
-
-        const QString label = cells.at(5);
-        const QString route = cells.at(6);
-        const QString query = cells.at(7);
-        const bool active = cells.at(8) == QStringLiteral("1");
-        const bool haveAction = !route.isEmpty() && !label.isEmpty();
-
-        auto* button = new QPushButton(haveAction ? label : emDash(), m_kinds);
-        button->setObjectName(QStringLiteral("diversityWindowNoiseKindAction%1").arg(row));
-        button->setFixedHeight(kActionButtonHeight);
-        button->setCheckable(true);
-        button->setChecked(active);
-        button->setEnabled(haveAction);
-        applyToggleButtonStyle(button);
-        if (haveAction) {
-            button->setAccessibleName(tr("%1 the %2 finding").arg(label, cells.at(0)));
-            button->setToolTip(tr("GET %1?%2 on the gate. %3")
-                                   .arg(route, query,
-                                        active
-                                            ? tr("This action is in force now.")
-                                            : tr("The gate nominated this action "
-                                                 "for this finding.")));
-            connect(button, &QPushButton::clicked, this, [this, route, query] {
-                m_actionPending = true;
-                emit actionRequested(route, QUrlQuery(query));
-            });
-        } else {
-            const QString why = keep.at(row).value(QStringLiteral("why")).toString();
-            button->setAccessibleName(tr("Nothing to do about the %1 finding")
-                                          .arg(cells.at(0)));
-            button->setToolTip(why.isEmpty()
-                                   ? tr("The gate nominated no action for this "
-                                        "finding.")
-                                   : why);
-        }
-        button->setAccessibleDescription(button->toolTip());
-        m_kinds->setCellWidget(row, kKindActionColumn, button);
-    }
+    rebuildKindsTable();
 }
 
 void DiversityNoiseProfilePanel::applyProfile(const QJsonValue& profile)
@@ -604,7 +608,14 @@ void DiversityNoiseProfilePanel::applyProfile(const QJsonValue& profile)
         m_impulses->setText(tr("impulses: %1").arg(emDash()));
         m_periodic->setText(tr("lines: %1").arg(emDash()));
         m_seconds->setText(tr("measured over %1 s").arg(emDash()));
-        applyKinds(QJsonValue());
+        // NOT applyKinds(QJsonValue()): that would run the dismiss-expiry
+        // pass over an empty kinds array and read every dismissal as "the
+        // kind disappeared from the payload" on a momentary drop-out. A
+        // profile that has simply gone quiet for a poll is not the same fact
+        // as a finding the gate has stopped reporting.
+        m_kindRows.clear();
+        m_keptRows.clear();
+        m_kinds->setRowCount(0);
         return;
     }
     const QJsonObject p = profile.toObject();

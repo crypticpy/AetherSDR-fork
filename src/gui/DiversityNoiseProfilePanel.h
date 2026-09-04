@@ -49,6 +49,8 @@
 // message: DiversityWindow feeds it one applyProfile() per /diversity poll, and
 // every action leaves as actionRequested().
 
+#include <QHash>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QUrlQuery>
@@ -127,11 +129,24 @@ public:
 
     QTableWidget* kindsTable() const { return m_kinds; }
 
+    // The findings currently counted as dismissed -- lowercase, matching the
+    // gate's own "kind" field, which is what DiversitySessionModel::
+    // setDismissedKinds() wants directly. Loaded from AppSettings at
+    // construction and kept current by every dismiss, undo and automatic
+    // expiry (see applyKinds()).
+    QSet<QString> dismissedKinds() const;
+
 signals:
     // -> GET <route>?<query> on the gate, taken verbatim from the row's own
     // "action" object. The two routes the gate uses today are /diversity/set
     // and /filter/notch; nothing here depends on which, which is the point.
     void actionRequested(QString route, QUrlQuery query);
+
+    // Fires whenever the dismissed set changes: a DISMISS, an UNDO, or an
+    // automatic expiry. The caller wires this to
+    // DiversitySessionModel::setDismissedKinds() -- not this panel's job, so
+    // it is not done here.
+    void dismissedKindsChanged(const QSet<QString>& kinds);
 
 private:
     // Rebuilds the kinds table from one "kinds" array. Only on change: at 1 Hz
@@ -139,7 +154,23 @@ private:
     // row every second, and the button under the pointer would be a different
     // object on every frame.
     void applyKinds(const QJsonValue& kinds);
+    // Builds every row's cells from the last-applied m_kindRows/m_keptRows --
+    // split out of applyKinds() so a DISMISS/UNDO click can redraw its own
+    // row at once rather than waiting for next poll.
+    void rebuildKindsTable();
     void showTransient(const QString& text);
+
+    // DiversityDismissedNoiseKinds in AppSettings, "kind|db" per entry.
+    void loadDismissed();
+    void persistDismissed();
+    void dismissKind(const QString& kind, double db);
+    void undismissKind(const QString& kind);
+    // Drops any dismissed kind that is no longer in `currentKinds`, or whose
+    // dB in `currentDb` has moved more than kDismissExpiryDb from the value
+    // it was dismissed at. Persists and emits dismissedKindsChanged() when it
+    // changes anything.
+    void expireDismissed(const QHash<QString, double>& currentDb,
+                         const QSet<QString>& currentKinds);
 
     QLabel* m_verdict{nullptr};
     QLabel* m_impulses{nullptr};
@@ -155,11 +186,20 @@ private:
     QTableWidget* m_kinds{nullptr};
     DiversityNoiseHistoryStrip* m_strip{nullptr};
 
-    // Last rendered rows, one packed string each -- see applyKinds().
+    // Last rendered rows, one packed string each -- see applyKinds() -- and
+    // the QJsonObject each packed string was built from, same order, so a
+    // DISMISS/UNDO click can find its row's kind and dB without re-parsing.
     QStringList m_kindRows;
+    QVector<QJsonObject> m_keptRows;
     // Set from the moment an action button is pressed until its reply lands,
     // so a refusal is shown by the panel that caused it and by no other.
     bool m_actionPending{false};
+
+    // kind (lowercase, the gate's own spelling) -> the dB it was dismissed
+    // at. A finding that moves more than kDismissExpiryDb dB from that point,
+    // or vanishes from the payload, is not "handled" any more -- see
+    // expireDismissed().
+    QHash<QString, double> m_dismissed;
 };
 
 } // namespace AetherSDR

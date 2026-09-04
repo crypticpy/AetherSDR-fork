@@ -389,6 +389,9 @@ Both other pages are about signals that happen to be there right now, so
 neither can answer the two questions you actually ask when the receiver
 sounds worse than it did last week.
 
+**NOISE PROFILE** and **BEACONS** each carry a small `i` HELP button beside
+their title, opening this page's help topic without leaving the window.
+
 **NOISE PROFILE.** What kind of noise this address makes, as opposed to how
 much of it there is. The gate measures the *shape* of the noise floor once
 a second, and the top line is the verdict: `60 Hz grid: 120 Hz hum 13.7 dB,
@@ -436,6 +439,20 @@ told it goes looking for a control that is not missing. If the gate refuses
 an action, its own words appear on the line under the table for five
 seconds and nothing moves: the row's state comes back on the next poll,
 which is the gate's answer rather than the window's optimism.
+
+A small **✕** beside a row's action button dismisses it — the operator's
+own "I've seen this, stop asking." A dismissed row reads `dismissed` with
+an `UNDO` beside it instead of the button, and stays that way until the
+finding's own dB moves more than 3 dB from where it was dismissed, or the
+finding drops out of the gate's list altogether; either way the row comes
+back with its action, undismissed rather than remembered as still handled.
+DISMISS only ever appears on a row that both has an action *and* is not
+already active — an active row is already handled in the sense DISMISS
+exists for, and a why-only row has nothing to dismiss. The dismissed set
+survives a restart (it is filed the same way the antenna note is), so a
+known, unfixable finding — a neighbour's LED strip that is not coming out
+tonight — stops repeating itself every poll without turning off the
+blanker or notch it would otherwise have nominated.
 
 **BEACONS.** The NCDXF/IARU International Beacon Project: eighteen known
 transmitters sharing one frequency on a three-minute rota, listed here in

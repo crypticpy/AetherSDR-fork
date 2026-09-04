@@ -177,13 +177,14 @@ QWidget* DiversityBeaconPanel::buildGridRow()
     m_gridEdit->setMaxLength(6);
     m_gridEdit->setFixedWidth(kGridEditWidth);
     m_gridEdit->setPlaceholderText(tr("EM10"));
-    m_gridEdit->setToolTip(
+    m_gridEdit->setAccessibleDescription(
         tr("Your own Maidenhead locator, four or six characters (EM10, or "
            "EM10bk for the extra precision). It is the second point every "
            "bearing on this page needs; the gate already knows where the "
            "beacons are. Case does not matter. Nothing else in this window "
            "uses it and it never leaves the gate."));
-    m_gridEdit->setAccessibleDescription(m_gridEdit->toolTip());
+    m_gridEdit->setToolTip(
+        tr("Your own Maidenhead locator (4 or 6 chars) -- every bearing's other point."));
     ThemeManager::instance().applyStyleSheet(m_gridEdit,
                                              QString::fromLatin1(kGridEditStyle));
     connect(m_gridEdit, &QLineEdit::returnPressed, this,
@@ -193,10 +194,12 @@ QWidget* DiversityBeaconPanel::buildGridRow()
     m_gridSetButton = new QPushButton(tr("SET"), row);
     m_gridSetButton->setObjectName(QStringLiteral("diversityWindowBeaconGridSet"));
     m_gridSetButton->setAccessibleName(tr("Set the station grid"));
-    m_gridSetButton->setToolTip(tr("Tell the gate this locator. It answers with "
-                                   "the bearing and distance to every beacon it "
-                                   "has ever heard, on every band."));
-    m_gridSetButton->setAccessibleDescription(m_gridSetButton->toolTip());
+    m_gridSetButton->setAccessibleDescription(
+        tr("Tell the gate this locator. It answers with "
+           "the bearing and distance to every beacon it "
+           "has ever heard, on every band."));
+    m_gridSetButton->setToolTip(
+        tr("Tell the gate this locator; it answers with bearing/distance to every beacon."));
     m_gridSetButton->setFixedHeight(kSmallButtonHeight);
     applyToggleButtonStyle(m_gridSetButton);
     connect(m_gridSetButton, &QPushButton::clicked, this, [this] {
@@ -213,10 +216,12 @@ QWidget* DiversityBeaconPanel::buildGridRow()
     m_gridForgetButton = new QPushButton(tr("FORGET"), row);
     m_gridForgetButton->setObjectName(QStringLiteral("diversityWindowBeaconGridForget"));
     m_gridForgetButton->setAccessibleName(tr("Forget the station grid"));
-    m_gridForgetButton->setToolTip(tr("Drop the locator. Bearings and distances "
-                                      "go back to dashes; every result the gate "
-                                      "has heard is kept."));
-    m_gridForgetButton->setAccessibleDescription(m_gridForgetButton->toolTip());
+    m_gridForgetButton->setAccessibleDescription(
+        tr("Drop the locator. Bearings and distances "
+           "go back to dashes; every result the gate "
+           "has heard is kept."));
+    m_gridForgetButton->setToolTip(
+        tr("Drop the locator. Bearings go back to dashes; heard results are kept."));
     m_gridForgetButton->setFixedHeight(kSmallButtonHeight);
     applyToggleButtonStyle(m_gridForgetButton);
     connect(m_gridForgetButton, &QPushButton::clicked, this, [this] {
@@ -263,13 +268,15 @@ QWidget* DiversityBeaconPanel::buildPatternColumn()
     m_propagation = DiversityWidgets::makeFieldLabel(QString(), column);
     m_propagation->setObjectName(QStringLiteral("diversityWindowBeaconPropagationLabel"));
     m_propagation->setAccessibleName(tr("Beacon propagation summary"));
-    m_propagation->setToolTip(
+    m_propagation->setAccessibleDescription(
         tr("One line per band the gate has sampled, which is every band you "
            "have been tuned to a beacon frequency on since it started. It is "
            "the rest of the log: the eighteen rows beside this are only ever "
            "about the band you are on now. The weakest step is the whole "
            "point -- hearing the 0.1 W dash is thirty decibels of margin over "
            "hearing only the 100 W one."));
+    m_propagation->setToolTip(
+        tr("One line per band sampled: heard count, weakest step, median SNR."));
     m_propagation->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     // Explicit line breaks, never word wrap -- and a height fixed at the full
     // five lines whether or not they are all filled, so a block that fills up
@@ -313,6 +320,10 @@ QWidget* DiversityBeaconPanel::buildPatternColumn()
            "reads them yet: the talker bearings and the FINDER are on their own."),
         column);
     m_feedsLine->setAccessibleName(tr("What the beacon results feed"));
+    // makeReadoutLine() set both toolTip and accessibleDescription to the
+    // long text above; the accessibleDescription stays, the tooltip is
+    // overridden short here (AGENTS.md's 90-char tooltip rule).
+    m_feedsLine->setToolTip(tr("Feeds the pattern dial and the propagation lines below."));
     layout->addWidget(m_feedsLine);
 
     // The rest of what BEACON CHECK's report line could not fit on its own
@@ -439,7 +450,7 @@ QWidget* DiversityBeaconPanel::buildCheckRow()
         button->setObjectName(
             QStringLiteral("diversityWindowBeaconCheck%1").arg(i));
         button->setAccessibleName(tr("Check the %1 beacon frequency").arg(name));
-        button->setToolTip(
+        button->setAccessibleDescription(
             tr("Tune the active slice to %1 MHz and leave it there for one full "
                "cycle of all eighteen beacons (%2 seconds), then put the radio "
                "back exactly where it was. Nothing else moves -- not the mode, "
@@ -447,7 +458,10 @@ QWidget* DiversityBeaconPanel::buildCheckRow()
                "station you actually use.")
                 .arg(QString::number(kBands[i].hz / 1.0e6, 'f', 3))
                 .arg(kCheckSeconds));
-        button->setAccessibleDescription(button->toolTip());
+        button->setToolTip(
+            tr("Tune to %1 MHz for one full beacon cycle (%2 s), then return.")
+                .arg(QString::number(kBands[i].hz / 1.0e6, 'f', 3))
+                .arg(kCheckSeconds));
         button->setFixedHeight(kSmallButtonHeight);
         applyToggleButtonStyle(button);
         connect(button, &QPushButton::clicked, this, [this, i] { startCheck(i); });
@@ -456,12 +470,14 @@ QWidget* DiversityBeaconPanel::buildCheckRow()
     m_sweepButton = new QPushButton(tr("SWEEP ALL"), row);
     m_sweepButton->setObjectName(QStringLiteral("diversityWindowBeaconSweep"));
     m_sweepButton->setAccessibleName(tr("Sweep all five beacon frequencies"));
-    m_sweepButton->setToolTip(
+    m_sweepButton->setAccessibleDescription(
         tr("The five checks in a row, 20 m through 10 m: about %1 minutes away "
            "from where you are, then home, with one report for all five bands. "
            "CANCEL at any point comes straight home and reports the bands done.")
             .arg((kCheckSeconds * kBandCount + 30) / 60));
-    m_sweepButton->setAccessibleDescription(m_sweepButton->toolTip());
+    m_sweepButton->setToolTip(
+        tr("All five checks, ~%1 min round trip, one report; CANCEL comes straight home.")
+            .arg((kCheckSeconds * kBandCount + 30) / 60));
     m_sweepButton->setFixedHeight(kSmallButtonHeight);
     applyToggleButtonStyle(m_sweepButton);
     connect(m_sweepButton, &QPushButton::clicked, this, &DiversityBeaconPanel::startSweep);
@@ -477,6 +493,11 @@ QWidget* DiversityBeaconPanel::buildCheckRow()
            "heard, band by band, and hovering it gives every band's calls."),
         row);
     m_checkLine->setAccessibleName(tr("Beacon check countdown and report"));
+    // makeReadoutLine() set both toolTip and accessibleDescription to the
+    // long text above; the accessibleDescription stays, the tooltip is
+    // overridden short here (AGENTS.md's 90-char tooltip rule).
+    m_checkLine->setToolTip(
+        tr("Time left on the running check; report and per-band calls once it's home."));
     // Stretch 1, and no trailing addStretch(1) below: this label's own
     // sizeHint() tracks whatever text it last had, not the row's actual
     // budget, so a checkLine left at the default stretch of 0 just sits at

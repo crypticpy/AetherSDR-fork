@@ -75,13 +75,12 @@ DiversityBeaconPattern::DiversityBeaconPattern(QWidget* parent) : QWidget(parent
     setAccessibleDescription(
         tr("A picture of the A, B and bearing columns of the beacon table: one "
            "dot per beacon heard on both loops, at its own bearing, with loop B "
-           "minus loop A as the radius. Read-only."));
-    setToolTip(tr("Every beacon you have heard, plotted at the bearing it "
-                  "actually lies on. The ring is loop A and loop B equal; a dot "
-                  "outside it is a direction where B hears better, one inside "
-                  "is a direction where A does. Because both loops heard the "
-                  "same signal at the same instant, propagation cancels and "
-                  "what is left is your antennas."));
+           "minus loop A as the radius. The ring is loop A and loop B equal; a "
+           "dot outside it is a direction where B hears better, one inside is a "
+           "direction where A does. Because both loops heard the same signal at "
+           "the same instant, propagation cancels and what is left is your "
+           "antennas. Read-only."));
+    setToolTip(tr("Beacons heard on both loops, plotted by bearing; radius is B minus A."));
 
     // Raw QPainter keyed off ThemeManager::color(), so applyStyleSheet's
     // reverse map never sees these -- declare them so Inspect mode surfaces the
