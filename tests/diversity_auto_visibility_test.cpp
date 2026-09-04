@@ -220,9 +220,13 @@ void testSidebarIndicatorAndToggle()
                               QStringLiteral("mains/squeeze backing off until 12:46")))};
     tick(a);
     CHECK(button->isChecked());
-    CHECK_EQ(button->text(),
+    CHECK_EQ(button->accessibleDescription(),
              QStringLiteral("AUTO CLEAN ON · settling · "
                             "mains/squeeze backing off until 12:46"));
+    // The visible text is elided to the switch, never clipped mid-word, and
+    // always opens with the state; the whole sentence rides in the tooltip.
+    CHECK(button->text().startsWith(QStringLiteral("AUTO CLEAN ON")));
+    CHECK(button->toolTip().startsWith(QStringLiteral("AUTO CLEAN ON · settling · ")));
 
     // Pressing it while ON writes auto=off, exactly.
     button->click();
@@ -275,8 +279,9 @@ void testFlowStripIndicatorAndToggle()
     tick(a);
     CHECK(button->isVisible());
     CHECK(button->isChecked());
-    CHECK_EQ(button->text(),
+    CHECK_EQ(button->accessibleDescription(),
              QStringLiteral("AUTO CLEAN ON · measuring · sampling the noise floor"));
+    CHECK(button->text().startsWith(QStringLiteral("AUTO CLEAN ON")));
 
     button->click();
     settle();

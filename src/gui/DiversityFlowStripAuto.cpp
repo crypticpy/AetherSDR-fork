@@ -54,11 +54,13 @@ void DiversityFlowStrip::updateAutoCleanBanner()
         // item's whole contribution collapses to its minimum once any
         // sibling declares stretch. Floor it at the compact label's own
         // width instead, so it always renders as a real button; the long
-        // indicator sentence still clips, just inside that floor rather
-        // than inside a nonexistent one.
+        // indicator sentence is elided to that floor rather than clipped
+        // inside a nonexistent one; the floor is wide enough for the state
+        // word, so "AUTO CLEAN ON · measuring" always reads whole.
         m_autoCleanButton->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         m_autoCleanButton->setMinimumWidth(
-            m_autoCleanButton->fontMetrics().horizontalAdvance(tr("AUTO CLEAN ON")) + 32);
+            m_autoCleanButton->fontMetrics().horizontalAdvance(
+                QStringLiteral("AUTO CLEAN ON \u00b7 measuring \u00b7 ")) + 40);
         connect(m_autoCleanButton, &QPushButton::clicked, this, [this](bool checked) {
             emit requestAutoCleanToggle(checked);
         });
@@ -69,11 +71,10 @@ void DiversityFlowStrip::updateAutoCleanBanner()
             box->insertWidget(1, m_autoCleanButton);
     }
 
-    const QString indicator = chainAutoIndicatorLine(m_governor);
     m_autoCleanButton->setVisible(m_governor.available);
     const QSignalBlocker block(m_autoCleanButton);
     m_autoCleanButton->setChecked(m_governor.available && m_governor.autoOn);
-    m_autoCleanButton->setText(indicator.isEmpty() ? tr("AUTO CLEAN") : indicator);
+    chainAutoSetButtonIndicator(m_autoCleanButton, chainAutoIndicatorLine(m_governor));
 }
 
 } // namespace AetherSDR

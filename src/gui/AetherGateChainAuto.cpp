@@ -10,6 +10,7 @@
 #include <QJsonValue>
 #include <QLabel>
 #include <QLayout>
+#include <QPushButton>
 
 namespace AetherSDR {
 
@@ -270,6 +271,28 @@ QString chainAutoIndicatorLine(const ChainAutoGovernor& gov)
     if (!gov.available || !gov.autoOn)
         return QString();
     return QStringLiteral("AUTO CLEAN ON · %1 · %2").arg(gov.state, gov.why);
+}
+
+void chainAutoSetButtonIndicator(QPushButton* button, const QString& indicator)
+{
+    static const char* const kBaseTip = "chainAutoBaseToolTip";
+    if (!button->property(kBaseTip).isValid())
+        button->setProperty(kBaseTip, button->toolTip());
+    const QString base = button->property(kBaseTip).toString();
+    if (indicator.isEmpty()) {
+        button->setText(QObject::tr("AUTO CLEAN"));
+        button->setAccessibleDescription(QString());
+        button->setToolTip(base);
+        return;
+    }
+    // 16 px for the button's own padding; never below "AUTO CLEAN ON" plus
+    // the ellipsis, so a width of zero at construction time still opens
+    // with the state rather than a truncated label.
+    const int avail = qMax(button->width() - 16,
+                           button->fontMetrics().horizontalAdvance(QObject::tr("AUTO CLEAN ON")) + 24);
+    button->setText(button->fontMetrics().elidedText(indicator, Qt::ElideRight, avail));
+    button->setAccessibleDescription(indicator);
+    button->setToolTip(base.isEmpty() ? indicator : indicator + QStringLiteral("\n\n") + base);
 }
 
 bool chainAutoDigStartedByAuto(const ChainAutoGovernor& gov)

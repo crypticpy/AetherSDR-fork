@@ -39,6 +39,8 @@
 
 #include <QList>
 #include <QString>
+
+class QPushButton;
 #include <QStringList>
 
 class QJsonObject;
@@ -162,6 +164,14 @@ QString chainAutoDigLine(const ChainAutoGovernor& gov);
 // surface-specific (a switch collapses to the bare label; a read-only header
 // just disappears).
 QString chainAutoIndicatorLine(const ChainAutoGovernor& gov);
+
+// Puts that line on a switch that is usually narrower than the sentence (the
+// sidebar is 244 px; the FLOW strip's button sits beside a stretch-1 line):
+// the text is elided to the button's current width, the whole line rides in
+// the accessible description and ahead of the button's own tooltip, and an
+// empty indicator collapses the switch to the bare "AUTO CLEAN". The base
+// tooltip is remembered on the first call so the indicator never stacks.
+void chainAutoSetButtonIndicator(QPushButton* button, const QString& indicator);
 
 // True when the governor itself started the dig currently running or just
 // finished: a pending write for tool "dig", a held "dig", or -- once neither

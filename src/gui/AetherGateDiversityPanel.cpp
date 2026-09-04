@@ -399,8 +399,7 @@ void AetherGateDiversityPanel::applyDiversity(const QJsonObject& d, bool isJson)
         m_autoCleanButton->setVisible(gov.available);
         const QSignalBlocker block(m_autoCleanButton);
         m_autoCleanButton->setChecked(gov.autoOn);
-        const QString indicator = chainAutoIndicatorLine(gov);
-        m_autoCleanButton->setText(indicator.isEmpty() ? tr("AUTO CLEAN") : indicator);
+        chainAutoSetButtonIndicator(m_autoCleanButton, chainAutoIndicatorLine(gov));
     }
 
     // Written from a poll only when the combo is neither focused nor has its

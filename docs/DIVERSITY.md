@@ -893,8 +893,11 @@ While `governor.auto` holds, three surfaces say `AUTO CLEAN ON · <state>
 wears: the sidebar's own **AUTO CLEAN** button (a checkable switch, press
 it to send `auto=on` or `auto=off`); the Diversity window's FLOW strip,
 same switch, same words, above the checklist; and the CHAIN window's
-header, read-only, with no write path of its own. Off, or on a gate too
-old to send a governor block, the sidebar and FLOW switches collapse to a
+header, read-only, with no write path of its own. The two switches are
+narrower than the gate's `why` sentence, so they show `AUTO CLEAN ON ·
+<state> · …` elided to the room they have; hover for the whole line, which
+is also the control's accessible description. Off, or on a gate too old
+to send a governor block, the sidebar and FLOW switches collapse to a
 bare `AUTO CLEAN` toggle and the CHAIN header disappears.
 
 ### DIG STOP, on the line itself
