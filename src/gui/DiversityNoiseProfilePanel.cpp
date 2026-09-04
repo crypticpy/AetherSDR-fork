@@ -381,31 +381,44 @@ DiversityNoiseProfilePanel::DiversityNoiseProfilePanel(QWidget* parent) : QWidge
                                         tr("Window"), tr("dB"), tr("Do")});
     ThemeManager::instance().applyStyleSheet(m_kinds,
                                              QString::fromLatin1(kKindTableStyle));
-    static const struct { int column; const char* tip; } kHeaderTips[] = {
-        {0, QT_TR_NOOP("What sort of noise this row is. MAINS is a comb locked "
+    // shortTip is the <=90-char tooltip; tip is the full explanation, kept on
+    // AccessibleDescriptionRole -- same split DiversityFinderPanel.cpp's
+    // header tips use.
+    static const struct { int column; const char* shortTip; const char* tip; } kHeaderTips[] = {
+        {0, QT_TR_NOOP("What sort of noise: MAINS (grid comb), IMPULSE (spikes), "
+                       "PERIODIC, TONE, or FLOOR."),
+         QT_TR_NOOP("What sort of noise this row is. MAINS is a comb locked "
                        "to the grid, IMPULSE is spikes, PERIODIC is a "
                        "modulation rate of the noise itself, TONE is a line in "
                        "the audio the automatic notch can reach, and FLOOR is "
                        "the gate saying it found none of the others.")},
-        {1, QT_TR_NOOP("The gate's own one-line verdict on this finding.")},
-        {2, QT_TR_NOOP("What the verdict was measured from -- the comb spacing "
+        {1, QT_TR_NOOP("The gate's own one-line verdict on this finding."),
+         QT_TR_NOOP("The gate's own one-line verdict on this finding.")},
+        {2, QT_TR_NOOP("What the verdict was measured from - comb spacing, impulse "
+                       "rate, or notch depth."),
+         QT_TR_NOOP("What the verdict was measured from -- the comb spacing "
                        "and its harmonics, how far the impulses reach over the "
                        "floor, how deep the notch is holding a tone.")},
-        {3, QT_TR_NOOP("How long a window this finding was measured over. "
+        {3, QT_TR_NOOP("How long a window this finding was measured over."),
+         QT_TR_NOOP("How long a window this finding was measured over. "
                        "Impulses want a longer one than a hum comb does, so "
                        "the two rows can disagree and both be current.")},
-        {4, QT_TR_NOOP("How big this finding is, in decibels over the local "
+        {4, QT_TR_NOOP("Size of this finding in decibels over the local noise floor."),
+         QT_TR_NOOP("How big this finding is, in decibels over the local "
                        "noise floor. A dash is a finding with no size to "
                        "report, not a finding of zero.")},
-        {5, QT_TR_NOOP("The one thing worth doing about this row, named by the "
+        {5, QT_TR_NOOP("The one action worth taking on this row, named by the gate."),
+         QT_TR_NOOP("The one thing worth doing about this row, named by the "
                        "gate rather than by this window. A lit button is an "
                        "action already in force -- press it again to undo it. "
                        "A dashed one means the gate has looked and there is "
                        "nothing to do; its hover says why.")},
     };
     for (const auto& entry : kHeaderTips) {
-        if (QTableWidgetItem* header = m_kinds->horizontalHeaderItem(entry.column))
-            header->setToolTip(tr(entry.tip));
+        if (QTableWidgetItem* header = m_kinds->horizontalHeaderItem(entry.column)) {
+            header->setToolTip(tr(entry.shortTip));
+            header->setData(Qt::AccessibleDescriptionRole, tr(entry.tip));
+        }
     }
     m_kinds->verticalHeader()->setVisible(false);
     m_kinds->setEditTriggers(QAbstractItemView::NoEditTriggers);

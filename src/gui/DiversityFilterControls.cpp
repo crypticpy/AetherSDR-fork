@@ -55,7 +55,8 @@ DiversityFilterControls::DiversityFilterControls(QWidget* parent) : QWidget(pare
     m_openChainButton->setObjectName(QStringLiteral("diversityWindowFilterOpenChain"));
     m_openChainButton->setAccessibleName(tr("Open the filter chain window"));
     m_openChainButton->setToolTip(
-        tr("Every filter stage, drawn as a block diagram in its own window."));
+        tr("Every filter stage, antenna to ears, in signal order - the switch for "
+           "each one."));
     m_openChainButton->setAccessibleDescription(
         tr("Everything a single receiver's filter offers -- roofing, the "
            "noise blanker, the passband and its shape, notches, the "

@@ -219,6 +219,9 @@ DiversityWindow::DiversityWindow(QWidget* parent)
     m_statusStrip->setObjectName(QStringLiteral("diversityWindowStatusLabel"));
     m_statusStrip->setAccessibleName(tr("Gate status"));
     m_statusStrip->setToolTip(
+        tr("Aether-gate connection status - everything above goes to dashes when "
+           "it stops answering."));
+    m_statusStrip->setAccessibleDescription(
         tr("Whether the Aether-gate bridge is answering, and whether it is "
            "reporting a working two-tuner diversity setup. Everything above "
            "goes to dashes when this says the gate is not answering -- a dead "

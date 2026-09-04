@@ -92,8 +92,8 @@ DiversityScope::DiversityScope(QWidget* parent) : QWidget(parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setObjectName(QStringLiteral("gateDiversityScope"));
     setAccessibleName(tr("Diversity scope"));
-    setToolTip(tr("The dial is loop B's weight: angle is phase, distance is "
-                  "level over A. Read-only."));
+    setToolTip(tr("Combiner's live loop-B weight (angle=phase, distance=level) - "
+                  "see which way it leans."));
     setAccessibleDescription(
         tr("The dial is the combiner's weight on loop B relative to "
            "loop A: the angle is the phase shift it is applying, and "

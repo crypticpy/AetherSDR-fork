@@ -219,10 +219,12 @@ AetherGateDiversityPanel::AetherGateDiversityPanel(QWidget* parent)
     m_mode = new QComboBox(modeRow);
     m_mode->setObjectName(QStringLiteral("gateDiversityModeCombo"));
     m_mode->setAccessibleName(tr("Diversity combining mode"));
-    m_mode->addItem(tr("Off"), QStringLiteral("off"));
-    m_mode->addItem(tr("Manual"), QStringLiteral("manual"));
-    m_mode->addItem(tr("Null"), QStringLiteral("null"));
-    m_mode->addItem(tr("Track"), QStringLiteral("track"));
+    m_mode->setToolTip(tr("OFF hears loop A alone; MANUAL/NULL/TRACK add loop B by "
+                          "hand, once, or continuously."));
+    m_mode->addItem(tr("OFF"), QStringLiteral("off"));
+    m_mode->addItem(tr("MANUAL"), QStringLiteral("manual"));
+    m_mode->addItem(tr("NULL"), QStringLiteral("null"));
+    m_mode->addItem(tr("TRACK"), QStringLiteral("track"));
     connect(m_mode, &QComboBox::currentIndexChanged, this, [this](int idx) {
         if (idx < 0)
             return;

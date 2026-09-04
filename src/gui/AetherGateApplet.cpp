@@ -154,14 +154,19 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
 
     m_span = new QComboBox(m_resBox);
     m_span->setObjectName(QStringLiteral("gateSpanCombo"));
-    m_span->setToolTip(tr("Receiver sample rate. On an SDR the rate IS the "
-                          "panadapter span, so a narrower span means finer bins."));
+    m_span->setToolTip(tr("Receiver sample rate - sets the panadapter span; narrower "
+                          "span means finer bins."));
+    m_span->setAccessibleDescription(
+        tr("Receiver sample rate. On an SDR the rate IS the panadapter span, so a "
+           "narrower span means finer bins."));
     connect(m_span, &QComboBox::currentIndexChanged, this, [this](int) { sendResolution(); });
 
     m_bins = new QComboBox(m_resBox);
     m_bins->setObjectName(QStringLiteral("gateBinsCombo"));
-    m_bins->setToolTip(tr("FFT bins across the span. Capped by what one UDP "
-                          "datagram can carry."));
+    m_bins->setToolTip(tr("Panadapter resolution - more bins sharpen the display, up "
+                          "to the datagram cap."));
+    m_bins->setAccessibleDescription(
+        tr("FFT bins across the span. Capped by what one UDP datagram can carry."));
     connect(m_bins, &QComboBox::currentIndexChanged, this, [this](int) { sendResolution(); });
 
     m_binWidth = new QLabel(QStringLiteral("—"), m_resBox);
@@ -229,10 +234,11 @@ AetherGateApplet::AetherGateApplet(QWidget* parent, QNetworkAccessManager* net)
     m_openChainButton = new QPushButton(tr("Open Chain window"), this);
     m_openChainButton->setObjectName(QStringLiteral("gateOpenChainWindowButton"));
     m_openChainButton->setAccessibleName(tr("Open the filter chain window"));
-    m_openChainButton->setToolTip(tr("Every stage between the antenna and your "
-                                     "ears, in signal order, with the switch for "
-                                     "each one the gate says it has."));
-    m_openChainButton->setAccessibleDescription(m_openChainButton->toolTip());
+    m_openChainButton->setToolTip(tr("Every filter stage, antenna to ears, in signal "
+                                     "order - the switch for each one."));
+    m_openChainButton->setAccessibleDescription(
+        tr("Every stage between the antenna and your ears, in signal order, with "
+           "the switch for each one the gate says it has."));
     m_openChainButton->setCursor(Qt::PointingHandCursor);
     ThemeManager::instance().applyStyleSheet(m_openChainButton,
                                              QString::fromLatin1(kOpenChainStyle));
@@ -392,10 +398,13 @@ void AetherGateApplet::setPresent(bool present)
     if (!present) {
         m_status->setText(tr("no Aether-gate answering on this radio"));
         // A gate run with --ctl-port 0 looks exactly like no gate from here.
-        m_status->setToolTip(tr("Nothing answered on port %1. A gate started "
-                                "with --ctl-port 0 has no control port and "
-                                "cannot be reached from here.")
+        m_status->setToolTip(tr("Nothing answered on port %1 - a --ctl-port 0 gate has "
+                                "no control port to reach.")
                                  .arg(kGateControlPort));
+        m_status->setAccessibleDescription(
+            tr("Nothing answered on port %1. A gate started with --ctl-port 0 has "
+               "no control port and cannot be reached from here.")
+                .arg(kGateControlPort));
         m_resBox->setVisible(false);
         m_deviceBox->setVisible(false);
         m_deviceHint->setVisible(false);

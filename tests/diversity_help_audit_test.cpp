@@ -13,14 +13,19 @@
 // the 90-char rule.
 
 #include "TestSettingsProfile.h"
+#include "DiversityGateFixture.h"
 #include "DiversitySessionFixture.h"
+#include "gui/AetherGateApplet.h"
 #include "gui/AetherGateChainWindow.h"
 #include "gui/AetherGateDiversityPanel.h"
+#include "gui/DiversityBeaconPanel.h"
 #include "gui/DiversityFilterControls.h"
 #include "gui/DiversityFinderPanel.h"
+#include "gui/DiversityNoiseProfilePanel.h"
 #include "gui/DiversityScope.h"
 #include "gui/DiversitySpatialLegend.h"
 #include "gui/DiversitySpatialWaterfall.h"
+#include "gui/DiversityTalkerControls.h"
 #include "gui/DiversityTimeline.h"
 
 #include <QApplication>
@@ -41,13 +46,17 @@
 
 #include <cstdio>
 
+using AetherSDR::AetherGateApplet;
 using AetherSDR::AetherGateChainWindow;
 using AetherSDR::AetherGateDiversityPanel;
+using AetherSDR::DiversityBeaconPanel;
 using AetherSDR::DiversityFilterControls;
 using AetherSDR::DiversityFinderPanel;
+using AetherSDR::DiversityNoiseProfilePanel;
 using AetherSDR::DiversityScope;
 using AetherSDR::DiversitySpatialLegend;
 using AetherSDR::DiversitySpatialWaterfall;
+using AetherSDR::DiversityTalkerControls;
 using AetherSDR::DiversityTimeline;
 
 namespace {
@@ -236,6 +245,15 @@ void everyPanelTooltipIsAtMostNinetyChars()
     DiversityFilterControls filterControls;
     over += overLongTooltips(&filterControls);
 
+    DiversityTalkerControls talkerControls;
+    over += overLongTooltips(&talkerControls);
+
+    DiversityBeaconPanel beaconPanel;
+    over += overLongTooltips(&beaconPanel);
+
+    DiversityNoiseProfilePanel noisePanel;
+    over += overLongTooltips(&noisePanel);
+
     printViolations(over);
     report("every standalone panel's tooltip is <=90 chars", over.isEmpty());
 
@@ -243,9 +261,57 @@ void everyPanelTooltipIsAtMostNinetyChars()
         QStringLiteral(AETHER_SOURCE_DIR "/src/gui/DiversityWindowPanels.cpp"));
     sourceOver += overLongLiteralTooltipsInSource(
         QStringLiteral(AETHER_SOURCE_DIR "/src/gui/DiversityWindowEvents.cpp"));
+    sourceOver += overLongLiteralTooltipsInSource(
+        QStringLiteral(AETHER_SOURCE_DIR "/src/gui/DiversityWindow.cpp"));
+    sourceOver += overLongLiteralTooltipsInSource(
+        QStringLiteral(AETHER_SOURCE_DIR "/src/gui/DiversityWindowChain.cpp"));
+    sourceOver += overLongLiteralTooltipsInSource(
+        QStringLiteral(AETHER_SOURCE_DIR "/src/gui/DiversityWindowBand.cpp"));
     printViolations(sourceOver);
-    report("DiversityWindowPanels/Events literal tooltips are <=90 chars",
+    report("DiversityWindow/Chain/Band/Panels/Events literal tooltips are <=90 chars",
            sourceOver.isEmpty());
+}
+
+// MUTATION GUARD: the applet's own static tooltips (span/bins/OPEN CHAIN/
+// status) or a dynamically-built device control (antenna, or a setting the
+// gate reports, e.g. LNA state) creeping past 90 chars -- the only place
+// those per-device widgets exist to be walked at all.
+void everyGateAppletTooltipIsAtMostNinetyChars()
+{
+    using namespace DiversityGateFixture;
+
+    FakeGate net;
+    net.routes[QStringLiteral("/status")] = {QNetworkReply::NoError, kStatus};
+    net.routes[QStringLiteral("/device")] = {QNetworkReply::NoError, kDevice};
+    net.routes[QStringLiteral("/diversity")] = {QNetworkReply::NoError,
+                                                QByteArrayLiteral("{\"available\": false}")};
+
+    AetherGateApplet applet(nullptr, &net);
+    applet.setRadioAddress(QStringLiteral("10.0.0.5"));
+    settle();
+    settle();
+
+    // Scoped to the resolution box, the device box (antenna + every setting
+    // the gate reported), and the OPEN CHAIN/status widgets built or given a
+    // tooltip in this WP: AetherGateDeviceStrip (the DIVERSITY/A/B toggles at
+    // the top of the applet) is a different file this WP does not own, and
+    // walking the whole applet would fail this guard on a pre-existing
+    // violation this test cannot fix.
+    QStringList over;
+    if (QWidget* resBox = applet.findChild<QWidget*>(QStringLiteral("gateResolutionBox")))
+        over += overLongTooltips(resBox);
+    if (QWidget* deviceBox = applet.findChild<QWidget*>(QStringLiteral("gateDeviceBox")))
+        over += overLongTooltips(deviceBox);
+    if (QWidget* openChain =
+            applet.findChild<QWidget*>(QStringLiteral("gateOpenChainWindowButton")))
+        over += overLongTooltips(openChain);
+    if (QWidget* status = applet.findChild<QWidget*>(QStringLiteral("gateStatusLabel")))
+        over += overLongTooltips(status);
+
+    printViolations(over);
+    report("the applet's own resolution/device/OPEN CHAIN/status tooltips are "
+           "<=90 chars",
+           over.isEmpty());
 }
 
 // MUTATION GUARD: dropping the long text off accessibleDescription entirely,
@@ -390,6 +456,7 @@ int main(int argc, char** argv)
     everyVisibleTooltipInTheChainWindowIsAtMostNinetyChars();
     everyVisibleTooltipInTheSidebarIsAtMostNinetyChars();
     everyPanelTooltipIsAtMostNinetyChars();
+    everyGateAppletTooltipIsAtMostNinetyChars();
     longTextSurvivesAsAccessibleDescription();
     helpButtonsSitBesideTalkersFinderAndVisual();
     sidebarNextLineFollowsTheModel();

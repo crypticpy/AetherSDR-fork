@@ -41,7 +41,7 @@
         <file alias="understanding-noise-cancellation.md">help/understanding-noise-cancellation.md</file>
         <file alias="understanding-data-modes.md">help/understanding-data-modes.md</file>
         <file alias="contributing-to-aethersdr.md">help/contributing-to-aethersdr.md</file>
-        <file alias="diversity-session.md">help/diversity-session.md</file>
+        <file alias="diversity-start.md">help/diversity-start.md</file>
         <file alias="diversity-slice.md">help/diversity-slice.md</file>
         <file alias="diversity-band.md">help/diversity-band.md</file>
         <file alias="diversity-site.md">help/diversity-site.md</file>

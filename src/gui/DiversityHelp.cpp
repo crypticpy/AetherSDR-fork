@@ -12,14 +12,14 @@ namespace {
 // Which of the six topics a Topic value is, spelled out once so button(),
 // open(), resourcePath() and title() cannot disagree on the mapping.
 struct TopicInfo {
-    const char* objectSuffix; // "Session", "Slice", ...
-    const char* label;        // "Session", "Slice", ... (title-case, one word)
-    const char* resourceFile; // "diversity-session.md", ...
+    const char* objectSuffix; // "Start", "Slice", ...
+    const char* label;        // "Start", "Slice", ... (title-case, one word)
+    const char* resourceFile; // "diversity-start.md", ...
 };
 
 const TopicInfo& infoFor(DiversityHelp::Topic topic)
 {
-    static const TopicInfo kSession{"Session", "Session", "diversity-session.md"};
+    static const TopicInfo kStart{"Start", "Start", "diversity-start.md"};
     static const TopicInfo kSlice{"Slice", "Slice", "diversity-slice.md"};
     static const TopicInfo kBand{"Band", "Band", "diversity-band.md"};
     static const TopicInfo kSite{"Site", "Site", "diversity-site.md"};
@@ -27,8 +27,8 @@ const TopicInfo& infoFor(DiversityHelp::Topic topic)
     static const TopicInfo kChain{"Chain", "Chain", "diversity-chain.md"};
 
     switch (topic) {
-    case DiversityHelp::Topic::Session:
-        return kSession;
+    case DiversityHelp::Topic::Start:
+        return kStart;
     case DiversityHelp::Topic::Slice:
         return kSlice;
     case DiversityHelp::Topic::Band:
@@ -40,7 +40,7 @@ const TopicInfo& infoFor(DiversityHelp::Topic topic)
     case DiversityHelp::Topic::Chain:
         return kChain;
     }
-    return kSession;
+    return kStart;
 }
 
 } // namespace

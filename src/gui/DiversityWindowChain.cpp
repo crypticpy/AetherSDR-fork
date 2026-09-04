@@ -148,7 +148,7 @@ QWidget* DiversityWindow::buildTabRow()
     // showing. Five would have been five more lit boxes on the row this
     // window keeps deliberately quiet -- and the question an operator has is
     // always about the page in front of them.
-    m_pageHelpButton = DiversityHelp::button(this, DiversityHelp::Topic::Session);
+    m_pageHelpButton = DiversityHelp::button(this, DiversityHelp::Topic::Start);
     m_pageHelpButton->setObjectName(QStringLiteral("diversityHelpButtonPage"));
     layout->addWidget(m_pageHelpButton);
     retargetPageHelp(0);
@@ -163,7 +163,7 @@ void DiversityWindow::retargetPageHelp(int page)
 {
     if (!m_pageHelpButton)
         return;
-    DiversityHelp::Topic topic = DiversityHelp::Topic::Session;
+    DiversityHelp::Topic topic = DiversityHelp::Topic::Start;
     switch (page) {
     case DiversitySessionModel::PageSlice:
         topic = DiversityHelp::Topic::Slice;
@@ -203,12 +203,14 @@ QWidget* DiversityWindow::buildChainRow()
     QLabel* pair = DiversityWidgets::makeCaption(tr("PAIR"), row);
     pair->setObjectName(QStringLiteral("diversityWindowPairCaption"));
     pair->setAccessibleName(tr("Pair controls"));
-    pair->setToolTip(tr("These apply on every page. They are the two tuners "
-                        "themselves -- how their weight is solved, which leg "
-                        "you hear, when they are realigned and what gets "
-                        "recorded -- so nothing on this row changes when you "
-                        "switch pages."));
-    pair->setAccessibleDescription(pair->toolTip());
+    pair->setToolTip(tr("PAIR controls apply on every page - MODE, HEAR, REALIGN and "
+                        "CAPTURE for both tuners."));
+    pair->setAccessibleDescription(
+        tr("These apply on every page. They are the two tuners "
+           "themselves -- how their weight is solved, which leg "
+           "you hear, when they are realigned and what gets "
+           "recorded -- so nothing on this row changes when you "
+           "switch pages."));
     layout->addWidget(pair);
 
     m_modeGroup = addButtonRow(
@@ -254,6 +256,9 @@ QWidget* DiversityWindow::buildChainRow()
     m_compareButton->setObjectName(QStringLiteral("diversityWindowCompareButton"));
     m_compareButton->setAccessibleName(tr("Hear antenna A only while pressed"));
     m_compareButton->setToolTip(
+        tr("Hold to drop the combiner and hear loop A raw - the only honest A/B "
+           "check."));
+    m_compareButton->setAccessibleDescription(
         tr("Hold this down to drop the combiner out and hear loop A raw; let "
            "go and it returns to the mode it was in. It is a momentary "
            "switch, not a setting, precisely so it cannot be left engaged by "
@@ -291,6 +296,9 @@ QWidget* DiversityWindow::buildChainRow()
     m_realignButton->setObjectName(QStringLiteral("diversityWindowRealignButton"));
     m_realignButton->setAccessibleName(tr("Realign the two tuners"));
     m_realignButton->setToolTip(
+        tr("Re-measures and re-aligns the two tuners' sample streams after a "
+           "frequency or rate change."));
+    m_realignButton->setAccessibleDescription(
         tr("Re-measure how far apart the two tuners' sample streams are and "
            "line them back up. Nothing can be combined until they are "
            "aligned, so press this after changing frequency or sample rate, "
@@ -348,6 +356,9 @@ QWidget* DiversityWindow::buildChainRow()
     m_captureButton->setObjectName(QStringLiteral("diversityWindowCaptureButton"));
     m_captureButton->setAccessibleName(tr("Capture raw diversity audio"));
     m_captureButton->setToolTip(
+        tr("Records both loops uncombined to a file, for offline replay-lab work "
+           "on a null."));
+    m_captureButton->setAccessibleDescription(
         tr("Record both loops, uncombined, to a two-channel file on the gate. "
            "That file is the raw material for working out offline why a null "
            "would not form -- it is for the replay lab, not for listening, "

@@ -31,7 +31,7 @@ void report(const char* name, bool ok)
 }
 
 const DiversityHelp::Topic kAllTopics[] = {
-    DiversityHelp::Topic::Session, DiversityHelp::Topic::Slice, DiversityHelp::Topic::Band,
+    DiversityHelp::Topic::Start, DiversityHelp::Topic::Slice, DiversityHelp::Topic::Band,
     DiversityHelp::Topic::Site,    DiversityHelp::Topic::Filter, DiversityHelp::Topic::Chain,
 };
 

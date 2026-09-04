@@ -21,7 +21,7 @@ public:
     // One topic per Diversity window page, plus CHAIN (its own window, not
     // one of the five DiversitySessionModel::Page tabs).
     enum class Topic {
-        Session,
+        Start,
         Slice,
         Band,
         Site,

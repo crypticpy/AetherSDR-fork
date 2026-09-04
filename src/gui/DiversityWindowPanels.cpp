@@ -566,7 +566,8 @@ QWidget* DiversityWindow::buildAntennasPanel()
     m_balanceVerdict->setObjectName(QStringLiteral("diversityWindowBalanceVerdictLabel"));
     m_balanceVerdict->setAccessibleName(tr("Balance verdict"));
     m_balanceVerdict->setToolTip(
-        tr("What the three numbers above add up to."));
+        tr("Verdict from the balance numbers: gain-only, or a null this pair can "
+           "actually use."));
     m_balanceVerdict->setAccessibleDescription(
         tr("What the three numbers above add up to. \"Gain only\" means the "
            "noise is isotropic and there is nothing to null -- the second loop "
@@ -684,8 +685,8 @@ QWidget* DiversityWindow::buildNoisePanel()
     m_mapStrip->setStripHeight(kMapStripHeight);
     m_mapStrip->setAxisMode(true);
     m_mapStrip->setToolTip(
-        tr("How alike the two loops look at each frequency across the mapped "
-           "span."));
+        tr("Per-bin loop similarity - tall bars mark a local source worth "
+           "nulling."));
     m_mapStrip->setAccessibleDescription(
         tr("How alike the two loops look at each frequency across the mapped "
            "span. A tall bar means one local source dominates that patch and "

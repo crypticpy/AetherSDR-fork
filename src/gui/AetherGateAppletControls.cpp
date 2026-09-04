@@ -154,6 +154,8 @@ void AetherGateApplet::buildDeviceControls(const QJsonObject& dev)
         if (!ant.isEmpty()) {
             m_antenna = new QComboBox(m_deviceBox);
             m_antenna->setObjectName(QStringLiteral("gateAntennaCombo"));
+            m_antenna->setToolTip(
+                tr("Antenna port selector - which input the receiver listens on."));
             for (const QJsonValue& o : ant.value(QStringLiteral("options")).toArray())
                 m_antenna->addItem(o.toString());
             connect(m_antenna, &QComboBox::currentTextChanged, this,
@@ -235,6 +237,10 @@ void AetherGateApplet::buildDeviceControls(const QJsonObject& dev)
                 });
                 w = edit;
             }
+            // /device carries no per-setting description today, so every
+            // dynamically built control gets the same shape of tooltip: the
+            // gate's own name for it, plus what it is for.
+            w->setToolTip(tr("%1 - device setting reported by the receiver.").arg(name));
             w->setObjectName(QStringLiteral("gateSetting:") + key);
             m_settingWidgets.insert(key, w);
             auto* label = new QLabel(name, m_deviceBox);

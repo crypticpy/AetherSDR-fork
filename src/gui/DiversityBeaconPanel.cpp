@@ -275,60 +275,88 @@ DiversityBeaconPanel::DiversityBeaconPanel(QWidget* parent) : QWidget(parent)
                                              QString::fromLatin1(kBeaconTableStyle));
 
     // One hover explanation per column, written for somebody who has never used
-    // the beacon project as an instrument before.
-    static const struct { int column; const char* tip; } kHeaderTips[] = {
-        {0, QT_TR_NOOP("The beacon's callsign. The eighteen rows are in "
+    // the beacon project as an instrument before. shortTip is the <=90-char
+    // tooltip; tip is the full explanation, kept on AccessibleDescriptionRole
+    // so a screen reader (and anyone who wants the whole story) still gets it
+    // -- same split DiversityFinderPanel.cpp's own header tips use.
+    static const struct { int column; const char* shortTip; const char* tip; } kHeaderTips[] = {
+        {0, QT_TR_NOOP("Beacon callsign - schedule order, so the row below lit is next up."),
+         QT_TR_NOOP("The beacon's callsign. The eighteen rows are in "
                        "SCHEDULE order -- the order they transmit in -- so the "
                        "row under the one lit now is who you will hear next.")},
-        {1, QT_TR_NOOP("Where the transmitter is. This is the whole value of a "
+        {1, QT_TR_NOOP("Beacon's known location - measures your station, not a guess "
+                       "about theirs."),
+         QT_TR_NOOP("Where the transmitter is. This is the whole value of a "
                        "beacon: the path is known, so what the receiver reports "
                        "is a measurement of your station rather than a guess "
                        "about theirs.")},
-        {2, QT_TR_NOOP("Whether the gate correlated this beacon's dashes on its "
+        {2, QT_TR_NOOP("Whether this beacon's dashes correlated on the last pass."),
+         QT_TR_NOOP("Whether the gate correlated this beacon's dashes on its "
                        "last pass. A blank row is one that has not come round "
                        "yet on this band; a hollow mark is one that came round "
                        "and was not heard.")},
-        {3, QT_TR_NOOP("Signal-to-noise of the combined output in a 500 Hz "
+        {3, QT_TR_NOOP("Combined SNR in the beacon project's standard 500 Hz bandwidth."),
+         QT_TR_NOOP("Signal-to-noise of the combined output in a 500 Hz "
                        "bandwidth -- the standard the beacon project's own "
                        "reports are quoted in, so the number is comparable with "
                        "everybody else's.")},
-        {4, QT_TR_NOOP("Signal-to-noise on loop A alone, in the same 500 Hz.")},
-        {5, QT_TR_NOOP("Signal-to-noise on loop B alone. A beacon that is "
+        {4, QT_TR_NOOP("Signal-to-noise on loop A alone, in the same 500 Hz."),
+         QT_TR_NOOP("Signal-to-noise on loop A alone, in the same 500 Hz.")},
+        {5, QT_TR_NOOP("Signal-to-noise on loop B alone - flags a loop that is "
+                       "consistently weaker."),
+         QT_TR_NOOP("Signal-to-noise on loop B alone. A beacon that is "
                        "several dB better on one loop every night is telling "
                        "you about that loop, not about propagation.")},
-        {6, QT_TR_NOOP("The phase difference between the two loops on this "
+        {6, QT_TR_NOOP("Known phase difference on this beacon - calibrates the "
+                       "geometry solve."),
+         QT_TR_NOOP("The phase difference between the two loops on this "
                        "beacon. Unlike every other phase in this window it has "
                        "a KNOWN answer, because the transmitter's position is "
                        "known -- which is what a geometry solve needs to "
                        "calibrate itself against.")},
-        {7, QT_TR_NOOP("How alike the two loops saw this beacon. Low coherence "
+        {7, QT_TR_NOOP("How alike the loops saw this beacon - low means multipath, "
+                       "not noise."),
+         QT_TR_NOOP("How alike the two loops saw this beacon. Low coherence "
                        "on a signal this clean means multipath rather than "
                        "noise.")},
-        {8, QT_TR_NOOP("What combining the two loops earned over the better one "
+        {8, QT_TR_NOOP("Combining gain over the better loop on this beacon, in "
+                       "decibels."),
+         QT_TR_NOOP("What combining the two loops earned over the better one "
                        "on this beacon, in decibels.")},
-        {9, QT_TR_NOOP("The four one-second power steps -- 100, 10, 1 and "
+        {9, QT_TR_NOOP("Which one-second power steps were heard - lowest lit is your "
+                       "real margin."),
+         QT_TR_NOOP("The four one-second power steps -- 100, 10, 1 and "
                        "0.1 W -- lit for the ones that were heard. The lowest "
                        "lit step is the path's real margin: each step down is "
                        "10 dB you did not need.")},
-        {10, QT_TR_NOOP("How long ago this result was measured. The cycle "
+        {10, QT_TR_NOOP("How long ago this result was measured (cycle repeats every "
+                       "three minutes)."),
+         QT_TR_NOOP("How long ago this result was measured. The cycle "
                         "repeats every three minutes, so anything older than "
                         "that was missed on the last pass.")},
-        {11, QT_TR_NOOP("The bearing to this beacon in degrees TRUE, worked out "
+        {11, QT_TR_NOOP("Bearing to this beacon in degrees true, once the station "
+                       "grid is set."),
+         QT_TR_NOOP("The bearing to this beacon in degrees TRUE, worked out "
                         "from its locator and yours. Dashes until you have set "
                         "the station grid above -- a bearing needs two points "
                         "and the gate only knows one of them.")},
-        {12, QT_TR_NOOP("Great-circle distance to the transmitter in "
+        {12, QT_TR_NOOP("Great-circle distance to the transmitter, in kilometres."),
+         QT_TR_NOOP("Great-circle distance to the transmitter in "
                         "kilometres. It is what turns a signal report into a "
                         "path: the same SNR at 2,400 km and at 16,000 km are "
                         "not the same measurement.")},
-        {13, QT_TR_NOOP("How many of this beacon's passes on this band you have "
+        {13, QT_TR_NOOP("Share of this beacon's passes you have actually heard, on "
+                       "this band."),
+         QT_TR_NOOP("How many of this beacon's passes on this band you have "
                         "actually heard, out of how many the gate has sampled. "
                         "One in seven is a path that opens; seven in seven is a "
                         "path that is simply there.")},
     };
     for (const auto& entry : kHeaderTips) {
-        if (QTableWidgetItem* header = m_table->horizontalHeaderItem(entry.column))
-            header->setToolTip(tr(entry.tip));
+        if (QTableWidgetItem* header = m_table->horizontalHeaderItem(entry.column)) {
+            header->setToolTip(tr(entry.shortTip));
+            header->setData(Qt::AccessibleDescriptionRole, tr(entry.tip));
+        }
     }
 
     m_table->verticalHeader()->setVisible(false);
@@ -562,12 +590,22 @@ void DiversityBeaconPanel::renderRows()
         // second in the cell would make the column stop reacting to the band.
         if (QTableWidgetItem* snr = m_table->item(row, kSnrColumn)) {
             const QJsonValue mean = result.value(QStringLiteral("snr_mean_db"));
-            snr->setToolTip(mean.isDouble()
+            const bool hasMean = mean.isDouble();
+            snr->setToolTip(hasMean
                                 ? tr("mean over %1 pass(es): %2 dB")
                                       .arg(integerField(result, "samples"),
                                            QString::asprintf("%+.1f", mean.toDouble()))
                                 : tr("no averaged signal-to-noise for this "
                                      "beacon on this band yet"));
+            snr->setData(Qt::AccessibleDescriptionRole,
+                         hasMean
+                             ? tr("The cell shows the latest pass; this is the average "
+                                  "over every pass the gate has kept, %1 dB over %2 "
+                                  "pass(es).")
+                                   .arg(QString::asprintf("%+.1f", mean.toDouble()),
+                                        integerField(result, "samples"))
+                             : tr("The cell shows the latest pass; no averaged "
+                                  "signal-to-noise for this beacon on this band yet."));
         }
 
         // The lowest step heard is the row's headline number, so it is worth a

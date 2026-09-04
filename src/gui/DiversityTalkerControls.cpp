@@ -60,7 +60,9 @@ DiversityTalkerControls::DiversityTalkerControls(QWidget* parent) : QWidget(pare
     QVBoxLayout* body = nullptr;
     QFrame* frame = DiversityWidgets::makeGroupBox(
         tr("PER TALKER"), QStringLiteral("diversityWindowFilterTalkerBox"), body, this);
-    frame->setToolTip(tr(kTalkerTip));
+    frame->setToolTip(tr("Per-talker filter recall - reapplies each talker's saved filter "
+                         "when they key up."));
+    frame->setAccessibleDescription(tr(kTalkerTip));
     root->addWidget(frame);
 
     auto* row = new QHBoxLayout;
@@ -71,8 +73,9 @@ DiversityTalkerControls::DiversityTalkerControls(QWidget* parent) : QWidget(pare
     m_check = new QCheckBox(tr("PER TALKER"), frame);
     m_check->setObjectName(QStringLiteral("diversityWindowFilterTalkerCheck"));
     m_check->setAccessibleName(tr("Recall each talker's own filter"));
-    m_check->setToolTip(tr(kTalkerTip));
-    m_check->setAccessibleDescription(m_check->toolTip());
+    m_check->setToolTip(tr("Per-talker filter recall - reapplies each talker's saved filter "
+                           "when they key up."));
+    m_check->setAccessibleDescription(tr(kTalkerTip));
     ThemeManager::instance().applyStyleSheet(m_check, QString::fromLatin1(kCheckStyle));
     m_controls.append(m_check);
     // "1"/"0" rather than "on"/"off": the gate takes either, and every other
@@ -96,8 +99,12 @@ DiversityTalkerControls::DiversityTalkerControls(QWidget* parent) : QWidget(pare
         auto* button = new QPushButton(labels.at(i), frame);
         button->setObjectName(names.at(i));
         button->setAccessibleName(tr("talker_snap %1").arg(labels.at(i)));
-        button->setToolTip(tr(kTalkerTip));
-        button->setAccessibleDescription(button->toolTip());
+        button->setToolTip(i == 0
+                               ? tr("Snap to the recalled filter the instant this talker "
+                                    "keys up.")
+                               : tr("Glide to the recalled filter over about a second "
+                                    "instead of snapping."));
+        button->setAccessibleDescription(tr(kTalkerTip));
         button->setCheckable(true);
         button->setFixedHeight(kRowHeight);
         button->setProperty("filterValue", values.at(i));

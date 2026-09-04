@@ -57,8 +57,8 @@ DiversityTimeline::DiversityTimeline(QWidget* parent) : QWidget(parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setObjectName(QStringLiteral("diversityWindowTimeline"));
     setAccessibleName(tr("Diversity timeline"));
-    setToolTip(tr("The last two minutes: A, B and combined SNR, and who was "
-                  "talking. Read-only."));
+    setToolTip(tr("Two-minute A/B/combined SNR trend - check the combiner really "
+                  "beats both loops."));
     setAccessibleDescription(
         tr("The last two minutes. Each line is one leg's "
            "signal-to-noise: A and B are the two loops, the bright one "

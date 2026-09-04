@@ -190,6 +190,9 @@ QWidget* DiversityWindow::buildBandPage()
         tr("SPATIAL WATERFALL"), QStringLiteral("diversityWindowSpatialBox"),
         waterfallBody, page);
     waterfallFrame->setToolTip(
+        tr("Spatial waterfall: colour is arrival direction, not strength - sorts "
+           "stations by bearing."));
+    waterfallFrame->setAccessibleDescription(
         tr("Every bin of the gate's span, one row per poll, coloured by where "
            "the signal came from rather than by how strong it is. Two stations "
            "in different directions cannot share a colour; a local noise "
@@ -215,6 +218,9 @@ QWidget* DiversityWindow::buildBandPage()
     QFrame* finderFrame = DiversityWidgets::makeGroupBox(
         tr("FINDER"), QStringLiteral("diversityWindowFinderBox"), finderBody, page);
     finderFrame->setToolTip(
+        tr("Conversations found on the span, best first - gain column shows what "
+           "loop B buys you."));
+    finderFrame->setAccessibleDescription(
         tr("Conversations the gate has found on the span in the last ten "
            "minutes, best first. The score combines how voice-shaped the "
            "energy is, how strong it is and how long it has been going; the "
