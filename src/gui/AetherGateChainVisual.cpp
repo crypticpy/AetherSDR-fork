@@ -655,9 +655,19 @@ QString AetherGateChainVisual::squeezeLineText() const
     const bool comb = target == QLatin1String("comb");
 
     if (m_panel->squeezeArmed()) {
+        const double spacingHz = m_panel->squeezeCombSpacingHz();
+        // squeeze=comb with no comb found yet: every comb number is null
+        // (core/squeeze.py's set_comb_auto(), CombDetector still feeding), so
+        // there is no spacing to name -- "spacing 0 Hz" was a measurement
+        // nobody made. The gate's `reason` ("no comb found") stands in for
+        // the `why` it has not written yet.
+        if (comb && (std::isnan(spacingHz) || spacingHz <= 0.0)) {
+            const QString said = why.isEmpty() ? m_panel->squeezeReason() : why;
+            return said.isEmpty() ? tr("SQUEEZE looking for a comb to notch")
+                                  : tr("SQUEEZE looking for a comb to notch — %1").arg(said);
+        }
         const QString where =
-            comb ? tr("a comb, spacing %1 Hz")
-                       .arg(groupedHz(qint64(std::lround(m_panel->squeezeCombSpacingHz()))))
+            comb ? tr("a comb, spacing %1 Hz").arg(groupedHz(qint64(std::lround(spacingHz))))
                  : tr("%1 Hz").arg(groupedHz(qint64(std::lround(m_panel->squeezeHz()))));
         return why.isEmpty() ? tr("SQUEEZE arming on %1").arg(where)
                               : tr("SQUEEZE arming on %1 — %2").arg(where, why);
