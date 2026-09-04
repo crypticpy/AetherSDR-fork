@@ -206,16 +206,33 @@ public:
 
     // ROOFING · DIGITAL PEAK OFFSET (A1): the digital roof drawn as a band
     // on this same axis -- see DiversityFilterPanelRoof.cpp. `roofAvailable`
-    // is `roofing.digital_hz > 0` (there is a roof to draw at all);
-    // `roofDraggable` is `roofing.offset_max_hz > 0` (there is a handle to
-    // drag) -- the two are asked separately because a roof too narrow for
-    // its passband holds `offset_max_hz` at 0 and still has a band to show.
+    // is `roofing.digital_hz > 0` AND `roofing.digital_active` (there is a
+    // roof to draw at all, and the gate reports it actually in circuit, not
+    // merely configured); `roofDraggable` additionally asks
+    // `roofing.offset_max_hz > 0` (there is a handle to drag) -- a roof too
+    // narrow for its own passband holds `offset_max_hz` at 0 and still has a
+    // band to show, so the two are asked separately.
     bool    roofAvailable() const { return m_roofAvailable; }
-    bool    roofDraggable() const { return m_roofMaxHz > 0.0; }
+    bool    roofDraggable() const { return m_roofAvailable && m_roofMaxHz > 0.0; }
     bool    roofChecked() const { return m_roofChecked; }
     double  roofOffsetHz() const { return m_roofOffsetHz; }
     double  roofMaxHz() const { return m_roofMaxHz; }
     double  roofDigitalHz() const { return m_roofDigitalHz; }
+    // Where the header strip's handle is actually drawn/hit right now (the
+    // live drag ghost while one is in progress, the gate's own offset
+    // otherwise), on the strip's own -offset_max_hz..+offset_max_hz axis --
+    // read back by tests the way notchHzAt() is.
+    double  roofHandleX() const;
+    // The header strip's own label, e.g. "ROOF 3.0 kHz · offset −120 Hz" --
+    // empty when there is no roof to draw at all. A painted widget has no
+    // child to read the text from, so this is exposed the same way
+    // spectrumFloorDb() is.
+    QString roofHeaderText() const;
+    // Whether the band's low/high edge is a genuine boundary on the plot's
+    // own audio axis, or one the wash reaches without a line because the
+    // true edge sits outside the plot -- see paintRoofBand()'s own comment.
+    bool    roofLowEdgeInPlot() const;
+    bool    roofHighEdgeInPlot() const;
 
 signals:
     // A handle has been let go, and the two edges are now `lowHz`/`highHz`,
@@ -348,17 +365,26 @@ private:
     double  squeezeHzForClick(double x) const;
 
     // ROOFING · DIGITAL PEAK OFFSET (A1), defined in
-    // DiversityFilterPanelRoof.cpp: parses `roofing` off /filter, draws the
-    // band into the cached layer and the handle live (it drags), and answers
-    // the one hit test the gesture needs.
+    // DiversityFilterPanelRoof.cpp: parses `roofing` off /filter (gated on
+    // its own `digital_active`, not just a nonzero width), draws the wash
+    // into the cached layer and a labelled header strip + handle live (the
+    // strip has its own -offset_max_hz..+offset_max_hz axis, independent of
+    // the plot's audio Hz axis below it -- see the file's own header for
+    // why), and answers the hit test and the drag's reading of the pointer.
     void    resetRoof();
     void    parseRoof(const QJsonObject& filter);
     void    paintRoofBand(QPainter& p, const QRectF& r) const;
     void    paintRoofHandle(QPainter& p, const QRectF& r) const;
     bool    roofHandleHit(double x) const;
-    // `hz` clamped to +/- offset_max_hz -- what a drag past either end of
-    // the allowed range settles at instead of past it.
-    double  roofClampedHz(double hz) const;
+    // The offset the header strip's own axis reads at pixel column `x`,
+    // clamped to +/- offset_max_hz -- the inverse of roofHeaderXForOffset().
+    double  roofOffsetForX(double x) const;
+    // The strip plus the handle's tail, in widget pixels: one drag step's
+    // repaint region.
+    QRect   roofStripRect() const;
+    // Where the header strip's own axis (-offset_max_hz..+offset_max_hz)
+    // puts `offsetHz`, on the plot's own pixel span.
+    double  roofHeaderXForOffset(double offsetHz) const;
 
     QVector<double> m_hz;
     QVector<double> m_db;

@@ -25,6 +25,7 @@
 #include <QLabel>
 #include <QTest>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -66,12 +67,16 @@ QJsonObject roofOffsetCheck(bool on)
 // checks[]. `digitalHz`/`appliedHz`/`maxHz` all land on the SAME axis this
 // panel already draws low_hz/high_hz on -- see DiversityFilterPanelRoof.cpp's
 // own header comment for why, unlike SQUEEZE, there is no sign flip here.
+// `active` is the gate's own `digital_active` -- "the roof is actually in
+// circuit", not merely configured; defaults on because every existing test
+// below wants a roof to draw, and the one that does not says so explicitly.
 QByteArray withRoofing(const QByteArray& body, bool checkOn, double appliedHz, double maxHz,
-                       double digitalHz, bool withCheck = true)
+                       double digitalHz, bool withCheck = true, bool active = true)
 {
     QJsonObject root = QJsonDocument::fromJson(body).object();
     QJsonObject roofing = root.value(QStringLiteral("roofing")).toObject();
     roofing.insert(QStringLiteral("digital_hz"), digitalHz);
+    roofing.insert(QStringLiteral("digital_active"), active);
     roofing.insert(QStringLiteral("offset_hz"), appliedHz);
     roofing.insert(QStringLiteral("offset_enabled"), checkOn);
     roofing.insert(QStringLiteral("offset_applied_hz"), appliedHz);
@@ -91,6 +96,22 @@ QByteArray withRoofing(const QByteArray& body, bool checkOn, double appliedHz, d
     }
     root.insert(QStringLiteral("chain"), chain);
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+// What a release at `releaseX` actually writes, mirroring roofOffsetForX()
+// (DiversityFilterPanelRoof.cpp): the header strip's own -maxHz..+maxHz axis
+// spans the plot's width, so the column's left-to-right fraction is the
+// offset. A test that instead expected hzForX(x) rounded straight (the
+// pre-fix reading, which can only ever land in [0, maxHz]) would be
+// asserting the bug back in.
+int expectedRoofWrite(DiversityFilterPanel* p, double releaseX, double maxHz)
+{
+    // The strip spans the plot's own width: xForHz(0)..xForHz(3000) on this
+    // test's 0..3000 Hz axis.
+    const double left = p->xForHz(0);
+    const double right = p->xForHz(3000);
+    const double t = std::clamp((releaseX - left) / (right - left), 0.0, 1.0);
+    return int(std::lround(-maxHz + t * 2.0 * maxHz));
 }
 
 // --------------------------------------------------------------------------
@@ -354,7 +375,11 @@ void testADragBeyondTheClampWritesTheClampedValue()
 
     const int y = p->height() / 2;
     const int before = countWrites(net);
-    QTest::mousePress(p, Qt::LeftButton, Qt::NoModifier, QPoint(int(p->xForHz(1450)), y));
+    // Pressed on the header strip's own handle -- roofHandleX(), not
+    // xForHz(1450): 1450 is past offset_max_hz (500) already, so the strip's
+    // own -max..+max mapping clamps the handle to its right end rather than
+    // to wherever 1450 would fall on the audio axis.
+    QTest::mousePress(p, Qt::LeftButton, Qt::NoModifier, QPoint(int(p->roofHandleX()), y));
     CHECK(p->dragging());
     // Dragged all the way to the right of the plot -- hzForX() clamps to
     // m_maxHz (~3000 on this fixture), well past offset_max_hz (500 either
@@ -364,7 +389,7 @@ void testADragBeyondTheClampWritesTheClampedValue()
     QTest::mouseRelease(p, Qt::LeftButton, Qt::NoModifier, QPoint(int(p->xForHz(3000)), y));
     settle();
 
-    // MUTATION: drop the clamp in roofClampedHz() and this reads
+    // MUTATION: drop the clamp in roofOffsetForX() and this reads
     // "roof_offset_hz=3000" (or whatever hzForX() saw) instead of 500.
     CHECK(countWrites(net) == before + 1);
     CHECK(lastRequest(net) == QStringLiteral("/filter/set?roof_offset_hz=500"));
@@ -424,14 +449,15 @@ void testReleaseWritesExactlyRoofOffsetHz()
 
     const int y = p->height() / 2;
     const int before = countWrites(net);
-    // The written value is whatever hzForX() sees at the release pixel, not a
-    // hand-picked Hz -- the same int()/hzForX() round trip a whole pixel of
-    // slop can leave one Hz short of the value xForHz() was asked for, the
-    // same slack testHandleDragBeyondClampWritesClampedValue()'s own comment
-    // names for the clamp case.
+    // The written value is whatever the drag's own remap sees at the release
+    // pixel, not a hand-picked Hz -- expectedRoofWrite() mirrors
+    // roofOffsetForX()'s own formula rather than assuming hzForX() rounded is
+    // already the answer (the pre-fix bug: it could only ever land in
+    // [0, maxHz]).
     const int releaseX = int(p->xForHz(350));
-    const int target = int(std::lround(p->hzForX(double(releaseX))));
-    QTest::mousePress(p, Qt::LeftButton, Qt::NoModifier, QPoint(int(p->xForHz(800)), y));
+    const int target = expectedRoofWrite(p, double(releaseX), p->roofMaxHz());
+    QTest::mousePress(p, Qt::LeftButton, Qt::NoModifier, QPoint(int(p->roofHandleX()), y));
+    CHECK(p->dragging());
     QTest::mouseMove(p, QPoint(int(p->xForHz(600)), y));
     QTest::mouseMove(p, QPoint(releaseX, y));
     QTest::mouseRelease(p, Qt::LeftButton, Qt::NoModifier, QPoint(releaseX, y));
@@ -441,6 +467,175 @@ void testReleaseWritesExactlyRoofOffsetHz()
     CHECK(lastRequest(net)
           == QStringLiteral("/filter/set?roof_offset_hz=%1").arg(target));
     CHECK(!p->dragging());
+}
+
+// A roof the gate reports configured but not actually running --
+// `digital_active: false` -- draws nothing and hits nothing, the same as one
+// with no width at all.
+void testInactiveRoofDrawsNothingAndHitsNothing()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net,
+               withRoofing(visualFilter(), /*checkOn=*/true, 800.0, 900.0, 1200.0,
+                           /*withCheck=*/true, /*active=*/false));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w, kTabVisual);
+    DiversityFilterPanel* p = panel(w);
+    CHECK(p != nullptr);
+    if (!p)
+        return;
+
+    // MUTATION: gate m_roofAvailable on `digital_hz > 0` alone (drop the
+    // digital_active read in parseRoof()) and every one of these flips.
+    CHECK(!p->roofAvailable());
+    CHECK(!p->roofDraggable());
+    CHECK(p->roofHeaderText().isEmpty());
+    CHECK(!p->roofLowEdgeInPlot());
+    CHECK(!p->roofHighEdgeInPlot());
+
+    const int y = p->height() / 2;
+    const int before = countWrites(net);
+    for (double frac : {0.0, 0.25, 0.5, 0.75, 1.0}) {
+        const int x = int(frac * p->width());
+        QTest::mousePress(p, Qt::LeftButton, Qt::NoModifier, QPoint(x, y));
+        CHECK(!p->dragging());
+        QTest::mouseRelease(p, Qt::LeftButton, Qt::NoModifier, QPoint(x, y));
+    }
+    settle();
+    CHECK(countWrites(net) == before);
+}
+
+// A negative offset's handle sits partway across the header strip, not
+// pinned to the left gutter the way xForHz() alone would put it -- and a
+// press there is a real drag that writes a negative roof_offset_hz.
+void testNegativeOffsetHandleIsInsideThePlotAndDraggable()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net,
+               withRoofing(visualFilter(), /*checkOn=*/true, -120.0, 900.0, 1200.0));
+    net.routes[QStringLiteral("/filter/set")] = {
+        QNetworkReply::NoError,
+        withRoofing(visualFilter(), /*checkOn=*/true, -780.0, 900.0, 1200.0)};
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w, kTabVisual);
+    DiversityFilterPanel* p = panel(w);
+    CHECK(p != nullptr && p->roofDraggable());
+    if (!p || !p->roofDraggable())
+        return;
+
+    // MUTATION: draw/hit the handle at xForHz(offset) the old way and this
+    // reads back at (or within a grab distance of) the left gutter --
+    // xForHz() has nowhere negative to put it -- instead of partway across
+    // the strip.
+    CHECK(p->roofHandleX() > p->xForHz(0.0) + 1.0);
+    CHECK(p->roofHandleX() < p->xForHz(3000.0) - 1.0);
+
+    const int y = p->height() / 2;
+    const int before = countWrites(net);
+    QTest::mousePress(p, Qt::LeftButton, Qt::NoModifier, QPoint(int(p->roofHandleX()), y));
+    CHECK(p->dragging());
+    const int releaseX = int(p->xForHz(200));
+    const int target = expectedRoofWrite(p, double(releaseX), p->roofMaxHz());
+    QTest::mouseMove(p, QPoint(releaseX, y));
+    QTest::mouseRelease(p, Qt::LeftButton, Qt::NoModifier, QPoint(releaseX, y));
+    settle();
+
+    CHECK(countWrites(net) == before + 1);
+    CHECK(lastRequest(net) == QStringLiteral("/filter/set?roof_offset_hz=%1").arg(target));
+    CHECK(target < 0);                // the point of the test: negative is reachable
+}
+
+// The old bug: roofHandleHit() was true for any click within 6 px of the
+// left gutter whenever the offset was negative, because that is where
+// xForHz() clamped a negative offset to. A press there must not hit the
+// handle now that the handle is not living at that pixel at all.
+void testPressNearLeftGutterDoesNotHitHandleWithNegativeOffset()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net,
+               withRoofing(visualFilter(), /*checkOn=*/true, -120.0, 900.0, 1200.0));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w, kTabVisual);
+    DiversityFilterPanel* p = panel(w);
+    CHECK(p != nullptr && p->roofDraggable());
+    if (!p || !p->roofDraggable())
+        return;
+
+    const int y = p->height() / 2;
+    const int x = int(p->xForHz(0.0)) + 3;
+    const int before = countWrites(net);
+    QTest::mousePress(p, Qt::LeftButton, Qt::NoModifier, QPoint(x, y));
+    CHECK(!p->dragging());
+    QTest::mouseRelease(p, Qt::LeftButton, Qt::NoModifier, QPoint(x, y));
+    settle();
+    CHECK(countWrites(net) == before);
+}
+
+// digital_hz (25000 Hz, the wide preset) dwarfs the 3000 Hz audio axis: both
+// the band's low and high edge fall outside the plot no matter where the
+// offset sits, and the wash must reach the gutter without a line pretending
+// either edge is actually there.
+void testWideRoofWashReachesTheEdgeWithNoPinnedLine()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net,
+               withRoofing(visualFilter(), /*checkOn=*/true, 0.0, 900.0, 25000.0));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w, kTabVisual);
+    DiversityFilterPanel* p = panel(w);
+    CHECK(p != nullptr);
+    if (!p)
+        return;
+
+    CHECK(p->roofAvailable());
+    // MUTATION: drop the roofLowEdgeInPlot()/roofHighEdgeInPlot() guards in
+    // paintRoofBand() (always draw both lines the way the pre-fix code did)
+    // and both of these read true instead.
+    CHECK(!p->roofLowEdgeInPlot());
+    CHECK(!p->roofHighEdgeInPlot());
+}
+
+// The header strip's own label names both the roof's width and its offset
+// -- the only place either number is said now that the band itself carries
+// no text.
+void testHeaderTextNamesTheWidthAndTheOffset()
+{
+    FakeGate net;
+    AetherGateApplet applet(nullptr, &net);
+    connectGate(applet, net,
+               withRoofing(visualFilter(), /*checkOn=*/true, -120.0, 900.0, 3000.0));
+    AetherGateChainWindow* w = openChain(applet);
+    CHECK(w != nullptr);
+    if (!w)
+        return;
+    bringUp(w, kTabVisual);
+    DiversityFilterPanel* p = panel(w);
+    CHECK(p != nullptr);
+    if (!p)
+        return;
+
+    const QString text = p->roofHeaderText();
+    // MUTATION: build the label from only the offset (or only the width)
+    // and one of these three still passes while the other two do not.
+    CHECK(text.contains(QStringLiteral("3.0 kHz")));
+    CHECK(text.contains(QStringLiteral("120")));
+    CHECK(text.contains(QStringLiteral("−")));
 }
 
 // --------------------------------------------------------------------------
@@ -524,6 +719,11 @@ int main(int argc, char** argv)
     testADragBeyondTheClampWritesTheClampedValue();
     testZeroMaxHzDrawsNoHandleAndTakesNoDrag();
     testReleaseWritesExactlyRoofOffsetHz();
+    testInactiveRoofDrawsNothingAndHitsNothing();
+    testNegativeOffsetHandleIsInsideThePlotAndDraggable();
+    testPressNearLeftGutterDoesNotHitHandleWithNegativeOffset();
+    testWideRoofWashReachesTheEdgeWithNoPinnedLine();
+    testHeaderTextNamesTheWidthAndTheOffset();
     testEveryA1WidgetHasANameNoLabelWrapsAndNothingScrolls();
     testRenderRoofWhenAsked();
 

@@ -584,9 +584,10 @@ void DiversityFilterPanel::mouseMoveEvent(QMouseEvent* ev)
         return;
     }
     if (m_roofDrag) {
-        const QRect before = handleRect(m_roofDragHz);
-        m_roofDragHz = roofClampedHz(hzForX(x));
-        update(before.united(handleRect(m_roofDragHz)));
+        // The roof handle lives on the header strip's own axis, not the
+        // audio axis hzForX() reads -- see DiversityFilterPanelRoof.cpp.
+        m_roofDragHz = roofOffsetForX(x);
+        update(roofStripRect());
         ev->accept();
         return;
     }

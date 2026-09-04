@@ -134,11 +134,18 @@ from somewhere else always does.
   handle back.
 - **Double-click** inside the passband to place a notch there;
   **right-click** a notch to take it away.
-- **Drag the roof mark**, the small diamond at the digital roof's centre,
-  and release to write `roof_offset_hz=`. The roof itself is a faint
-  band, `digital_hz` wide, drawn where it sits even with `PEAK OFFSET`
-  off, dashed, to say where it would sit if switched on. No handle is
-  drawn once `offset_max_hz` reaches 0.
+- **Drag the roof handle**, the small triangle in the labelled strip
+  along the top of the plot (`ROOF 3.0 kHz · offset −120 Hz`), and
+  release to write `roof_offset_hz=`. The strip has its own axis,
+  `-offset_max_hz` to `+offset_max_hz`, so a negative offset is exactly
+  as reachable as a positive one. The roof itself is a faint wash under
+  the curve, `digital_hz` wide, shown where it sits even with
+  `PEAK OFFSET` off (dashed, to say where it would sit if switched on)
+  and reaching the gutter with no line pretending an edge is there when
+  the true one falls outside the plot. Neither the wash nor the handle
+  is drawn at all once the gate's own `digital_active` says the roof is
+  not actually in circuit; no handle is drawn once `offset_max_hz`
+  reaches 0 even when it is.
 - **Drag a notch** to move it. That is genuinely two writes, a clear
   and an add, and they go through the same one-at-a-time sequencer as a
   preset — the add waits for the clear's answer.
